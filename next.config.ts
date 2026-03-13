@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Allow larger file uploads (default is 4MB)
+  serverExternalPackages: ["xlsx"],
 };
 
 export default nextConfig;
