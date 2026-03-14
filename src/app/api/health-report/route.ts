@@ -6,16 +6,112 @@ import {
   startOfMonth,
   endOfMonth,
   subMonths,
+  startOfDay,
   endOfDay,
+  subDays,
+  startOfQuarter,
+  endOfQuarter,
+  subQuarters,
   getDaysInMonth,
   getDate,
 } from "date-fns";
 import { formatCurrency } from "@/lib/utils/format";
 
-const VALID_LOOKBACKS = [30, 90, 180, 365] as const;
-const VALID_HORIZONS = [30, 90, 180, 365] as const;
+// ---------- Period configuration ----------
 
-function momDelta(current: number, previous: number): number {
+type Period = "1d" | "1w" | "1m" | "1q";
+const VALID_PERIODS: Period[] = ["1d", "1w", "1m", "1q"];
+
+interface PeriodDateRanges {
+  currentStart: Date;
+  currentEnd: Date;
+  previousStart: Date;
+  previousEnd: Date;
+  chartLookbackStart: Date;
+  forecastDays: number;
+  periodLabel: string;
+  comparisonLabel: string;
+}
+
+function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
+  switch (period) {
+    case "1d": {
+      const currentStart = startOfDay(now);
+      const currentEnd = endOfDay(now);
+      const previousStart = startOfDay(subDays(now, 1));
+      const previousEnd = endOfDay(subDays(now, 1));
+      const chartLookbackStart = subDays(now, 14);
+      return {
+        currentStart,
+        currentEnd,
+        previousStart,
+        previousEnd,
+        chartLookbackStart,
+        forecastDays: 1,
+        periodLabel: "Today",
+        comparisonLabel: "vs yesterday",
+      };
+    }
+    case "1w": {
+      const currentStart = startOfDay(subDays(now, 6));
+      const currentEnd = endOfDay(now);
+      const previousStart = startOfDay(subDays(now, 13));
+      const previousEnd = endOfDay(subDays(now, 7));
+      const chartLookbackStart = subDays(now, 30);
+      return {
+        currentStart,
+        currentEnd,
+        previousStart,
+        previousEnd,
+        chartLookbackStart,
+        forecastDays: 7,
+        periodLabel: "This Week",
+        comparisonLabel: "vs prior week",
+      };
+    }
+    case "1m": {
+      const currentStart = startOfMonth(now);
+      const currentEnd = endOfDay(now);
+      const previousStart = startOfMonth(subMonths(now, 1));
+      const previousEnd = endOfMonth(subMonths(now, 1));
+      const chartLookbackStart = subDays(now, 90);
+      return {
+        currentStart,
+        currentEnd,
+        previousStart,
+        previousEnd,
+        chartLookbackStart,
+        forecastDays: 30,
+        periodLabel: now.toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        }),
+        comparisonLabel: "vs last month",
+      };
+    }
+    case "1q": {
+      const currentStart = startOfQuarter(now);
+      const currentEnd = endOfDay(now);
+      const previousStart = startOfQuarter(subQuarters(now, 1));
+      const previousEnd = endOfQuarter(subQuarters(now, 1));
+      const chartLookbackStart = subDays(now, 365);
+      return {
+        currentStart,
+        currentEnd,
+        previousStart,
+        previousEnd,
+        chartLookbackStart,
+        forecastDays: 90,
+        periodLabel: `Q${Math.ceil((now.getMonth() + 1) / 3)} ${now.getFullYear()}`,
+        comparisonLabel: "vs last quarter",
+      };
+    }
+  }
+}
+
+// ---------- Helpers ----------
+
+function changeDelta(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - previous) / Math.abs(previous)) * 1000) / 10;
 }
@@ -50,32 +146,24 @@ async function sumExpenses(start: Date, end: Date): Promise<number> {
   return result._sum.amount || 0;
 }
 
+// ---------- GET handler ----------
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
-  // Parse and validate lookback/horizon params
-  const rawLookback = Number(searchParams.get("lookback") ?? "90");
-  const rawHorizon = Number(searchParams.get("horizon") ?? "90");
-  const safeLookback = (VALID_LOOKBACKS as readonly number[]).includes(rawLookback)
-    ? rawLookback
-    : 90;
-  const safeHorizon = (VALID_HORIZONS as readonly number[]).includes(rawHorizon)
-    ? rawHorizon
-    : 90;
+  // Parse and validate period param
+  const rawPeriod = searchParams.get("period") ?? "1m";
+  const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
+    ? (rawPeriod as Period)
+    : "1m";
 
   const now = new Date();
-  const curMonthStart = startOfMonth(now);
-  const curMonthEnd = endOfDay(now);
-  const prevMonthStart = startOfMonth(subMonths(now, 1));
-  const prevMonthEnd = endOfMonth(subMonths(now, 1));
-
-  const lookbackStart = new Date();
-  lookbackStart.setDate(lookbackStart.getDate() - safeLookback);
+  const dates = resolvePeriodDates(period, now);
 
   // ---------- Parallel query groups ----------
 
   const [
-    // Group A: Month-over-month KPIs
+    // Group A: Period KPIs
     curRevenue,
     curFees,
     curExpenses,
@@ -83,43 +171,45 @@ export async function GET(request: NextRequest) {
     prevFees,
     prevExpenses,
 
-    // Group B: Daily series (configurable lookback)
+    // Group B: Daily series (chart lookback)
     dailySeries,
 
     // Group C: Platform aggregates
     platformAgg,
 
-    // Group D: Expense by category (current month)
+    // Group D: Expense by category (current period)
     expensesByCategory,
-    prevMonthExpenseTotal,
+    prevPeriodExpenseTotal,
 
     // Group E: Reconciliation
     reconStats,
     alertsBySeverity,
     recentAlerts,
 
-    // Group F: Closed days
+    // Group F: Closed days (current period)
     closedDaysCount,
 
     // Group G: All-time monthly revenue for seasonal indices
     monthlyRevenueSamples,
   ] = await Promise.all([
     // A
-    sumTransactions("income", curMonthStart, curMonthEnd),
-    sumTransactions("fee", curMonthStart, curMonthEnd),
-    sumExpenses(curMonthStart, curMonthEnd),
-    sumTransactions("income", prevMonthStart, prevMonthEnd),
-    sumTransactions("fee", prevMonthStart, prevMonthEnd),
-    sumExpenses(prevMonthStart, prevMonthEnd),
+    sumTransactions("income", dates.currentStart, dates.currentEnd),
+    sumTransactions("fee", dates.currentStart, dates.currentEnd),
+    sumExpenses(dates.currentStart, dates.currentEnd),
+    sumTransactions("income", dates.previousStart, dates.previousEnd),
+    sumTransactions("fee", dates.previousStart, dates.previousEnd),
+    sumExpenses(dates.previousStart, dates.previousEnd),
 
     // B
-    prisma.$queryRawUnsafe<{ date: string; total: number; count: number }[]>(
+    prisma.$queryRawUnsafe<
+      { date: string; total: number; count: number }[]
+    >(
       `SELECT date(date) as date, SUM(amount) as total, COUNT(*) as count
        FROM transactions
        WHERE type = 'income' AND date >= ?
        GROUP BY date(date)
        ORDER BY date(date) ASC`,
-      lookbackStart.toISOString()
+      dates.chartLookbackStart.toISOString()
     ),
 
     // C
@@ -139,13 +229,13 @@ export async function GET(request: NextRequest) {
     // D
     prisma.expense.groupBy({
       by: ["category"],
-      where: { date: { gte: curMonthStart, lte: curMonthEnd } },
+      where: { date: { gte: dates.currentStart, lte: dates.currentEnd } },
       _sum: { amount: true },
       _count: true,
       orderBy: { _sum: { amount: "desc" } },
       take: 10,
     }),
-    sumExpenses(prevMonthStart, prevMonthEnd),
+    sumExpenses(dates.previousStart, dates.previousEnd),
 
     // E
     getReconciliationStats(),
@@ -162,7 +252,7 @@ export async function GET(request: NextRequest) {
 
     // F
     prisma.closedDay.count({
-      where: { date: { gte: curMonthStart, lte: curMonthEnd } },
+      where: { date: { gte: dates.currentStart, lte: dates.currentEnd } },
     }),
 
     // G
@@ -214,7 +304,7 @@ export async function GET(request: NextRequest) {
   );
   const hasSeasonalData = monthlyRevenueSamples.length >= 12;
 
-  // Projected monthly revenue (backward compat: end of current month, no seasonal)
+  // Projected end-of-period revenue (for current month context)
   const daysInMonth = getDaysInMonth(now);
   const dayOfMonth = getDate(now);
   const daysRemaining = daysInMonth - dayOfMonth;
@@ -223,7 +313,7 @@ export async function GET(request: NextRequest) {
   // Projected horizon revenue (with seasonal adjustment)
   const lastIdx = dailyData.length - 1;
   let projectedHorizonRevenue = 0;
-  for (let j = 1; j <= safeHorizon; j++) {
+  for (let j = 1; j <= dates.forecastDays; j++) {
     const futureDate = new Date(now);
     futureDate.setDate(futureDate.getDate() + j);
     const futureMonth = futureDate.getMonth() + 1; // 1-12
@@ -256,7 +346,7 @@ export async function GET(request: NextRequest) {
     .sort((a, b) => b.avgNetPerOrder - a.avgNetPerOrder);
 
   // Expense health
-  const expenseTrendPct = momDelta(curExpenses, prevMonthExpenseTotal);
+  const expenseTrendPct = changeDelta(curExpenses, prevPeriodExpenseTotal);
   const expenseTrendDir: "up" | "down" | "flat" =
     expenseTrendPct > 2 ? "up" : expenseTrendPct < -2 ? "down" : "flat";
 
@@ -266,13 +356,18 @@ export async function GET(request: NextRequest) {
     alertCountMap[a.severity] = a._count;
   }
 
+  // Chart lookback in days (for display)
+  const chartLookbackDays = Math.round(
+    (now.getTime() - dates.chartLookbackStart.getTime()) / 86_400_000
+  );
+
   // ---------- Auto-generate insights ----------
   const insights: string[] = [];
 
   if (dailyData.length >= 7) {
     if (reg.slope > 5) {
       insights.push(
-        `Revenue is growing at ${dailyChangeLabel} based on ${safeLookback}-day trend.`
+        `Revenue is growing at ${dailyChangeLabel} based on ${chartLookbackDays}-day trend.`
       );
     } else if (reg.slope < -5) {
       insights.push(
@@ -282,14 +377,14 @@ export async function GET(request: NextRequest) {
   }
 
   if (prevRevenue > 0) {
-    const revMom = momDelta(curRevenue, prevRevenue);
-    if (revMom > 0) {
+    const revChange = changeDelta(curRevenue, prevRevenue);
+    if (revChange > 0) {
       insights.push(
-        `This month's revenue is up ${revMom.toFixed(1)}% vs last month.`
+        `Revenue is up ${revChange.toFixed(1)}% ${dates.comparisonLabel}.`
       );
-    } else if (revMom < -5) {
+    } else if (revChange < -5) {
       insights.push(
-        `This month's revenue is down ${Math.abs(revMom).toFixed(1)}% vs last month.`
+        `Revenue is down ${Math.abs(revChange).toFixed(1)}% ${dates.comparisonLabel}.`
       );
     }
   }
@@ -319,7 +414,7 @@ export async function GET(request: NextRequest) {
 
   if (expenseTrendDir === "up" && expenseTrendPct > 10) {
     insights.push(
-      `Operating expenses rose ${expenseTrendPct.toFixed(1)}% vs last month.`
+      `Operating expenses rose ${expenseTrendPct.toFixed(1)}% ${dates.comparisonLabel}.`
     );
   }
 
@@ -337,7 +432,6 @@ export async function GET(request: NextRequest) {
   }
 
   // ---------- Build response ----------
-  const monthName = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const dataThrough = now.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -346,7 +440,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     kpis: {
-      currentMonth: {
+      current: {
         revenue: curRevenue,
         fees: curFees,
         expenses: curExpenses,
@@ -354,7 +448,7 @@ export async function GET(request: NextRequest) {
         profitMargin: Math.round(curProfitMargin * 10) / 10,
         operatingCostRatio: Math.round(curOpCostRatio * 10) / 10,
       },
-      previousMonth: {
+      previous: {
         revenue: prevRevenue,
         fees: prevFees,
         expenses: prevExpenses,
@@ -362,9 +456,9 @@ export async function GET(request: NextRequest) {
         profitMargin: Math.round(prevProfitMargin * 10) / 10,
         operatingCostRatio: Math.round(prevOpCostRatio * 10) / 10,
       },
-      mom: {
-        revenue: momDelta(curRevenue, prevRevenue),
-        netProfit: momDelta(curNetProfit, prevNetProfit),
+      change: {
+        revenue: changeDelta(curRevenue, prevRevenue),
+        netProfit: changeDelta(curNetProfit, prevNetProfit),
         profitMargin: Math.round((curProfitMargin - prevProfitMargin) * 10) / 10,
         operatingCostRatio:
           Math.round((curOpCostRatio - prevOpCostRatio) * 10) / 10,
@@ -381,16 +475,16 @@ export async function GET(request: NextRequest) {
         confidenceLabel: confidenceLabel(reg.r2),
         projectedHorizonRevenue:
           Math.round(projectedHorizonRevenue * 100) / 100,
-        horizonDays: safeHorizon,
-        lookbackDays: safeLookback,
+        forecastDays: dates.forecastDays,
+        chartLookbackDays,
         seasonalIndices,
         hasSeasonalData,
       },
     },
     platforms,
     expenses: {
-      currentMonthTotal: curExpenses,
-      previousMonthTotal: prevMonthExpenseTotal,
+      currentTotal: curExpenses,
+      previousTotal: prevPeriodExpenseTotal,
       trendDirection: expenseTrendDir,
       trendPct: Math.round(Math.abs(expenseTrendPct) * 10) / 10,
       topCategories: expensesByCategory.map((e) => ({
@@ -423,8 +517,10 @@ export async function GET(request: NextRequest) {
     },
     insights,
     meta: {
-      closedDaysThisMonth: closedDaysCount,
-      reportPeriod: monthName,
+      closedDays: closedDaysCount,
+      period,
+      periodLabel: dates.periodLabel,
+      comparisonLabel: dates.comparisonLabel,
       dataThrough,
     },
   });

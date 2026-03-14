@@ -4,6 +4,7 @@ import {
   setSquareToken,
   clearSquareToken,
   validateToken,
+  initializeTokenFromDb,
   SquareApiError,
 } from "@/lib/services/square-api";
 
@@ -12,6 +13,7 @@ import {
  * Check if the Square API token is configured.
  */
 export async function GET() {
+  await initializeTokenFromDb();
   const configured = isSquareConfigured();
   return NextResponse.json({ configured });
 }
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
 
     // Disconnect
     if (body.action === "disconnect") {
-      clearSquareToken();
+      await clearSquareToken();
       return NextResponse.json({ configured: false });
     }
 
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
     // Validate against Square API before storing
     try {
       const result = await validateToken(token.trim());
-      setSquareToken(token);
+      await setSquareToken(token);
       return NextResponse.json({
         configured: true,
         merchantName: result.merchantName,

@@ -5,6 +5,13 @@
  * Docs: https://developer.squareup.com/reference/square/payments-api/list-payments
  */
 
+import {
+  setSquareTokenDb,
+  deleteSquareTokenDb,
+  getSquareToken as getDbSquareToken,
+} from "./settings";
+import { ProgressCallback } from "./progress";
+
 const SQUARE_BASE_URL = "https://connect.squareup.com/v2";
 const PAGE_DELAY_MS = 200;
 
@@ -17,12 +24,34 @@ const PAGE_DELAY_MS = 200;
  */
 const globalStore = globalThis as unknown as { __squareToken?: string | null };
 
-export function setSquareToken(token: string) {
-  globalStore.__squareToken = token.trim();
+/**
+ * Set the Square token in both runtime memory and the database.
+ */
+export async function setSquareToken(token: string) {
+  const trimmed = token.trim();
+  globalStore.__squareToken = trimmed;
+  await setSquareTokenDb(trimmed);
 }
 
-export function clearSquareToken() {
+/**
+ * Clear the Square token from runtime memory and the database.
+ */
+export async function clearSquareToken() {
   globalStore.__squareToken = null;
+  await deleteSquareTokenDb();
+}
+
+/**
+ * Load the persisted token from the database into runtime memory.
+ * Called on app startup so getToken() stays synchronous.
+ */
+export async function initializeTokenFromDb() {
+  if (getRuntimeToken()) return; // Already set at runtime
+  if (process.env.SQUARE_ACCESS_TOKEN) return; // Env var takes precedence
+  const dbToken = await getDbSquareToken();
+  if (dbToken) {
+    globalStore.__squareToken = dbToken;
+  }
 }
 
 function getRuntimeToken(): string | null {
@@ -157,8 +186,6 @@ export async function validateToken(
 
   return { valid: true, merchantName };
 }
-
-import { ProgressCallback } from "./progress";
 
 /**
  * Fetch all payments from the Square API with cursor-based pagination.

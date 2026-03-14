@@ -7,8 +7,8 @@ import Header from "@/components/layout/Header";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "INCREPEABLE - Financial Dashboard",
-  description: "Financial operations dashboard for INCREPEABLE crepe shop",
+  title: "Profit Duck - Financial Dashboard",
+  description: "Financial operations dashboard powered by Profit Duck",
 };
 
 export default function RootLayout({

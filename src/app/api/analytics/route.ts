@@ -1,53 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 
-/**
- * Get the hour (0-23) in NYC Eastern time for a Date object.
- * Uses Intl to handle DST automatically.
- */
-function getEasternHour(d: Date): number {
-  return parseInt(
-    d.toLocaleString("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      hour12: false,
-    }),
-    10
-  );
-}
+/* ── Cached Intl formatters (created once, reused for every record) ── */
+const fmtParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "numeric",
+  weekday: "short",
+  hour12: false,
+});
 
-/**
- * Get the minute (0-59) in NYC Eastern time for a Date object.
- */
-function getEasternMinute(d: Date): number {
-  return parseInt(
-    d.toLocaleString("en-US", {
-      timeZone: "America/New_York",
-      minute: "numeric",
-    }),
-    10
-  );
-}
-
-/**
- * Get the day of week (0=Sunday..6=Saturday) in NYC Eastern time.
- */
-function getEasternDay(d: Date): number {
-  const dayStr = d.toLocaleString("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-  });
+/** Parse all Eastern-time components in a single Intl call. */
+function getEasternParts(d: Date) {
+  const parts = fmtParts.formatToParts(d);
+  let hour = 0, minute = 0, day = 0, year = "", month = "", dayOfMonth = "";
   const dayMap: Record<string, number> = {
     Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
   };
-  return dayMap[dayStr] ?? d.getDay();
+  for (const p of parts) {
+    switch (p.type) {
+      case "hour": hour = parseInt(p.value, 10); break;
+      case "minute": minute = parseInt(p.value, 10); break;
+      case "weekday": day = dayMap[p.value] ?? 0; break;
+      case "year": year = p.value; break;
+      case "month": month = p.value; break;
+      case "day": dayOfMonth = p.value; break;
+    }
+  }
+  // hour 24 → 0 (midnight edge case in some locales)
+  if (hour === 24) hour = 0;
+  return { hour, minute, day, dateStr: `${year}-${month}-${dayOfMonth}` };
 }
 
-/**
- * Get the date string (YYYY-MM-DD) in NYC Eastern time.
- */
+/* ── Simple in-memory response cache (TTL-based) ── */
+const responseCache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 30_000; // 30 seconds
+
+function getCached(key: string): unknown | null {
+  const entry = responseCache.get(key);
+  if (entry && Date.now() - entry.ts < CACHE_TTL) return entry.data;
+  return null;
+}
+
+function setCache(key: string, data: unknown) {
+  responseCache.set(key, { data, ts: Date.now() });
+  // Evict stale entries periodically
+  if (responseCache.size > 50) {
+    const now = Date.now();
+    for (const [k, v] of responseCache) {
+      if (now - v.ts > CACHE_TTL) responseCache.delete(k);
+    }
+  }
+}
+
+/* ── Legacy helpers (used outside of hot loops) ── */
 function getEasternDateStr(d: Date): string {
-  return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return getEasternParts(d).dateStr;
 }
 
 /**
@@ -65,6 +76,11 @@ export async function GET(request: NextRequest) {
   const dowFilter = searchParams.get("dow"); // 0=Sunday..6=Saturday
   const excludeClosed = searchParams.get("excludeClosed") === "true";
   const granularity = parseInt(searchParams.get("granularity") || "60", 10); // 60, 30, or 15 minutes
+
+  // Check response cache
+  const cacheKey = `${type}|${platform}|${startDate}|${endDate}|${dowFilter}|${excludeClosed}|${granularity}`;
+  const cached = getCached(cacheKey);
+  if (cached) return NextResponse.json(cached);
 
   // Load closed days set if needed
   let closedDateSet: Set<string> | null = null;
@@ -143,14 +159,14 @@ export async function GET(request: NextRequest) {
       });
 
       const dowNum = dowFilter !== null ? parseInt(dowFilter, 10) : null;
+      const uniqueDays = new Set<string>();
 
       for (const o of orders) {
-        const d = new Date(o.orderDatetime);
-        if (closedDateSet?.has(getEasternDateStr(d))) continue;
-        if (dowNum !== null && getEasternDay(d) !== dowNum) continue;
-        const hour = getEasternHour(d);
-        const minute = getEasternMinute(d);
-        const slotIndex = hour * slotsPerHour + Math.floor(minute / granularity);
+        const p = getEasternParts(new Date(o.orderDatetime));
+        if (closedDateSet?.has(p.dateStr)) continue;
+        if (dowNum !== null && p.day !== dowNum) continue;
+        uniqueDays.add(p.dateStr);
+        const slotIndex = p.hour * slotsPerHour + Math.floor(p.minute / granularity);
         const slot = hourly[slotIndex];
         slot.orderCount++;
         slot.revenue += o.subtotal;
@@ -163,14 +179,16 @@ export async function GET(request: NextRequest) {
           h.orderCount > 0 ? h.revenue / h.orderCount : 0;
       }
 
-      return NextResponse.json({ hourly, granularity });
+      const result = { hourly, granularity, daysInSample: uniqueDays.size || 1 };
+      setCache(cacheKey, result);
+      return NextResponse.json(result);
     }
 
     case "revenue_by_dow": {
-      // Revenue by day of week (0=Sunday, 6=Saturday)
+      // Revenue by day of week (0=Sunday, 6=Saturday) with per-platform breakdown
       const orders = await prisma.platformOrder.findMany({
         where: orderWhere,
-        select: { orderDatetime: true, subtotal: true, netPayout: true },
+        select: { orderDatetime: true, subtotal: true, netPayout: true, platform: true },
       });
 
       const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -182,19 +200,24 @@ export async function GET(request: NextRequest) {
         revenue: 0,
         avgRevenue: 0,
         uniqueDays: new Set<string>(),
+        square: 0,
+        doordash: 0,
+        grubhub: 0,
+        ubereats: 0,
       }));
 
       for (const o of orders) {
-        const d = new Date(o.orderDatetime);
-        const dateStr = getEasternDateStr(d);
-        if (closedDateSet?.has(dateStr)) continue;
-        const dow = getEasternDay(d);
-        dowData[dow].orderCount++;
-        dowData[dow].revenue += o.subtotal;
-        dowData[dow].uniqueDays.add(dateStr);
+        const p = getEasternParts(new Date(o.orderDatetime));
+        if (closedDateSet?.has(p.dateStr)) continue;
+        const entry = dowData[p.day];
+        entry.orderCount++;
+        entry.revenue += o.subtotal;
+        entry.uniqueDays.add(p.dateStr);
+        const plat = o.platform as keyof Pick<typeof entry, "square" | "doordash" | "grubhub" | "ubereats">;
+        if (plat in entry) entry[plat] += o.subtotal;
       }
 
-      const result = dowData.map((d) => ({
+      const dowResult = dowData.map((d) => ({
         dow: d.dow,
         name: d.name,
         shortName: d.shortName,
@@ -203,9 +226,15 @@ export async function GET(request: NextRequest) {
         avgRevenue: d.uniqueDays.size > 0 ? d.revenue / d.uniqueDays.size : 0,
         avgOrders: d.uniqueDays.size > 0 ? d.orderCount / d.uniqueDays.size : 0,
         daysInSample: d.uniqueDays.size,
+        square: d.uniqueDays.size > 0 ? d.square / d.uniqueDays.size : 0,
+        doordash: d.uniqueDays.size > 0 ? d.doordash / d.uniqueDays.size : 0,
+        grubhub: d.uniqueDays.size > 0 ? d.grubhub / d.uniqueDays.size : 0,
+        ubereats: d.uniqueDays.size > 0 ? d.ubereats / d.uniqueDays.size : 0,
       }));
 
-      return NextResponse.json({ byDayOfWeek: result });
+      const dowResponse = { byDayOfWeek: dowResult };
+      setCache(cacheKey, dowResponse);
+      return NextResponse.json(dowResponse);
     }
 
     case "fee_analysis": {
@@ -269,9 +298,9 @@ export async function GET(request: NextRequest) {
         p.feeRate = p.totalRevenue > 0 ? (p.totalFees / p.totalRevenue) * 100 : 0;
       }
 
-      return NextResponse.json({
-        feeAnalysis: Object.values(byPlatform),
-      });
+      const feeResponse = { feeAnalysis: Object.values(byPlatform) };
+      setCache(cacheKey, feeResponse);
+      return NextResponse.json(feeResponse);
     }
 
     case "busy_times": {
@@ -287,31 +316,37 @@ export async function GET(request: NextRequest) {
       );
 
       for (const o of orders) {
-        const d = new Date(o.orderDatetime);
-        if (closedDateSet?.has(getEasternDateStr(d))) continue;
-        heatmap[getEasternDay(d)][getEasternHour(d)]++;
+        const p = getEasternParts(new Date(o.orderDatetime));
+        if (closedDateSet?.has(p.dateStr)) continue;
+        heatmap[p.day][p.hour]++;
       }
 
-      return NextResponse.json({ heatmap });
+      const heatmapResponse = { heatmap };
+      setCache(cacheKey, heatmapResponse);
+      return NextResponse.json(heatmapResponse);
     }
 
     case "daily_summary": {
-      // Daily revenue + order count + avg order value
+      // Daily revenue + order count + avg order value with per-platform breakdown
       const transactions = await prisma.transaction.findMany({
         where: { ...txWhere, type: "income" },
-        select: { date: true, amount: true },
+        select: { date: true, amount: true, sourcePlatform: true },
         orderBy: { date: "asc" },
       });
 
-      const byDate: Record<string, { date: string; revenue: number; count: number; closed?: boolean }> = {};
+      const byDate: Record<string, { date: string; revenue: number; count: number; square: number; doordash: number; grubhub: number; ubereats: number }> = {};
       for (const t of transactions) {
-        const key = getEasternDateStr(new Date(t.date));
+        const key = getEasternParts(new Date(t.date)).dateStr;
         if (closedDateSet?.has(key)) continue;
         if (!byDate[key]) {
-          byDate[key] = { date: key, revenue: 0, count: 0 };
+          byDate[key] = { date: key, revenue: 0, count: 0, square: 0, doordash: 0, grubhub: 0, ubereats: 0 };
         }
         byDate[key].revenue += t.amount;
         byDate[key].count++;
+        const plat = t.sourcePlatform as "square" | "doordash" | "grubhub" | "ubereats" | null;
+        if (plat && plat in byDate[key]) {
+          byDate[key][plat] += t.amount;
+        }
       }
 
       const daily = Object.values(byDate).map((d) => ({
@@ -319,7 +354,9 @@ export async function GET(request: NextRequest) {
         avgOrderValue: d.count > 0 ? d.revenue / d.count : 0,
       }));
 
-      return NextResponse.json({ daily });
+      const dailyResponse = { daily };
+      setCache(cacheKey, dailyResponse);
+      return NextResponse.json(dailyResponse);
     }
 
     default:

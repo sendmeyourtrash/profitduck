@@ -10,8 +10,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
   Line,
+  ComposedChart,
+  Area,
+  Cell,
 } from "recharts";
 import { formatCurrency } from "@/lib/utils/format";
 import { linearRegression, movingAverage } from "@/lib/utils/statistics";
@@ -67,6 +69,10 @@ interface DowData {
   avgRevenue: number;
   avgOrders: number;
   daysInSample: number;
+  square: number;
+  doordash: number;
+  grubhub: number;
+  ubereats: number;
 }
 
 interface FeeData {
@@ -87,6 +93,10 @@ interface DailyData {
   revenue: number;
   count: number;
   avgOrderValue: number;
+  square: number;
+  doordash: number;
+  grubhub: number;
+  ubereats: number;
 }
 
 export default function AnalyticsPage() {
@@ -97,11 +107,14 @@ export default function AnalyticsPage() {
   const [granularity, setGranularity] = useState<number>(60);
 
   const [hourlyData, setHourlyData] = useState<HourlyData[]>([]);
+  const [hourlyDaysInSample, setHourlyDaysInSample] = useState(1);
+  const [hourlyShowAvg, setHourlyShowAvg] = useState(false);
   const [dowData, setDowData] = useState<DowData[]>([]);
   const [feeData, setFeeData] = useState<FeeData[]>([]);
   const [dailyData, setDailyData] = useState<DailyData[]>([]);
   const [showDailyTrend, setShowDailyTrend] = useState(false);
   const [showDailyMA, setShowDailyMA] = useState(false);
+  const [dailyPeriod, setDailyPeriod] = useState<"1D" | "1W" | "1M" | "1Q">("1D");
   const [excludeClosed, setExcludeClosed] = useState(true);
   const [closedDays, setClosedDays] = useState<{ id: string; date: string; reason: string | null; autoDetected: boolean }[]>([]);
   const [detectedDays, setDetectedDays] = useState<{ date: string; dayOfWeek: string }[]>([]);
@@ -129,25 +142,28 @@ export default function AnalyticsPage() {
     [filters, excludeClosed, granularity]
   );
 
+  // Prefetch all tabs in parallel for instant tab switching
   useEffect(() => {
-    if (tab === "closed") return; // Closed tab has its own fetch
     setLoading(true);
-    const map: Record<TabKey, string> = {
-      hourly: "revenue_by_hour",
-      dow: "revenue_by_dow",
-      fees: "fee_analysis",
-      daily: "daily_summary",
-      closed: "",
-    };
 
-    fetchAnalytics(map[tab], tab === "hourly" ? selectedDow : null).then((data) => {
-      if (tab === "hourly") setHourlyData(data.hourly || []);
-      if (tab === "dow") setDowData(data.byDayOfWeek || []);
-      if (tab === "fees") setFeeData(data.feeAnalysis || []);
-      if (tab === "daily") setDailyData(data.daily || []);
-      setLoading(false);
-    });
-  }, [tab, filters, selectedDow, excludeClosed, fetchAnalytics]);
+    const fetches = [
+      fetchAnalytics("revenue_by_hour", selectedDow).then((data) => {
+        setHourlyData(data.hourly || []);
+        setHourlyDaysInSample(data.daysInSample || 1);
+      }),
+      fetchAnalytics("revenue_by_dow").then((data) => {
+        setDowData(data.byDayOfWeek || []);
+      }),
+      fetchAnalytics("fee_analysis").then((data) => {
+        setFeeData(data.feeAnalysis || []);
+      }),
+      fetchAnalytics("daily_summary").then((data) => {
+        setDailyData(data.daily || []);
+      }),
+    ];
+
+    Promise.all(fetches).then(() => setLoading(false));
+  }, [filters, selectedDow, excludeClosed, fetchAnalytics]);
 
   // Fetch closed days when switching to the closed tab
   const fetchClosedDays = useCallback(async (detect = false) => {
@@ -256,7 +272,7 @@ export default function AnalyticsPage() {
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
                   <h3 className="text-sm font-medium text-gray-500">
-                    Revenue by Time of Day
+                    {hourlyShowAvg ? "Avg Daily " : ""}Revenue by Time of Day
                   </h3>
                   <div className="flex bg-gray-100 rounded-lg p-0.5">
                     {[
@@ -277,6 +293,16 @@ export default function AnalyticsPage() {
                       </button>
                     ))}
                   </div>
+                  <button
+                    onClick={() => setHourlyShowAvg((p) => !p)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                      hourlyShowAvg
+                        ? "bg-amber-100 text-amber-700 shadow-sm"
+                        : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    Avg{hourlyShowAvg ? ` (${hourlyDaysInSample}d)` : ""}
+                  </button>
                 </div>
                 <div className="flex gap-1">
                   <button
@@ -304,9 +330,23 @@ export default function AnalyticsPage() {
                   ))}
                 </div>
               </div>
+              {(() => {
+                const divisor = hourlyShowAvg ? hourlyDaysInSample : 1;
+                const chartData = divisor === 1
+                  ? hourlyData
+                  : hourlyData.map((h) => ({
+                      ...h,
+                      revenue: h.revenue / divisor,
+                      orderCount: Math.round((h.orderCount / divisor) * 10) / 10,
+                      square: h.square / divisor,
+                      doordash: h.doordash / divisor,
+                      grubhub: h.grubhub / divisor,
+                      ubereats: h.ubereats / divisor,
+                    }));
+                return (
               <div className={granularity === 60 ? "h-80" : "h-96"}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={hourlyData}>
+                  <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis
                       dataKey="label"
@@ -323,11 +363,37 @@ export default function AnalyticsPage() {
                       tickCount={6}
                     />
                     <Tooltip
-                      formatter={(value, name) => [
-                        formatCurrency(Number(value)),
-                        PLATFORM_LABELS[String(name)] || String(name),
-                      ]}
-                      labelFormatter={(label) => `Time: ${label}`}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = payload[0]?.payload as HourlyData | undefined;
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 mb-1.5">Time: {label}</p>
+                            {payload.map((p) => (
+                                <div key={String(p.dataKey)} className="flex justify-between gap-4">
+                                  <span style={{ color: String(p.color) }}>
+                                    {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
+                                  </span>
+                                  <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                                </div>
+                              ))}
+                            {row && (
+                              <>
+                                <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                  <span className="text-gray-500">{hourlyShowAvg ? "Avg Orders/Day" : "Orders"}</span>
+                                  <span className="font-medium">{row.orderCount}</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-gray-500">Avg Order Value</span>
+                                  <span className="font-medium text-amber-600">
+                                    {row.orderCount > 0 ? formatCurrency(row.avgOrderValue) : "—"}
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      }}
                     />
                     <Legend
                       formatter={(value) => PLATFORM_LABELS[value] || value}
@@ -340,9 +406,12 @@ export default function AnalyticsPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              {/* Peak hours summary */}
-              <div className="mt-4 grid grid-cols-3 gap-4">
+                );
+              })()}
+              {/* Summary cards */}
+              <div className="mt-4 grid grid-cols-3 lg:grid-cols-6 gap-4">
                 {(() => {
+                  const d = hourlyShowAvg ? hourlyDaysInSample : 1;
                   const sorted = [...hourlyData].sort(
                     (a, b) => b.revenue - a.revenue
                   );
@@ -355,6 +424,15 @@ export default function AnalyticsPage() {
                     (s, h) => s + h.revenue,
                     0
                   );
+                  const activeSlots = hourlyData.filter(
+                    (h) => h.orderCount > 0
+                  ).length;
+                  const orders = totalOrders / d;
+                  const rev = totalRev / d;
+                  const avgOrderValue =
+                    totalOrders > 0 ? totalRev / totalOrders : 0;
+                  const avgRevPerSlot =
+                    activeSlots > 0 ? rev / activeSlots : 0;
                   return (
                     <>
                       <div className="bg-indigo-50 rounded-lg p-3">
@@ -364,15 +442,37 @@ export default function AnalyticsPage() {
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Total Orders</p>
+                        <p className="text-xs text-gray-500">
+                          {hourlyShowAvg ? "Avg Orders/Day" : "Total Orders"}
+                        </p>
                         <p className="text-lg font-bold text-gray-800">
-                          {totalOrders.toLocaleString()}
+                          {hourlyShowAvg ? orders.toFixed(1) : totalOrders.toLocaleString()}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Total Revenue</p>
+                        <p className="text-xs text-gray-500">
+                          {hourlyShowAvg ? "Avg Daily Revenue" : "Total Revenue"}
+                        </p>
                         <p className="text-lg font-bold text-gray-800">
-                          {formatCurrency(totalRev)}
+                          {formatCurrency(rev)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Avg Order Value</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          {formatCurrency(avgOrderValue)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Avg Revenue/Hour</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          {formatCurrency(avgRevPerSlot)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Active Hours</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          {activeSlots}
                         </p>
                       </div>
                     </>
@@ -410,18 +510,39 @@ export default function AnalyticsPage() {
                       tickCount={6}
                     />
                     <Tooltip
-                      formatter={(value, name) => [
-                        name === "avgRevenue"
-                          ? formatCurrency(Number(value))
-                          : Number(value).toFixed(1),
-                        name === "avgRevenue" ? "Avg Revenue" : "Avg Orders",
-                      ]}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = payload[0]?.payload as DowData | undefined;
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 mb-1.5">{row?.name || label}</p>
+                            {payload.map((p) => (
+                              <div key={String(p.dataKey)} className="flex justify-between gap-4">
+                                <span style={{ color: String(p.color) }}>
+                                  {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
+                                </span>
+                                <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                              </div>
+                            ))}
+                            {row && (
+                              <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                <span className="text-gray-500">Avg Orders</span>
+                                <span className="font-medium">{row.avgOrders.toFixed(1)}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }}
                     />
-                    <Bar
-                      dataKey="avgRevenue"
-                      fill="#10b981"
-                      radius={[4, 4, 0, 0]}
+                    <Legend
+                      formatter={(value) => PLATFORM_LABELS[value] || value}
+                      iconType="square"
+                      wrapperStyle={{ fontSize: 12 }}
                     />
+                    <Bar dataKey="square" stackId="revenue" fill={PLATFORM_COLORS.square} />
+                    <Bar dataKey="doordash" stackId="revenue" fill={PLATFORM_COLORS.doordash} />
+                    <Bar dataKey="grubhub" stackId="revenue" fill={PLATFORM_COLORS.grubhub} />
+                    <Bar dataKey="ubereats" stackId="revenue" fill={PLATFORM_COLORS.ubereats} radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -495,7 +616,11 @@ export default function AnalyticsPage() {
                           strokeDasharray="3 3"
                           stroke="#f0f0f0"
                         />
-                        <XAxis dataKey="platform" tick={{ fontSize: 12 }} />
+                        <XAxis
+                          dataKey="platform"
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(v) => PLATFORM_LABELS[v] || v}
+                        />
                         <YAxis
                           tick={{ fontSize: 11 }}
                           tickFormatter={(v) => `${v.toFixed(0)}%`}
@@ -503,16 +628,16 @@ export default function AnalyticsPage() {
                           tickCount={6}
                         />
                         <Tooltip
-                          formatter={(value) => [
+                          formatter={(value, _name, props) => [
                             `${Number(value).toFixed(1)}%`,
-                            "Fee Rate",
+                            `${PLATFORM_LABELS[props.payload?.platform] || props.payload?.platform} Fee Rate`,
                           ]}
                         />
-                        <Bar
-                          dataKey="feeRate"
-                          fill="#ef4444"
-                          radius={[4, 4, 0, 0]}
-                        />
+                        <Bar dataKey="feeRate" radius={[4, 4, 0, 0]}>
+                          {feeData.map((f) => (
+                            <Cell key={f.platform} fill={PLATFORM_COLORS[f.platform] || "#888"} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -530,12 +655,6 @@ export default function AnalyticsPage() {
                             Revenue
                           </th>
                           <th className="pb-2 font-medium text-right">
-                            Commission
-                          </th>
-                          <th className="pb-2 font-medium text-right">
-                            Service Fees
-                          </th>
-                          <th className="pb-2 font-medium text-right">
                             Total Fees
                           </th>
                           <th className="pb-2 font-medium text-right">
@@ -544,50 +663,79 @@ export default function AnalyticsPage() {
                           <th className="pb-2 font-medium text-right">
                             Net Payout
                           </th>
+                          <th className="pb-2 font-medium text-right text-gray-400">
+                            Avg Rev/Order
+                          </th>
+                          <th className="pb-2 font-medium text-right text-gray-400">
+                            Avg Fee/Order
+                          </th>
+                          <th className="pb-2 font-medium text-right text-gray-400">
+                            Avg Net/Order
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {feeData.map((f) => (
-                          <tr
-                            key={f.platform}
-                            className="border-b border-gray-50"
-                          >
-                            <td className="py-2 text-gray-800 font-medium capitalize">
-                              {f.platform}
-                            </td>
-                            <td className="py-2 text-right text-gray-600">
-                              {f.orderCount.toLocaleString()}
-                            </td>
-                            <td className="py-2 text-right text-gray-600">
-                              {formatCurrency(f.totalRevenue)}
-                            </td>
-                            <td className="py-2 text-right text-red-600">
-                              {formatCurrency(f.totalCommissionFee)}
-                            </td>
-                            <td className="py-2 text-right text-red-600">
-                              {formatCurrency(f.totalServiceFee)}
-                            </td>
-                            <td className="py-2 text-right text-red-600 font-medium">
-                              {formatCurrency(f.totalFees)}
-                            </td>
-                            <td className="py-2 text-right font-medium">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-xs ${
-                                  f.feeRate > 25
-                                    ? "bg-red-100 text-red-700"
-                                    : f.feeRate > 15
-                                      ? "bg-amber-100 text-amber-700"
-                                      : "bg-emerald-100 text-emerald-700"
-                                }`}
-                              >
-                                {f.feeRate.toFixed(1)}%
-                              </span>
-                            </td>
-                            <td className="py-2 text-right text-emerald-600 font-medium">
-                              {formatCurrency(f.totalNetPayout)}
-                            </td>
-                          </tr>
-                        ))}
+                        {feeData.map((f) => {
+                          const avgRev =
+                            f.orderCount > 0
+                              ? f.totalRevenue / f.orderCount
+                              : 0;
+                          const avgFee =
+                            f.orderCount > 0
+                              ? f.totalFees / f.orderCount
+                              : 0;
+                          const avgNet =
+                            f.orderCount > 0
+                              ? f.totalNetPayout / f.orderCount
+                              : 0;
+                          return (
+                            <tr
+                              key={f.platform}
+                              className="border-b border-gray-50"
+                            >
+                              <td className="py-2 text-gray-800 font-medium">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: PLATFORM_COLORS[f.platform] || "#888" }} />
+                                  {PLATFORM_LABELS[f.platform] || f.platform}
+                                </span>
+                              </td>
+                              <td className="py-2 text-right text-gray-600">
+                                {f.orderCount.toLocaleString()}
+                              </td>
+                              <td className="py-2 text-right text-gray-600">
+                                {formatCurrency(f.totalRevenue)}
+                              </td>
+                              <td className="py-2 text-right text-red-600 font-medium">
+                                {formatCurrency(f.totalFees)}
+                              </td>
+                              <td className="py-2 text-right font-medium">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-xs ${
+                                    f.feeRate > 25
+                                      ? "bg-red-100 text-red-700"
+                                      : f.feeRate > 15
+                                        ? "bg-amber-100 text-amber-700"
+                                        : "bg-emerald-100 text-emerald-700"
+                                  }`}
+                                >
+                                  {f.feeRate.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="py-2 text-right text-emerald-600 font-medium">
+                                {formatCurrency(f.totalNetPayout)}
+                              </td>
+                              <td className="py-2 text-right text-gray-500">
+                                {formatCurrency(avgRev)}
+                              </td>
+                              <td className="py-2 text-right text-red-400">
+                                {formatCurrency(avgFee)}
+                              </td>
+                              <td className="py-2 text-right text-emerald-500">
+                                {formatCurrency(avgNet)}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -768,30 +916,81 @@ export default function AnalyticsPage() {
 
           {/* Daily Trend */}
           {tab === "daily" && (() => {
-            // Compute trendline + moving average
-            const points = dailyData.map((d, i) => ({ x: i, y: d.revenue }));
-            const reg = linearRegression(points);
-            const ma = movingAverage(dailyData.map((d) => d.revenue), 7);
-            const projectionDays = 14;
+            // Aggregate data by selected period
+            const periodLabels = { "1D": "Daily", "1W": "Weekly", "1M": "Monthly", "1Q": "Quarterly" };
+            const maWindow = dailyPeriod === "1D" ? 7 : dailyPeriod === "1W" ? 4 : 3;
 
-            const enrichedDaily = dailyData.map((d, i) => ({
+            function bucketKey(dateStr: string): string {
+              const d = new Date(dateStr + "T12:00:00");
+              if (dailyPeriod === "1W") {
+                // ISO week start (Monday)
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(d);
+                monday.setDate(diff);
+                return monday.toISOString().slice(0, 10);
+              }
+              if (dailyPeriod === "1M") return dateStr.slice(0, 7); // "2026-03"
+              if (dailyPeriod === "1Q") {
+                const q = Math.ceil((d.getMonth() + 1) / 3);
+                return `${d.getFullYear()}-Q${q}`;
+              }
+              return dateStr; // 1D
+            }
+
+            function bucketLabel(key: string): string {
+              if (dailyPeriod === "1W") {
+                const d = new Date(key + "T12:00:00");
+                return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              }
+              if (dailyPeriod === "1M") {
+                const [y, m] = key.split("-");
+                const d = new Date(Number(y), Number(m) - 1);
+                return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+              }
+              if (dailyPeriod === "1Q") return key; // "2026-Q1"
+              return key; // 1D: date string
+            }
+
+            type AggBucket = { key: string; label: string; revenue: number; count: number; square: number; doordash: number; grubhub: number; ubereats: number };
+            const buckets = new Map<string, AggBucket>();
+            for (const d of dailyData) {
+              const k = bucketKey(d.date);
+              let b = buckets.get(k);
+              if (!b) { b = { key: k, label: bucketLabel(k), revenue: 0, count: 0, square: 0, doordash: 0, grubhub: 0, ubereats: 0 }; buckets.set(k, b); }
+              b.revenue += d.revenue; b.count += d.count;
+              b.square += d.square; b.doordash += d.doordash;
+              b.grubhub += d.grubhub; b.ubereats += d.ubereats;
+            }
+            const aggregated = Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key));
+
+            // Compute trendline + moving average on aggregated data
+            const points = aggregated.map((d, i) => ({ x: i, y: d.revenue }));
+            const reg = linearRegression(points);
+            const ma = movingAverage(aggregated.map((d) => d.revenue), maWindow);
+            const projectionCount = dailyPeriod === "1D" ? 14 : dailyPeriod === "1W" ? 4 : dailyPeriod === "1M" ? 3 : 2;
+
+            const enrichedDaily = aggregated.map((d, i) => ({
               ...d,
+              avgOrderValue: d.count > 0 ? d.revenue / d.count : 0,
               trend: reg.slope * i + reg.intercept,
               ma: ma[i],
             }));
 
             // Add projection points
-            if (showDailyTrend && dailyData.length > 1) {
-              const lastDate = new Date(dailyData[dailyData.length - 1].date);
-              for (let j = 1; j <= projectionDays; j++) {
-                const futureDate = new Date(lastDate);
-                futureDate.setDate(futureDate.getDate() + j);
-                const idx = dailyData.length - 1 + j;
+            if (showDailyTrend && aggregated.length > 1) {
+              for (let j = 1; j <= projectionCount; j++) {
+                const idx = aggregated.length - 1 + j;
                 enrichedDaily.push({
-                  date: futureDate.toISOString().slice(0, 10),
+                  key: `proj-${j}`,
+                  label: "",
                   revenue: undefined as unknown as number,
                   count: undefined as unknown as number,
                   avgOrderValue: undefined as unknown as number,
+                  square: undefined as unknown as number,
+                  doordash: undefined as unknown as number,
+                  grubhub: undefined as unknown as number,
+                  ubereats: undefined as unknown as number,
                   trend: reg.slope * idx + reg.intercept,
                   ma: undefined as unknown as number,
                 });
@@ -799,19 +998,35 @@ export default function AnalyticsPage() {
             }
 
             // Format trend label
+            const perLabel = dailyPeriod === "1D" ? "day" : dailyPeriod === "1W" ? "wk" : dailyPeriod === "1M" ? "mo" : "qtr";
             const absSlope = Math.abs(reg.slope);
             const trendLabel = absSlope >= 1
-              ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/day`
-              : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/day`;
+              ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/${perLabel}`
+              : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/${perLabel}`;
 
             return (
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <h3 className="text-sm font-medium text-gray-500">
-                    Daily Revenue Trend
+                    {periodLabels[dailyPeriod]} Revenue Trend
                   </h3>
-                  {showDailyTrend && dailyData.length > 1 && (
+                  <div className="flex bg-gray-100 rounded-lg p-0.5">
+                    {(["1D", "1W", "1M", "1Q"] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setDailyPeriod(p)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                          dailyPeriod === p
+                            ? "bg-white text-indigo-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  {showDailyTrend && aggregated.length > 1 && (
                     <span
                       className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                         reg.slope >= 0
@@ -842,16 +1057,16 @@ export default function AnalyticsPage() {
                         : "text-gray-500 hover:text-gray-700"
                     }`}
                   >
-                    7d MA
+                    {maWindow}p MA
                   </button>
                 </div>
               </div>
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={enrichedDaily}>
+                  <ComposedChart data={enrichedDaily}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis
-                      dataKey="date"
+                      dataKey="label"
                       tick={{ fontSize: 10 }}
                       interval="preserveStartEnd"
                     />
@@ -862,25 +1077,54 @@ export default function AnalyticsPage() {
                       tickCount={6}
                     />
                     <Tooltip
-                      formatter={(value, name) => {
-                        if (value == null) return ["-", ""];
-                        const label =
-                          name === "revenue" ? "Revenue"
-                            : name === "trend" ? "Trendline"
-                            : name === "ma" ? "7d Avg"
-                            : name === "avgOrderValue" ? "Avg Order"
-                            : "Orders";
-                        return [formatCurrency(Number(value)), label];
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        // Filter out trend/ma for the platform section
+                        const platforms = payload.filter((p) =>
+                          ["square", "doordash", "grubhub", "ubereats"].includes(String(p.dataKey))
+                        );
+                        const trendEntry = payload.find((p) => p.dataKey === "trend");
+                        const maEntry = payload.find((p) => p.dataKey === "ma");
+                        const total = platforms.reduce((s, p) => s + (Number(p.value) || 0), 0);
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 mb-1.5">{label}</p>
+                            {platforms.map((p) => (
+                              Number(p.value) > 0 ? (
+                                <div key={String(p.dataKey)} className="flex justify-between gap-4">
+                                  <span style={{ color: String(p.color) }}>
+                                    {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
+                                  </span>
+                                  <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                                </div>
+                              ) : null
+                            ))}
+                            {total > 0 && (
+                              <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                <span className="text-gray-500">Total</span>
+                                <span className="font-bold">{formatCurrency(total)}</span>
+                              </div>
+                            )}
+                            {trendEntry && trendEntry.value != null && (
+                              <div className="flex justify-between gap-4">
+                                <span className="text-gray-400">Trendline</span>
+                                <span className="text-gray-500">{formatCurrency(Number(trendEntry.value))}</span>
+                              </div>
+                            )}
+                            {maEntry && maEntry.value != null && (
+                              <div className="flex justify-between gap-4">
+                                <span className="text-amber-500">{maWindow}p Avg</span>
+                                <span className="text-gray-500">{formatCurrency(Number(maEntry.value))}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
                       }}
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="#6366f1"
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls={false}
-                    />
+                    <Area type="monotone" dataKey="square" stackId="revenue" fill={PLATFORM_COLORS.square} stroke={PLATFORM_COLORS.square} fillOpacity={0.7} />
+                    <Area type="monotone" dataKey="doordash" stackId="revenue" fill={PLATFORM_COLORS.doordash} stroke={PLATFORM_COLORS.doordash} fillOpacity={0.7} />
+                    <Area type="monotone" dataKey="grubhub" stackId="revenue" fill={PLATFORM_COLORS.grubhub} stroke={PLATFORM_COLORS.grubhub} fillOpacity={0.7} />
+                    <Area type="monotone" dataKey="ubereats" stackId="revenue" fill={PLATFORM_COLORS.ubereats} stroke={PLATFORM_COLORS.ubereats} fillOpacity={0.7} />
                     {showDailyTrend && (
                       <Line
                         type="monotone"
@@ -903,33 +1147,36 @@ export default function AnalyticsPage() {
                         connectNulls={false}
                       />
                     )}
-                    {(showDailyTrend || showDailyMA) && (
-                      <Legend
-                        formatter={(value) =>
-                          value === "revenue" ? "Revenue"
-                            : value === "trend" ? "Trendline"
-                            : value === "ma" ? "7-day Avg"
-                            : value
-                        }
-                        iconType="line"
-                        wrapperStyle={{ fontSize: 11 }}
-                      />
-                    )}
-                  </LineChart>
+                    <Legend
+                      formatter={(value) =>
+                        PLATFORM_LABELS[value] || (value === "trend" ? "Trendline" : value === "ma" ? `${maWindow}p Avg` : value)
+                      }
+                      iconType="square"
+                      wrapperStyle={{ fontSize: 11 }}
+                    />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
               {/* Summary stats */}
-              <div className="mt-4 grid grid-cols-4 gap-4">
+              <div className="mt-4 grid grid-cols-3 lg:grid-cols-6 gap-4">
                 {(() => {
-                  const totalRev = dailyData.reduce(
+                  const totalRev = aggregated.reduce(
                     (s, d) => s + d.revenue,
                     0
                   );
-                  const totalDays = dailyData.length;
-                  const avgDaily = totalDays > 0 ? totalRev / totalDays : 0;
-                  const maxDay = dailyData.reduce(
+                  const totalOrders = aggregated.reduce(
+                    (s, d) => s + d.count,
+                    0
+                  );
+                  const totalPeriods = aggregated.length;
+                  const avgPer = totalPeriods > 0 ? totalRev / totalPeriods : 0;
+                  const avgOrderVal =
+                    totalOrders > 0 ? totalRev / totalOrders : 0;
+                  const avgOrdersPer =
+                    totalPeriods > 0 ? totalOrders / totalPeriods : 0;
+                  const maxDay = aggregated.reduce(
                     (max, d) => (d.revenue > max.revenue ? d : max),
-                    dailyData[0] || { date: "-", revenue: 0 }
+                    aggregated[0] || { label: "-", revenue: 0 }
                   );
                   return (
                     <>
@@ -940,24 +1187,36 @@ export default function AnalyticsPage() {
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg Daily</p>
+                        <p className="text-xs text-gray-500">Avg {periodLabels[dailyPeriod]} Revenue</p>
                         <p className="text-lg font-bold text-gray-800">
-                          {formatCurrency(avgDaily)}
+                          {formatCurrency(avgPer)}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Best Day</p>
+                        <p className="text-xs text-gray-500">Avg Order Value</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          {formatCurrency(avgOrderVal)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Avg Orders/{periodLabels[dailyPeriod].replace("ly","")}</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          {avgOrdersPer.toFixed(1)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Best Period</p>
                         <p className="text-lg font-bold text-emerald-600">
                           {formatCurrency(maxDay.revenue)}
                         </p>
                         <p className="text-[10px] text-gray-400">
-                          {maxDay.date}
+                          {maxDay.label}
                         </p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Days Tracked</p>
+                        <p className="text-xs text-gray-500">Periods</p>
                         <p className="text-lg font-bold text-gray-800">
-                          {totalDays}
+                          {totalPeriods}
                         </p>
                       </div>
                     </>

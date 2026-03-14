@@ -136,6 +136,7 @@ export default function FilterBar({
             { label: "30d", days: 30 },
             { label: "90d", days: 90 },
             { label: "YTD", days: -1 },
+            { label: "1Y", days: 365 },
             { label: "All", days: 0 },
           ].map((preset) => (
             <button

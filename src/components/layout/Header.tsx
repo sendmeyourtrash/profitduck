@@ -7,11 +7,11 @@ const pageTitles: Record<string, string> = {
   "/dashboard/revenue": "Revenue Analytics",
   "/dashboard/expenses": "Expense Analytics",
   "/dashboard/platforms": "Platform Performance",
-  "/upload": "Import Data",
   "/health-report": "Business Health Report",
   "/reconciliation": "Reconciliation",
   "/transactions": "All Transactions",
   "/imports": "Import History",
+  "/settings": "Import & Settings",
 };
 
 export default function Header() {

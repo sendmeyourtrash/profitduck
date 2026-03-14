@@ -307,3 +307,15 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// ---------------------------------------------------------------------------
+// Settings (key-value store for API keys, preferences, etc.)
+// ---------------------------------------------------------------------------
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

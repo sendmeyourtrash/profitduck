@@ -6,41 +6,42 @@ import RevenueChart from "@/components/charts/RevenueChart";
 import BarChartCard from "@/components/charts/BarChartCard";
 import { formatCurrency } from "@/lib/utils/format";
 
-type PeriodOption = 30 | 90 | 180 | 365;
+// ---------- Period configuration ----------
 
-const PERIOD_LABELS: Record<PeriodOption, string> = {
-  30: "1m",
-  90: "3m",
-  180: "6m",
-  365: "1y",
+type Period = "1d" | "1w" | "1m" | "1q";
+
+const PERIOD_OPTIONS: Period[] = ["1d", "1w", "1m", "1q"];
+const PERIOD_LABELS: Record<Period, string> = {
+  "1d": "1D",
+  "1w": "1W",
+  "1m": "1M",
+  "1q": "1Q",
 };
 
-const HORIZON_LABELS: Record<PeriodOption, string> = {
-  30: "1 Month",
-  90: "3 Months",
-  180: "6 Months",
-  365: "12 Months",
-};
+function forecastLabel(days: number): string {
+  if (days === 1) return "Next 1 Day";
+  if (days <= 7) return `Next ${days} Days`;
+  if (days === 30) return "Next 30 Days";
+  if (days === 90) return "Next 3 Months";
+  return `Next ${days} Days`;
+}
+
+// ---------- Data interface ----------
+
+interface KpiBlock {
+  revenue: number;
+  fees: number;
+  expenses: number;
+  netProfit: number;
+  profitMargin: number;
+  operatingCostRatio: number;
+}
 
 interface HealthReportData {
   kpis: {
-    currentMonth: {
-      revenue: number;
-      fees: number;
-      expenses: number;
-      netProfit: number;
-      profitMargin: number;
-      operatingCostRatio: number;
-    };
-    previousMonth: {
-      revenue: number;
-      fees: number;
-      expenses: number;
-      netProfit: number;
-      profitMargin: number;
-      operatingCostRatio: number;
-    };
-    mom: {
+    current: KpiBlock;
+    previous: KpiBlock;
+    change: {
       revenue: number;
       netProfit: number;
       profitMargin: number;
@@ -57,8 +58,8 @@ interface HealthReportData {
       projectedMonthlyRevenue: number;
       confidenceLabel: string;
       projectedHorizonRevenue: number;
-      horizonDays: number;
-      lookbackDays: number;
+      forecastDays: number;
+      chartLookbackDays: number;
       seasonalIndices: Record<number, number>;
       hasSeasonalData: boolean;
     };
@@ -73,8 +74,8 @@ interface HealthReportData {
     avgNetPerOrder: number;
   }[];
   expenses: {
-    currentMonthTotal: number;
-    previousMonthTotal: number;
+    currentTotal: number;
+    previousTotal: number;
     trendDirection: "up" | "down" | "flat";
     trendPct: number;
     topCategories: {
@@ -104,11 +105,15 @@ interface HealthReportData {
   };
   insights: string[];
   meta: {
-    closedDaysThisMonth: number;
-    reportPeriod: string;
+    closedDays: number;
+    period: string;
+    periodLabel: string;
+    comparisonLabel: string;
     dataThrough: string;
   };
 }
+
+// ---------- Helpers ----------
 
 const PLATFORM_LABELS: Record<string, string> = {
   square: "Square",
@@ -131,24 +136,28 @@ function severityBadgeClass(severity: string): string {
   return "bg-blue-100 text-blue-700";
 }
 
+// ---------- Component ----------
+
 export default function HealthReportPage() {
   const [data, setData] = useState<HealthReportData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lookback, setLookback] = useState<PeriodOption>(90);
-  const [horizon, setHorizon] = useState<PeriodOption>(90);
+  const [period, setPeriod] = useState<Period>("1m");
   const [seasonalOn, setSeasonalOn] = useState(false);
 
   const fetchReport = useCallback(() => {
     setLoading(true);
-    fetch(`/api/health-report?lookback=${lookback}&horizon=${horizon}`)
+    fetch(`/api/health-report?period=${period}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
-  }, [lookback, horizon]);
+  }, [period]);
 
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  // Derived forecast days from API response
+  const forecastDays = data?.projection.trend.forecastDays ?? 30;
 
   // Compute seasonal projection points for the chart
   const seasonalProjectionPoints = useMemo(() => {
@@ -160,7 +169,7 @@ export default function HealthReportPage() {
     const lastIdx = dailySeries.length - 1;
     const points: { date: string; seasonal: number }[] = [];
 
-    for (let j = 1; j <= horizon; j++) {
+    for (let j = 1; j <= forecastDays; j++) {
       const futureDate = new Date(lastDate);
       futureDate.setDate(futureDate.getDate() + j);
       const futureMonth = futureDate.getMonth() + 1; // 1-12
@@ -172,7 +181,7 @@ export default function HealthReportPage() {
       });
     }
     return points;
-  }, [data, seasonalOn, horizon]);
+  }, [data, seasonalOn, forecastDays]);
 
   if (loading) {
     return (
@@ -199,11 +208,11 @@ export default function HealthReportPage() {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-400 mt-0.5">
-            {meta.reportPeriod} &middot; Data through {meta.dataThrough}
-            {meta.closedDaysThisMonth > 0 && (
+            {meta.periodLabel} &middot; Data through {meta.dataThrough}
+            {meta.closedDays > 0 && (
               <span className="ml-2 text-amber-500">
-                ({meta.closedDaysThisMonth} closed day
-                {meta.closedDaysThisMonth !== 1 ? "s" : ""})
+                ({meta.closedDays} closed day
+                {meta.closedDays !== 1 ? "s" : ""})
               </span>
             )}
           </p>
@@ -216,88 +225,71 @@ export default function HealthReportPage() {
         </button>
       </div>
 
-      {/* Projection Controls */}
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-medium">Lookback</span>
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            {([30, 90, 180, 365] as PeriodOption[]).map((opt) => (
-              <button
-                key={opt}
-                onClick={() => setLookback(opt)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                  lookback === opt
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {PERIOD_LABELS[opt]}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 font-medium">Forecast</span>
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            {([30, 90, 180, 365] as PeriodOption[]).map((opt) => (
-              <button
-                key={opt}
-                onClick={() => setHorizon(opt)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                  horizon === opt
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {PERIOD_LABELS[opt]}
-              </button>
-            ))}
-          </div>
+      {/* Period Selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-400 font-medium">Period</span>
+        <div className="flex bg-gray-100 rounded-lg p-0.5">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => setPeriod(opt)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                period === opt
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {PERIOD_LABELS[opt]}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Section 1: Executive Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Revenue (This Month)"
-          value={formatCurrency(kpis.currentMonth.revenue)}
-          subtitle={`Prev: ${formatCurrency(kpis.previousMonth.revenue)}`}
-          trend={{ value: kpis.mom.revenue, label: "vs last month" }}
+          title="Revenue"
+          value={formatCurrency(kpis.current.revenue)}
+          subtitle={`Prev: ${formatCurrency(kpis.previous.revenue)}`}
+          trend={{ value: kpis.change.revenue, label: meta.comparisonLabel }}
         />
         <StatCard
           title="Net Profit"
-          value={formatCurrency(kpis.currentMonth.netProfit)}
-          subtitle={`Fees: ${formatCurrency(kpis.currentMonth.fees)} + Expenses: ${formatCurrency(kpis.currentMonth.expenses)}`}
-          variant={kpis.currentMonth.netProfit >= 0 ? "success" : "danger"}
-          trend={{ value: kpis.mom.netProfit, label: "vs last month" }}
+          value={formatCurrency(kpis.current.netProfit)}
+          subtitle={`Fees: ${formatCurrency(kpis.current.fees)} + Expenses: ${formatCurrency(kpis.current.expenses)}`}
+          variant={kpis.current.netProfit >= 0 ? "success" : "danger"}
+          trend={{ value: kpis.change.netProfit, label: meta.comparisonLabel }}
         />
         <StatCard
           title="Profit Margin"
-          value={`${kpis.currentMonth.profitMargin.toFixed(1)}%`}
-          subtitle={`Prev: ${kpis.previousMonth.profitMargin.toFixed(1)}%`}
+          value={`${kpis.current.profitMargin.toFixed(1)}%`}
+          subtitle={`Prev: ${kpis.previous.profitMargin.toFixed(1)}%`}
           variant={
-            kpis.currentMonth.profitMargin >= 15
+            kpis.current.profitMargin >= 15
               ? "success"
-              : kpis.currentMonth.profitMargin >= 8
+              : kpis.current.profitMargin >= 8
                 ? "default"
                 : "danger"
           }
-          trend={{ value: kpis.mom.profitMargin, label: "pts vs last month" }}
+          trend={{
+            value: kpis.change.profitMargin,
+            label: `pts ${meta.comparisonLabel}`,
+          }}
         />
         <StatCard
           title="Operating Cost Ratio"
-          value={`${kpis.currentMonth.operatingCostRatio.toFixed(1)}%`}
+          value={`${kpis.current.operatingCostRatio.toFixed(1)}%`}
           subtitle="(Fees + Expenses) / Revenue"
           variant={
-            kpis.currentMonth.operatingCostRatio <= 70
+            kpis.current.operatingCostRatio <= 70
               ? "success"
-              : kpis.currentMonth.operatingCostRatio <= 85
+              : kpis.current.operatingCostRatio <= 85
                 ? "warning"
                 : "danger"
           }
           trend={{
-            value: -kpis.mom.operatingCostRatio,
-            label: "pts vs last month",
+            value: -kpis.change.operatingCostRatio,
+            label: `pts ${meta.comparisonLabel}`,
           }}
         />
       </div>
@@ -307,9 +299,9 @@ export default function HealthReportPage() {
         <div className="lg:col-span-2">
           <RevenueChart
             data={projection.dailySeries}
-            title={`${projection.trend.lookbackDays}-Day Revenue Trend + Projection`}
+            title={`${meta.periodLabel} Revenue Trend + Projection`}
             showControls={true}
-            projectionDays={horizon}
+            projectionDays={forecastDays}
             seasonalProjectionPoints={seasonalProjectionPoints}
             seasonalOn={seasonalOn}
             onSeasonalToggle={setSeasonalOn}
@@ -333,16 +325,18 @@ export default function HealthReportPage() {
           </div>
           <div>
             <p className="text-xs text-gray-400">
-              Projected Revenue (Next {HORIZON_LABELS[horizon as PeriodOption] || `${horizon} Days`})
+              Projected Revenue ({forecastLabel(forecastDays)})
               {seasonalOn && (
-                <span className="ml-1 text-violet-500">&middot; Seasonally Adjusted</span>
+                <span className="ml-1 text-violet-500">
+                  &middot; Seasonally Adjusted
+                </span>
               )}
             </p>
             <p className="text-xl font-bold text-gray-900">
               {formatCurrency(projection.trend.projectedHorizonRevenue)}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Current month to date: {formatCurrency(kpis.currentMonth.revenue)}
+              Current period to date: {formatCurrency(kpis.current.revenue)}
             </p>
           </div>
           <div>
@@ -359,7 +353,8 @@ export default function HealthReportPage() {
               {projection.trend.confidenceLabel}
             </span>
             <p className="text-xs text-gray-400 mt-1.5">
-              Based on {projection.trend.lookbackDays} days of data &middot; linear regression
+              Based on {projection.trend.chartLookbackDays} days of data
+              &middot; linear regression
             </p>
             {seasonalOn && !projection.trend.hasSeasonalData && (
               <p className="text-xs text-amber-500 mt-1">
@@ -433,7 +428,7 @@ export default function HealthReportPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {expenses.topCategories.length > 0 && (
           <BarChartCard
-            title="Top Expense Categories (This Month)"
+            title="Top Expense Categories"
             data={expenses.topCategories.map((c) => ({
               name: c.category,
               value: c.amount,
@@ -445,15 +440,15 @@ export default function HealthReportPage() {
           <h3 className="text-sm font-medium text-gray-500">Expense Summary</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-xs text-gray-400">This Month</p>
+              <p className="text-xs text-gray-400">Current Period</p>
               <p className="text-xl font-bold text-gray-900">
-                {formatCurrency(expenses.currentMonthTotal)}
+                {formatCurrency(expenses.currentTotal)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400">Last Month</p>
+              <p className="text-xs text-gray-400">Previous Period</p>
               <p className="text-xl font-bold text-gray-500">
-                {formatCurrency(expenses.previousMonthTotal)}
+                {formatCurrency(expenses.previousTotal)}
               </p>
             </div>
           </div>
@@ -471,7 +466,9 @@ export default function HealthReportPage() {
               : expenses.trendDirection === "down"
                 ? "\u2193"
                 : "\u2192"}
-            <span>{expenses.trendPct.toFixed(1)}% vs last month</span>
+            <span>
+              {expenses.trendPct.toFixed(1)}% {meta.comparisonLabel}
+            </span>
           </div>
           {expenses.topCategories.length > 0 && (
             <div className="pt-2 border-t border-gray-100">

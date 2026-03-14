@@ -35,12 +35,19 @@ export async function syncSquareFees(
   onProgress?: ProgressCallback
 ): Promise<SyncResult> {
   // 1. Create Import record
+  const label = startDate
+    ? `Square API Sync (since ${new Date(startDate).toLocaleDateString()})`
+    : "Square API Sync (full)";
+  console.log(`[Square Sync] ${label}`);
+
   const importRecord = await prisma.import.create({
     data: {
       source: "square-api",
-      fileName: "Square API Sync",
+      fileName: label,
       status: "processing",
       rowsProcessed: 0,
+      dateRangeStart: startDate ? new Date(startDate) : undefined,
+      dateRangeEnd: endDate ? new Date(endDate) : undefined,
     },
   });
 

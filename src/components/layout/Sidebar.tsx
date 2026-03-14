@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -14,8 +15,8 @@ const navItems = [
   { href: "/manual-entry", label: "Manual Entry", icon: "✏️" },
   { href: "/categories", label: "Categories", icon: "🏷️" },
   { href: "/vendor-aliases", label: "Vendor Aliases", icon: "🔄" },
-  { href: "/upload", label: "Import Data", icon: "📁" },
   { href: "/imports", label: "Import History", icon: "📜" },
+  { href: "/settings", label: "Import & Settings", icon: "⚙️" },
 ];
 
 export default function Sidebar() {
@@ -25,8 +26,19 @@ export default function Sidebar() {
     <aside className="w-64 bg-gray-900 text-white flex flex-col min-h-screen">
       {/* Logo */}
       <div className="p-6 border-b border-gray-700">
-        <h1 className="text-xl font-bold tracking-tight">INCREPEABLE</h1>
-        <p className="text-xs text-gray-400 mt-1">Financial Dashboard</p>
+        <div className="flex items-center gap-3">
+          <Image
+            src="/logo.png"
+            alt="Profit Duck"
+            width={40}
+            height={40}
+            className="rounded-lg"
+          />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">Profit Duck</h1>
+            <p className="text-xs text-gray-400">Financial Dashboard</p>
+          </div>
+        </div>
       </div>
 
       {/* Navigation */}
@@ -55,7 +67,7 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="p-4 border-t border-gray-700 text-xs text-gray-500">
-        RestDash v1.0
+        Profit Duck v1.0
       </div>
     </aside>
   );

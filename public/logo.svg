@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Body -->
+  <ellipse cx="50" cy="62" rx="30" ry="28" fill="#FFFFFF"/>
+  <!-- Head -->
+  <circle cx="52" cy="32" r="20" fill="#FFFFFF"/>
+  <!-- Tuft -->
+  <path d="M52 12 Q55 8 50 10 Q48 6 52 12" fill="#E8E8E8"/>
+  <!-- Eye left -->
+  <ellipse cx="44" cy="28" rx="4.5" ry="5" fill="#1A1A2E"/>
+  <ellipse cx="45.5" cy="27" rx="1.5" ry="1.8" fill="#FFFFFF"/>
+  <!-- Eye right -->
+  <ellipse cx="60" cy="28" rx="4.5" ry="5" fill="#1A1A2E"/>
+  <ellipse cx="61.5" cy="27" rx="1.5" ry="1.8" fill="#FFFFFF"/>
+  <!-- Blush -->
+  <ellipse cx="38" cy="35" rx="4" ry="3" fill="#FFB8B8" opacity="0.5"/>
+  <!-- Beak -->
+  <path d="M46 36 Q52 32 58 36 Q55 44 52 44 Q49 44 46 36Z" fill="#FF9800"/>
+  <path d="M46 36 Q52 34 58 36 Q55 40 52 41 Q49 40 46 36Z" fill="#FFB74D"/>
+  <!-- Mouth inside -->
+  <path d="M48 38 Q52 43 56 38" fill="#C62828" opacity="0.8"/>
+  <!-- Wing -->
+  <path d="M22 55 Q18 48 25 45 Q30 50 28 60 Q24 62 22 55Z" fill="#F0F0F0"/>
+  <!-- Feet -->
+  <path d="M38 88 L32 95 L42 92 L38 88Z" fill="#FF9800"/>
+  <path d="M58 88 L52 95 L62 92 L58 88Z" fill="#FF9800"/>
+</svg>
