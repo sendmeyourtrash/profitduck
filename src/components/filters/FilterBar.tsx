@@ -21,6 +21,7 @@ interface DataRangeInfo {
 interface FilterBarProps {
   filters: FilterState;
   onChange: (filters: FilterState) => void;
+  showDateRange?: boolean;
   showTypes?: boolean;
   showCategories?: boolean;
   showSearch?: boolean;
@@ -57,6 +58,7 @@ export const emptyFilters: FilterState = {
 export default function FilterBar({
   filters,
   onChange,
+  showDateRange = true,
   showTypes = true,
   showCategories = true,
   showSearch = true,
@@ -84,8 +86,7 @@ export default function FilterBar({
   );
 
   const hasActiveFilters =
-    filters.startDate ||
-    filters.endDate ||
+    (showDateRange && (filters.startDate || filters.endDate)) ||
     filters.platforms.length > 0 ||
     filters.types.length > 0 ||
     filters.categories.length > 0 ||
@@ -102,73 +103,77 @@ export default function FilterBar({
     <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
       {/* Top row: date range + search + toggle */}
       <div className="flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">From</label>
-          <input
-            type="date"
-            value={filters.startDate}
-            min={minDate}
-            max={filters.endDate || maxDate}
-            onChange={(e) =>
-              onChange({ ...filters, startDate: e.target.value })
-            }
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">To</label>
-          <input
-            type="date"
-            value={filters.endDate}
-            min={filters.startDate || minDate}
-            max={maxDate}
-            onChange={(e) =>
-              onChange({ ...filters, endDate: e.target.value })
-            }
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-          />
-        </div>
-
-        {/* Quick date presets */}
-        <div className="flex gap-1">
-          {[
-            { label: "7d", days: 7 },
-            { label: "30d", days: 30 },
-            { label: "90d", days: 90 },
-            { label: "YTD", days: -1 },
-            { label: "1Y", days: 365 },
-            { label: "All", days: 0 },
-          ].map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => {
-                if (preset.days === 0) {
-                  onChange({ ...filters, startDate: "", endDate: "" });
-                } else if (preset.days === -1) {
-                  const now = new Date();
-                  const ytd = new Date(now.getFullYear(), 0, 1);
-                  onChange({
-                    ...filters,
-                    startDate: ytd.toISOString().split("T")[0],
-                    endDate: now.toISOString().split("T")[0],
-                  });
-                } else {
-                  const now = new Date();
-                  const start = new Date(now);
-                  start.setDate(start.getDate() - preset.days);
-                  onChange({
-                    ...filters,
-                    startDate: start.toISOString().split("T")[0],
-                    endDate: now.toISOString().split("T")[0],
-                  });
+        {showDateRange && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">From</label>
+              <input
+                type="date"
+                value={filters.startDate}
+                min={minDate}
+                max={filters.endDate || maxDate}
+                onChange={(e) =>
+                  onChange({ ...filters, startDate: e.target.value })
                 }
-              }}
-              className="px-2 py-1.5 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">To</label>
+              <input
+                type="date"
+                value={filters.endDate}
+                min={filters.startDate || minDate}
+                max={maxDate}
+                onChange={(e) =>
+                  onChange({ ...filters, endDate: e.target.value })
+                }
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+              />
+            </div>
+
+            {/* Quick date presets */}
+            <div className="flex gap-1">
+              {[
+                { label: "7d", days: 7 },
+                { label: "30d", days: 30 },
+                { label: "90d", days: 90 },
+                { label: "YTD", days: -1 },
+                { label: "1Y", days: 365 },
+                { label: "All", days: 0 },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => {
+                    if (preset.days === 0) {
+                      onChange({ ...filters, startDate: "", endDate: "" });
+                    } else if (preset.days === -1) {
+                      const now = new Date();
+                      const ytd = new Date(now.getFullYear(), 0, 1);
+                      onChange({
+                        ...filters,
+                        startDate: ytd.toISOString().split("T")[0],
+                        endDate: now.toISOString().split("T")[0],
+                      });
+                    } else {
+                      const now = new Date();
+                      const start = new Date(now);
+                      start.setDate(start.getDate() - preset.days);
+                      onChange({
+                        ...filters,
+                        startDate: start.toISOString().split("T")[0],
+                        endDate: now.toISOString().split("T")[0],
+                      });
+                    }
+                  }}
+                  className="px-2 py-1.5 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {showSearch && (
           <div className="flex-1 min-w-[200px]">

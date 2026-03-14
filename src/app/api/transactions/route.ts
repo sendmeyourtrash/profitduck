@@ -64,6 +64,47 @@ export async function GET(request: NextRequest) {
   const [transactions, total] = await Promise.all([
     prisma.transaction.findMany({
       where,
+      include: {
+        import: {
+          select: { source: true, fileName: true, importedAt: true },
+        },
+        linkedPayout: {
+          select: {
+            id: true,
+            platform: true,
+            payoutDate: true,
+            grossAmount: true,
+            fees: true,
+            netAmount: true,
+            reconciliationStatus: true,
+          },
+        },
+        linkedBankTransaction: {
+          select: {
+            id: true,
+            date: true,
+            description: true,
+            amount: true,
+            category: true,
+            accountName: true,
+            institutionName: true,
+            reconciliationStatus: true,
+          },
+        },
+        auditLogs: {
+          select: {
+            id: true,
+            field: true,
+            oldValue: true,
+            newValue: true,
+            reason: true,
+            actor: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        },
+      },
       orderBy: { date: "desc" },
       take: limit,
       skip: offset,

@@ -3,15 +3,33 @@ import { prisma } from "@/lib/db/prisma";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const days = parseInt(searchParams.get("days") || "30");
+  const rawStart = searchParams.get("startDate");
+  const rawEnd = searchParams.get("endDate");
+  const rawDays = searchParams.get("days");
 
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  let startDate: Date;
+  let endDate: Date | undefined;
+
+  if (rawStart) {
+    startDate = new Date(rawStart);
+    if (rawEnd) {
+      endDate = new Date(rawEnd);
+      endDate.setHours(23, 59, 59, 999);
+    }
+  } else if (rawDays) {
+    const days = parseInt(rawDays);
+    startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+  } else {
+    startDate = new Date(0);
+  }
+
+  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
 
   // Platform order stats
   const platformStats = await prisma.platformOrder.groupBy({
     by: ["platform"],
-    where: { orderDatetime: { gte: startDate } },
+    where: { orderDatetime: dateFilter },
     _sum: {
       subtotal: true,
       tax: true,
@@ -56,10 +74,10 @@ export async function GET(request: NextRequest) {
     `SELECT date(order_datetime) as date, platform,
             COUNT(*) as orders, SUM(subtotal + tax + tip) as revenue
      FROM platform_orders
-     WHERE order_datetime >= ?
+     WHERE order_datetime >= ?${endDate ? " AND order_datetime <= ?" : ""}
      GROUP BY date(order_datetime), platform
      ORDER BY date ASC`,
-    startDate.toISOString()
+    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
   );
 
   return NextResponse.json({

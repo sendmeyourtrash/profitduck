@@ -3,19 +3,37 @@ import { prisma } from "@/lib/db/prisma";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const days = parseInt(searchParams.get("days") || "30");
+  const rawStart = searchParams.get("startDate");
+  const rawEnd = searchParams.get("endDate");
+  const rawDays = searchParams.get("days");
 
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  let startDate: Date;
+  let endDate: Date | undefined;
 
-  // Expenses by vendor
+  if (rawStart) {
+    startDate = new Date(rawStart);
+    if (rawEnd) {
+      endDate = new Date(rawEnd);
+      endDate.setHours(23, 59, 59, 999);
+    }
+  } else if (rawDays) {
+    const days = parseInt(rawDays);
+    startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+  } else {
+    startDate = new Date(0);
+  }
+
+  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
+
+  // Expenses by vendor — fetch ALL, merge by displayName, then take top 20.
+  // We cannot use `take` here because vendor aliases may merge many vendorIds
+  // into a single display name (e.g. 12 rent payments → "Rent (1654 Third Ave)").
   const expensesByVendor = await prisma.expense.groupBy({
     by: ["vendorId"],
-    where: { date: { gte: startDate } },
+    where: { date: dateFilter },
     _sum: { amount: true },
     _count: true,
-    orderBy: { _sum: { amount: "desc" } },
-    take: 20,
   });
 
   // Look up vendor names (prefer displayName from alias system)
@@ -29,33 +47,50 @@ export async function GET(request: NextRequest) {
     vendors.map((v) => [v.id, v.displayName || v.name])
   );
 
-  // Expenses by category
-  const expensesByCategory = await prisma.expense.groupBy({
-    by: ["category"],
-    where: { date: { gte: startDate } },
+  // Expenses by category — group by expenseCategoryId to use proper category names
+  const expensesByCategoryRaw = await prisma.expense.groupBy({
+    by: ["expenseCategoryId"],
+    where: { date: dateFilter },
     _sum: { amount: true },
     _count: true,
     orderBy: { _sum: { amount: "desc" } },
   });
 
-  // Monthly expense trend
+  // Look up ExpenseCategory names
+  const catIds = expensesByCategoryRaw
+    .map((e) => e.expenseCategoryId)
+    .filter((id): id is string => id !== null);
+  const expenseCategories = await prisma.expenseCategory.findMany({
+    where: { id: { in: catIds } },
+  });
+  const catNameMap = new Map(expenseCategories.map((c) => [c.id, c.name]));
+
+  // Monthly expense trend (filtered by selected period)
   const monthlyExpenses = await prisma.$queryRawUnsafe<
     { month: string; total: number }[]
   >(
     `SELECT strftime('%Y-%m', date) as month, SUM(amount) as total
      FROM expenses
+     WHERE date >= ?${endDate ? " AND date <= ?" : ""}
      GROUP BY strftime('%Y-%m', date)
-     ORDER BY month ASC`
+     ORDER BY month ASC`,
+    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
   );
 
-  // Fees by platform
-  const feesByPlatform = await prisma.transaction.groupBy({
-    by: ["sourcePlatform"],
+  // Fees by platform — aggregate from platform_orders which has detailed fee columns
+  // (commission, service, delivery, marketing, customer fees)
+  const platformFees = await prisma.platformOrder.groupBy({
+    by: ["platform"],
     where: {
-      type: "fee",
-      date: { gte: startDate },
+      orderDatetime: dateFilter,
     },
-    _sum: { amount: true },
+    _sum: {
+      commissionFee: true,
+      serviceFee: true,
+      deliveryFee: true,
+      marketingFees: true,
+      customerFees: true,
+    },
   });
 
   // Merge vendors that share the same displayName
@@ -81,8 +116,10 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     expensesByVendor: sortedVendors,
-    expensesByCategory: expensesByCategory.map((e) => ({
-      category: e.category || "Uncategorized",
+    expensesByCategory: expensesByCategoryRaw.map((e) => ({
+      category: e.expenseCategoryId
+        ? catNameMap.get(e.expenseCategoryId) || "Uncategorized"
+        : "Uncategorized",
       total: e._sum.amount || 0,
       count: e._count,
     })),
@@ -90,9 +127,24 @@ export async function GET(request: NextRequest) {
       month: m.month,
       total: Number(m.total),
     })),
-    feesByPlatform: feesByPlatform.map((f) => ({
-      platform: f.sourcePlatform,
-      fees: f._sum.amount || 0,
-    })),
+    feesByPlatform: platformFees
+      .map((f) => ({
+        platform: f.platform,
+        fees:
+          (f._sum.commissionFee || 0) +
+          (f._sum.serviceFee || 0) +
+          (f._sum.deliveryFee || 0) +
+          (f._sum.marketingFees || 0) +
+          (f._sum.customerFees || 0),
+        breakdown: {
+          commission: f._sum.commissionFee || 0,
+          service: f._sum.serviceFee || 0,
+          delivery: f._sum.deliveryFee || 0,
+          marketing: f._sum.marketingFees || 0,
+          customer: f._sum.customerFees || 0,
+        },
+      }))
+      .filter((f) => f.fees > 0)
+      .sort((a, b) => b.fees - a.fees),
   });
 }

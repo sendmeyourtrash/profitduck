@@ -15,6 +15,7 @@ interface BarChartCardProps {
   title: string;
   color?: string;
   valuePrefix?: string;
+  onBarClick?: (name: string) => void;
 }
 
 function fmtAxis(v: number, prefix = "$"): string {
@@ -33,6 +34,7 @@ export default function BarChartCard({
   title,
   color = "#6366f1",
   valuePrefix = "$",
+  onBarClick,
 }: BarChartCardProps) {
   const formatValue = (value: number) =>
     `${valuePrefix}${value.toLocaleString("en-US", { minimumFractionDigits: 0 })}`;
@@ -60,7 +62,24 @@ export default function BarChartCard({
               tickFormatter={(v) => truncate(v, 16)}
             />
             <Tooltip formatter={(value) => formatValue(Number(value))} />
-            <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} />
+            <Bar
+              dataKey="value"
+              fill={color}
+              radius={[0, 4, 4, 0]}
+              cursor={onBarClick ? "pointer" : undefined}
+              onClick={
+                onBarClick
+                  ? (entry) => {
+                      // Recharts wraps the original data in a `payload` property
+                      const raw = entry as unknown as {
+                        payload?: { name: string };
+                      };
+                      const name = raw.payload?.name;
+                      if (name) onBarClick(name);
+                    }
+                  : undefined
+              }
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>

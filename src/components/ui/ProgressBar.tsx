@@ -15,14 +15,14 @@ export function ProgressBar({
   color = "indigo",
 }: {
   progress: ProgressState;
-  color?: "indigo" | "blue";
+  color?: "indigo" | "blue" | "teal";
 }) {
   const pct = progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
     : -1; // -1 = indeterminate
   const isIndeterminate = pct < 0;
-  const colorClasses = color === "blue" ? "bg-blue-600" : "bg-indigo-600";
-  const trackClasses = color === "blue" ? "bg-blue-100" : "bg-indigo-100";
+  const colorClasses = color === "blue" ? "bg-blue-600" : color === "teal" ? "bg-teal-600" : "bg-indigo-600";
+  const trackClasses = color === "blue" ? "bg-blue-100" : color === "teal" ? "bg-teal-100" : "bg-indigo-100";
 
   return (
     <div className="space-y-2">

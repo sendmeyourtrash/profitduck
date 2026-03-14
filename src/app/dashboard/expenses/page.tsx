@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import StatCard from "@/components/charts/StatCard";
 import BarChartCard from "@/components/charts/BarChartCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 import { formatCurrency } from "@/lib/utils/format";
+import { useDateRange } from "@/contexts/DateRangeContext";
 
 interface ExpenseData {
   expensesByVendor: {
@@ -19,21 +21,35 @@ interface ExpenseData {
     count: number;
   }[];
   monthlyExpenses: { month: string; total: number }[];
-  feesByPlatform: { platform: string; fees: number }[];
+  feesByPlatform: {
+    platform: string;
+    fees: number;
+    breakdown: {
+      commission: number;
+      service: number;
+      delivery: number;
+      marketing: number;
+      customer: number;
+    };
+  }[];
 }
 
 export default function ExpensesPage() {
+  const router = useRouter();
+  const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<ExpenseData | null>(null);
-  const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/dashboard/expenses?days=${days}`)
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    fetch(`/api/dashboard/expenses?${params}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [startDate, endDate]);
 
   if (loading) {
     return (
@@ -53,29 +69,6 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Period Selector */}
-      <div className="flex gap-2">
-        {[7, 30, 90, 365].map((d) => (
-          <button
-            key={d}
-            onClick={() => setDays(d)}
-            className={`px-3 py-1.5 rounded-lg text-sm ${
-              days === d
-                ? "bg-indigo-600 text-white"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            {d === 7
-              ? "7 Days"
-              : d === 30
-                ? "30 Days"
-                : d === 90
-                  ? "90 Days"
-                  : "1 Year"}
-          </button>
-        ))}
-      </div>
-
       {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
@@ -104,6 +97,11 @@ export default function ExpensesPage() {
             value: v.total,
           }))}
           color="#ef4444"
+          onBarClick={(name) =>
+            router.push(
+              `/dashboard/expenses/vendor/${encodeURIComponent(name)}`
+            )
+          }
         />
         <BarChartCard
           title="Expenses by Category"
@@ -112,6 +110,11 @@ export default function ExpensesPage() {
             value: c.total,
           }))}
           color="#f59e0b"
+          onBarClick={(name) =>
+            router.push(
+              `/dashboard/expenses/category/${encodeURIComponent(name)}`
+            )
+          }
         />
       </div>
 
@@ -136,18 +139,45 @@ export default function ExpensesPage() {
             <thead>
               <tr className="text-left text-gray-400 border-b">
                 <th className="pb-2 font-medium">Platform</th>
+                <th className="pb-2 font-medium text-right">Commission</th>
+                <th className="pb-2 font-medium text-right">Service</th>
+                <th className="pb-2 font-medium text-right">Marketing</th>
                 <th className="pb-2 font-medium text-right">Total Fees</th>
               </tr>
             </thead>
             <tbody>
               {data.feesByPlatform.map((f) => (
                 <tr key={f.platform} className="border-b border-gray-50">
-                  <td className="py-2 text-gray-800">{f.platform}</td>
+                  <td className="py-2 text-gray-800 capitalize">{f.platform}</td>
+                  <td className="py-2 text-right text-gray-600">
+                    {f.breakdown?.commission > 0 ? formatCurrency(f.breakdown?.commission) : "—"}
+                  </td>
+                  <td className="py-2 text-right text-gray-600">
+                    {f.breakdown?.service > 0 ? formatCurrency(f.breakdown?.service) : "—"}
+                  </td>
+                  <td className="py-2 text-right text-gray-600">
+                    {f.breakdown?.marketing > 0 ? formatCurrency(f.breakdown?.marketing) : "—"}
+                  </td>
                   <td className="py-2 text-right font-medium text-amber-600">
                     {formatCurrency(f.fees)}
                   </td>
                 </tr>
               ))}
+              <tr className="border-t border-gray-200 font-medium">
+                <td className="py-2 text-gray-800">Total</td>
+                <td className="py-2 text-right text-gray-600">
+                  {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.commission, 0))}
+                </td>
+                <td className="py-2 text-right text-gray-600">
+                  {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.service, 0))}
+                </td>
+                <td className="py-2 text-right text-gray-600">
+                  {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.marketing, 0))}
+                </td>
+                <td className="py-2 text-right font-medium text-amber-600">
+                  {formatCurrency(totalFees)}
+                </td>
+              </tr>
             </tbody>
           </table>
         )}
@@ -172,8 +202,19 @@ export default function ExpensesPage() {
             </thead>
             <tbody>
               {data.expensesByVendor.map((v) => (
-                <tr key={v.vendorId} className="border-b border-gray-50">
-                  <td className="py-2 text-gray-800">{v.vendorName}</td>
+                <tr
+                  key={v.vendorId}
+                  className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/expenses/vendor/${encodeURIComponent(v.vendorName)}`
+                    )
+                  }
+                >
+                  <td className="py-2 text-indigo-600 hover:text-indigo-800 font-medium">
+                    {v.vendorName}
+                    <span className="ml-1.5 text-gray-400 text-xs">→</span>
+                  </td>
                   <td className="py-2 text-right font-medium text-red-600">
                     {formatCurrency(v.total)}
                   </td>

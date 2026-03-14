@@ -5,6 +5,7 @@ import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 import PlatformPieChart from "@/components/charts/PlatformPieChart";
 import { formatCurrency } from "@/lib/utils/format";
+import { useDateRange } from "@/contexts/DateRangeContext";
 
 interface OverviewData {
   today: { revenue: number; fees: number; expenses: number; netProfit: number };
@@ -27,6 +28,7 @@ interface RevenueData {
 }
 
 export default function DashboardPage() {
+  const { startDate, endDate } = useDateRange();
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,9 +42,12 @@ export default function DashboardPage() {
   } | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
     Promise.all([
       fetch("/api/dashboard/overview").then((r) => r.json()),
-      fetch("/api/dashboard/revenue?days=30").then((r) => r.json()),
+      fetch(`/api/dashboard/revenue?${params}`).then((r) => r.json()),
       fetch("/api/reconciliation/chains").then((r) => r.json()).catch(() => null),
     ])
       .then(([ov, rev, recon]) => {
@@ -51,7 +56,7 @@ export default function DashboardPage() {
         if (recon?.summary) setReconSummary(recon.summary);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [startDate, endDate]);
 
   if (loading) {
     return (
@@ -103,7 +108,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RevenueChart
           data={revenueData?.dailyRevenue || []}
-          title="Daily Revenue (Last 30 Days)"
+          title="Daily Revenue"
         />
         <PlatformPieChart
           data={overview.platformBreakdown}

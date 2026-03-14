@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface ExpenseCategory {
   id: string;
@@ -21,6 +22,7 @@ interface CategorizationRule {
 }
 
 export default function CategoriesPage() {
+  const router = useRouter();
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [rules, setRules] = useState<CategorizationRule[]>([]);
   const [tab, setTab] = useState<"categories" | "rules">("categories");
@@ -180,7 +182,12 @@ export default function CategoriesPage() {
                 {categories.map((cat) => (
                   <tr
                     key={cat.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
+                    className="border-t border-gray-100 hover:bg-indigo-50 cursor-pointer transition-colors"
+                    onClick={() =>
+                      router.push(
+                        `/dashboard/expenses/category/${encodeURIComponent(cat.name)}`
+                      )
+                    }
                   >
                     <td className="px-4 py-2.5">
                       <div
@@ -189,7 +196,7 @@ export default function CategoriesPage() {
                       />
                     </td>
                     <td className="px-4 py-2.5 text-gray-800 font-medium">
-                      {cat.name}
+                      <span className="hover:text-indigo-600">{cat.name}</span>
                     </td>
                     <td className="px-4 py-2.5 text-right text-gray-600">
                       {cat._count.expenses}

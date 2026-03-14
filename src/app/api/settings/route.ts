@@ -17,7 +17,15 @@ import {
   startScheduler,
   stopScheduler,
   isSchedulerRunning,
+  startPlaidScheduler,
+  stopPlaidScheduler,
+  isPlaidSchedulerRunning,
 } from "@/lib/services/scheduler";
+import {
+  initializePlaidFromDb,
+  isPlaidConfigured,
+  clearPlaidCredentials,
+} from "@/lib/services/plaid-api";
 
 /**
  * GET /api/settings
@@ -26,11 +34,14 @@ import {
 export async function GET() {
   try {
     await initializeTokenFromDb();
+    await initializePlaidFromDb();
     const settings = await getAllSettingsMasked();
     return NextResponse.json({
       settings,
       squareConfigured: isSquareConfigured(),
       schedulerRunning: isSchedulerRunning(),
+      plaidConfigured: isPlaidConfigured(),
+      plaidSchedulerRunning: isPlaidSchedulerRunning(),
     });
   } catch (error) {
     console.error("[Settings API] GET error:", error);
@@ -89,6 +100,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, schedulerRunning: isSchedulerRunning() });
     }
 
+    // Plaid auto-sync toggle
+    if (key === "plaid_auto_sync_enabled") {
+      await setSetting(key, value);
+      if (value === "true") {
+        startPlaidScheduler(24);
+      } else {
+        stopPlaidScheduler();
+      }
+      return NextResponse.json({ success: true, plaidSchedulerRunning: isPlaidSchedulerRunning() });
+    }
+
     // Generic setting
     await setSetting(key, value);
     return NextResponse.json({ success: true });
@@ -117,6 +139,13 @@ export async function DELETE(request: NextRequest) {
     // If deleting Square token, also clear runtime
     if (key === SETTING_KEYS.SQUARE_API_TOKEN) {
       await clearSquareToken();
+    }
+
+    // If deleting Plaid token, clear all Plaid credentials
+    if (key === SETTING_KEYS.PLAID_ACCESS_TOKEN) {
+      stopPlaidScheduler();
+      await clearPlaidCredentials();
+      return NextResponse.json({ success: true });
     }
 
     // If deleting auto-sync, stop scheduler

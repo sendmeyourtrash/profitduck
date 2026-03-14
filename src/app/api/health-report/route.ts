@@ -12,6 +12,7 @@ import {
   startOfQuarter,
   endOfQuarter,
   subQuarters,
+  subYears,
   getDaysInMonth,
   getDate,
 } from "date-fns";
@@ -33,13 +34,13 @@ interface PeriodDateRanges {
   comparisonLabel: string;
 }
 
-function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
+function resolvePeriodDates(period: Period, now: Date, compare: "prior" | "yoy" = "prior"): PeriodDateRanges {
   switch (period) {
     case "1d": {
       const currentStart = startOfDay(now);
       const currentEnd = endOfDay(now);
-      const previousStart = startOfDay(subDays(now, 1));
-      const previousEnd = endOfDay(subDays(now, 1));
+      const previousStart = compare === "yoy" ? startOfDay(subYears(now, 1)) : startOfDay(subDays(now, 1));
+      const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfDay(subDays(now, 1));
       const chartLookbackStart = subDays(now, 14);
       return {
         currentStart,
@@ -49,14 +50,14 @@ function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
         chartLookbackStart,
         forecastDays: 1,
         periodLabel: "Today",
-        comparisonLabel: "vs yesterday",
+        comparisonLabel: compare === "yoy" ? "vs same day last year" : "vs yesterday",
       };
     }
     case "1w": {
       const currentStart = startOfDay(subDays(now, 6));
       const currentEnd = endOfDay(now);
-      const previousStart = startOfDay(subDays(now, 13));
-      const previousEnd = endOfDay(subDays(now, 7));
+      const previousStart = compare === "yoy" ? startOfDay(subYears(currentStart, 1)) : startOfDay(subDays(now, 13));
+      const previousEnd = compare === "yoy" ? endOfDay(subYears(currentEnd, 1)) : endOfDay(subDays(now, 7));
       const chartLookbackStart = subDays(now, 30);
       return {
         currentStart,
@@ -66,14 +67,14 @@ function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
         chartLookbackStart,
         forecastDays: 7,
         periodLabel: "This Week",
-        comparisonLabel: "vs prior week",
+        comparisonLabel: compare === "yoy" ? "vs same week last year" : "vs prior week",
       };
     }
     case "1m": {
       const currentStart = startOfMonth(now);
       const currentEnd = endOfDay(now);
-      const previousStart = startOfMonth(subMonths(now, 1));
-      const previousEnd = endOfMonth(subMonths(now, 1));
+      const previousStart = compare === "yoy" ? startOfMonth(subYears(now, 1)) : startOfMonth(subMonths(now, 1));
+      const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfMonth(subMonths(now, 1));
       const chartLookbackStart = subDays(now, 90);
       return {
         currentStart,
@@ -86,14 +87,14 @@ function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
           month: "long",
           year: "numeric",
         }),
-        comparisonLabel: "vs last month",
+        comparisonLabel: compare === "yoy" ? "vs same month last year" : "vs last month",
       };
     }
     case "1q": {
       const currentStart = startOfQuarter(now);
       const currentEnd = endOfDay(now);
-      const previousStart = startOfQuarter(subQuarters(now, 1));
-      const previousEnd = endOfQuarter(subQuarters(now, 1));
+      const previousStart = compare === "yoy" ? startOfQuarter(subYears(now, 1)) : startOfQuarter(subQuarters(now, 1));
+      const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfQuarter(subQuarters(now, 1));
       const chartLookbackStart = subDays(now, 365);
       return {
         currentStart,
@@ -103,7 +104,7 @@ function resolvePeriodDates(period: Period, now: Date): PeriodDateRanges {
         chartLookbackStart,
         forecastDays: 90,
         periodLabel: `Q${Math.ceil((now.getMonth() + 1) / 3)} ${now.getFullYear()}`,
-        comparisonLabel: "vs last quarter",
+        comparisonLabel: compare === "yoy" ? "vs same quarter last year" : "vs last quarter",
       };
     }
   }
@@ -146,19 +147,96 @@ async function sumExpenses(start: Date, end: Date): Promise<number> {
   return result._sum.amount || 0;
 }
 
+// ---------- Custom date range resolver ----------
+
+function resolveCustomDates(
+  rawStart: string,
+  rawEnd: string,
+  now: Date,
+  compare: "prior" | "yoy" = "prior"
+): PeriodDateRanges {
+  const currentStart = rawStart ? startOfDay(new Date(rawStart)) : new Date(0);
+  const currentEnd = rawEnd ? endOfDay(new Date(rawEnd)) : endOfDay(now);
+
+  const spanMs = currentEnd.getTime() - currentStart.getTime();
+  const spanDays = Math.max(1, Math.round(spanMs / 86_400_000));
+
+  // Previous period: YoY shifts same dates back 1 year; prior shifts by span
+  const previousStart = compare === "yoy"
+    ? startOfDay(subYears(currentStart, 1))
+    : startOfDay(subDays(currentStart, spanDays));
+  const previousEnd = compare === "yoy"
+    ? endOfDay(subYears(currentEnd, 1))
+    : endOfDay(subDays(currentStart, 1));
+
+  // Chart lookback: scale with span
+  let lookbackDays: number;
+  if (spanDays <= 7) lookbackDays = 14;
+  else if (spanDays <= 30) lookbackDays = 60;
+  else if (spanDays <= 90) lookbackDays = 180;
+  else lookbackDays = 365;
+  lookbackDays = Math.max(lookbackDays, spanDays + 7);
+  const chartLookbackStart = subDays(currentEnd, lookbackDays);
+
+  // Forecast days: scale with span
+  let forecastDays: number;
+  if (spanDays <= 1) forecastDays = 1;
+  else if (spanDays <= 7) forecastDays = 7;
+  else if (spanDays <= 30) forecastDays = 30;
+  else forecastDays = 90;
+
+  // Period label
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const periodLabel = rawStart
+    ? `${fmt(currentStart)} — ${fmt(currentEnd)}`
+    : "All Time";
+  const comparisonLabel = compare === "yoy"
+    ? "vs same period last year"
+    : spanDays === 1
+      ? "vs prior day"
+      : spanDays <= 7
+        ? `vs prior ${spanDays} days`
+        : spanDays <= 31
+          ? "vs prior period"
+          : `vs prior ${spanDays} days`;
+
+  return {
+    currentStart,
+    currentEnd,
+    previousStart,
+    previousEnd,
+    chartLookbackStart,
+    forecastDays,
+    periodLabel,
+    comparisonLabel,
+  };
+}
+
 // ---------- GET handler ----------
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
-  // Parse and validate period param
-  const rawPeriod = searchParams.get("period") ?? "1m";
-  const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
-    ? (rawPeriod as Period)
-    : "1m";
-
   const now = new Date();
-  const dates = resolvePeriodDates(period, now);
+  let dates: PeriodDateRanges;
+
+  // Comparison mode: "prior" (default) or "yoy" (year-over-year)
+  const compare = searchParams.get("compare") === "yoy" ? "yoy" : "prior";
+
+  // Prefer startDate/endDate, fall back to period param
+  const rawStart = searchParams.get("startDate");
+  const rawEnd = searchParams.get("endDate");
+
+  if (rawStart !== null || rawEnd !== null) {
+    dates = resolveCustomDates(rawStart || "", rawEnd || "", now, compare);
+  } else {
+    const rawPeriod = searchParams.get("period") ?? "1m";
+    const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
+      ? (rawPeriod as Period)
+      : "1m";
+    dates = resolvePeriodDates(period, now, compare);
+  }
 
   // ---------- Parallel query groups ----------
 
@@ -215,6 +293,7 @@ export async function GET(request: NextRequest) {
     // C
     prisma.platformOrder.groupBy({
       by: ["platform"],
+      where: { orderDatetime: { gte: dates.currentStart, lte: dates.currentEnd } },
       _sum: {
         subtotal: true,
         commissionFee: true,
@@ -518,7 +597,7 @@ export async function GET(request: NextRequest) {
     insights,
     meta: {
       closedDays: closedDaysCount,
-      period,
+      period: dates.periodLabel,
       periodLabel: dates.periodLabel,
       comparisonLabel: dates.comparisonLabel,
       dataThrough,

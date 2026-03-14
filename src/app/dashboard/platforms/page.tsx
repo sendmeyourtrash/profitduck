@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import StatCard from "@/components/charts/StatCard";
 import BarChartCard from "@/components/charts/BarChartCard";
 import { formatCurrency } from "@/lib/utils/format";
+import { useDateRange } from "@/contexts/DateRangeContext";
 
 const PLATFORM_LABELS: Record<string, string> = {
   square: "Square (In-Store)",
@@ -35,17 +36,20 @@ interface PlatformData {
 }
 
 export default function PlatformsPage() {
+  const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<PlatformData | null>(null);
-  const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/dashboard/platforms?days=${days}`)
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    fetch(`/api/dashboard/platforms?${params}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
-  }, [days]);
+  }, [startDate, endDate]);
 
   if (loading) {
     return (
@@ -79,29 +83,6 @@ export default function PlatformsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Period Selector */}
-      <div className="flex gap-2">
-        {[7, 30, 90, 365].map((d) => (
-          <button
-            key={d}
-            onClick={() => setDays(d)}
-            className={`px-3 py-1.5 rounded-lg text-sm ${
-              days === d
-                ? "bg-indigo-600 text-white"
-                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            {d === 7
-              ? "7 Days"
-              : d === 30
-                ? "30 Days"
-                : d === 90
-                  ? "90 Days"
-                  : "1 Year"}
-          </button>
-        ))}
-      </div>
-
       {/* Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard

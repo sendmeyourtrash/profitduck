@@ -3,17 +3,35 @@ import { prisma } from "@/lib/db/prisma";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const days = parseInt(searchParams.get("days") || "30");
+  const rawStart = searchParams.get("startDate");
+  const rawEnd = searchParams.get("endDate");
+  const rawDays = searchParams.get("days");
 
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - days);
+  let startDate: Date;
+  let endDate: Date | undefined;
+
+  if (rawStart) {
+    startDate = new Date(rawStart);
+    if (rawEnd) {
+      endDate = new Date(rawEnd);
+      endDate.setHours(23, 59, 59, 999);
+    }
+  } else if (rawDays) {
+    const days = parseInt(rawDays);
+    startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+  } else {
+    startDate = new Date(0);
+  }
+
+  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
 
   // Revenue by platform
   const revenueByPlatform = await prisma.transaction.groupBy({
     by: ["sourcePlatform"],
     where: {
       type: "income",
-      date: { gte: startDate },
+      date: dateFilter,
     },
     _sum: { amount: true },
     _count: true,
@@ -25,16 +43,16 @@ export async function GET(request: NextRequest) {
   >(
     `SELECT date(date) as date, SUM(amount) as total, COUNT(*) as count
      FROM transactions
-     WHERE type = 'income' AND date >= ?
+     WHERE type = 'income' AND date >= ?${endDate ? " AND date <= ?" : ""}
      GROUP BY date(date)
      ORDER BY date(date) ASC`,
-    startDate.toISOString()
+    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
   );
 
   // Average order value by platform
   const avgOrderByPlatform = await prisma.platformOrder.groupBy({
     by: ["platform"],
-    where: { orderDatetime: { gte: startDate } },
+    where: { orderDatetime: dateFilter },
     _avg: { subtotal: true, netPayout: true },
     _count: true,
   });
@@ -45,10 +63,10 @@ export async function GET(request: NextRequest) {
   >(
     `SELECT date(date) as date, source_platform as platform, SUM(amount) as total
      FROM transactions
-     WHERE type = 'income' AND date >= ?
+     WHERE type = 'income' AND date >= ?${endDate ? " AND date <= ?" : ""}
      GROUP BY date(date), source_platform
      ORDER BY date(date) ASC`,
-    startDate.toISOString()
+    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
   );
 
   return NextResponse.json({

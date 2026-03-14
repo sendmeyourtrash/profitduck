@@ -21,6 +21,7 @@ import FilterBar, {
   FilterState,
   emptyFilters,
 } from "@/components/filters/FilterBar";
+import { useDateRange } from "@/contexts/DateRangeContext";
 
 type TabKey = "hourly" | "dow" | "fees" | "daily" | "closed";
 
@@ -100,8 +101,18 @@ interface DailyData {
 }
 
 export default function AnalyticsPage() {
+  const { startDate: globalStart, endDate: globalEnd } = useDateRange();
   const [tab, setTab] = useState<TabKey>("hourly");
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
+
+  // Sync global date range into local filters
+  useEffect(() => {
+    setFilters((prev) => ({
+      ...prev,
+      startDate: globalStart,
+      endDate: globalEnd,
+    }));
+  }, [globalStart, globalEnd]);
   const [loading, setLoading] = useState(true);
   const [selectedDow, setSelectedDow] = useState<number | null>(null);
   const [granularity, setGranularity] = useState<number>(60);
@@ -127,8 +138,8 @@ export default function AnalyticsPage() {
   const fetchAnalytics = useCallback(
     async (analyticsType: string, dow?: number | null) => {
       const params = new URLSearchParams({ type: analyticsType });
-      if (filters.platforms.length === 1)
-        params.set("platform", filters.platforms[0]);
+      if (filters.platforms.length > 0)
+        params.set("platforms", filters.platforms.join(","));
       if (filters.startDate) params.set("startDate", filters.startDate);
       if (filters.endDate) params.set("endDate", filters.endDate);
       if (dow !== null && dow !== undefined) params.set("dow", String(dow));
@@ -204,9 +215,13 @@ export default function AnalyticsPage() {
     fetchClosedDays();
   };
 
-  const handleFilterChange = useCallback((f: FilterState) => {
-    setFilters(f);
-  }, []);
+  const handleFilterChange = useCallback(
+    (f: FilterState) => {
+      // Always preserve global dates so "Clear all" can't wipe them
+      setFilters({ ...f, startDate: globalStart, endDate: globalEnd });
+    },
+    [globalStart, globalEnd]
+  );
 
   const TABS: { key: TabKey; label: string }[] = [
     { key: "hourly", label: "By Hour" },
@@ -221,6 +236,7 @@ export default function AnalyticsPage() {
       <FilterBar
         filters={filters}
         onChange={handleFilterChange}
+        showDateRange={false}
         showTypes={false}
         showCategories={false}
         showSearch={false}
@@ -260,12 +276,19 @@ export default function AnalyticsPage() {
         )}
       </div>
 
-      {loading && tab !== "closed" ? (
+      {/* Full spinner only on very first load (no data yet) */}
+      {loading && tab !== "closed" && hourlyData.length === 0 && dowData.length === 0 && feeData.length === 0 && dailyData.length === 0 ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
         </div>
       ) : (
-        <>
+        <div className="relative">
+          {/* Subtle loading overlay when refetching with existing data */}
+          {loading && tab !== "closed" && (
+            <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center rounded-xl">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+            </div>
+          )}
           {/* Hourly Revenue */}
           {tab === "hourly" && (
             <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -1226,7 +1249,7 @@ export default function AnalyticsPage() {
             </div>
             );
           })()}
-        </>
+        </div>
       )}
     </div>
   );

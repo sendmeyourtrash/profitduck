@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { ProgressBar, type ProgressState } from "@/components/ui/ProgressBar";
 import { useProgressStream } from "@/hooks/useProgressStream";
-
 /* ── Types ─────────────────────────────────────────────────────── */
 
 type SourcePlatform =
@@ -35,7 +34,9 @@ interface ImportResult {
     errors: string[];
     rowsSkipped: number;
   };
-  overlappingImports?: { id: string; fileName: string; importedAt: string }[] | null;
+  overlappingImports?:
+    | { id: string; fileName: string; importedAt: string }[]
+    | null;
 }
 
 interface DuplicateInfo {
@@ -357,7 +358,255 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
-      {/* ─── CSV Import ──────────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════
+          CARD 1 — Platform Connections & Sync
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+        {/* Header with Sync All */}
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Platform Connections</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Connect platform APIs to sync data automatically</p>
+          </div>
+          <button
+            onClick={triggerSync}
+            disabled={!squareConfigured || syncing}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium whitespace-nowrap"
+          >
+            {syncing ? (
+              <span className="flex items-center gap-1.5">
+                <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
+                Syncing...
+              </span>
+            ) : "Sync All"}
+          </button>
+        </div>
+
+        {/* ── Square ─────────────────────────────────────────────── */}
+        <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4 space-y-3">
+          {/* Connection header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔵</span>
+              <div>
+                <p className="text-sm font-medium text-gray-800">Square</p>
+                <p className="text-xs text-gray-500">Sync processing fees via Square Payments API</p>
+              </div>
+            </div>
+            {squareConfigured !== null && (
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
+                  squareConfigured ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${squareConfigured ? "bg-emerald-500" : "bg-gray-400"}`} />
+                  {squareConfigured ? squareMerchant || "Connected" : "Not configured"}
+                </span>
+                {squareConfigured && (
+                  <button onClick={disconnectSquare} className="text-xs text-gray-400 hover:text-red-500 transition-colors" title="Disconnect Square">
+                    &#10005;
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Token input (when not configured) */}
+          {squareConfigured === false && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => { setTokenInput(e.target.value); setTokenError(null); }}
+                  placeholder="Paste your Square access token"
+                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono bg-white ${
+                    tokenError ? "border-red-300" : "border-gray-300"
+                  }`}
+                  onKeyDown={(e) => { if (e.key === "Enter") connectSquare(); }}
+                />
+                <button
+                  onClick={connectSquare}
+                  disabled={tokenSaving || !tokenInput.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
+                >
+                  {tokenSaving ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
+                      Validating...
+                    </span>
+                  ) : "Connect"}
+                </button>
+              </div>
+              {tokenError && <p className="text-xs text-red-600">{tokenError}</p>}
+              <p className="text-xs text-gray-400">
+                Get your production token from{" "}
+                <span className="text-indigo-600">developer.squareup.com/apps</span>
+                {" "}&mdash; stored securely in the local database
+              </p>
+            </div>
+          )}
+
+          {/* Masked token */}
+          {squareConfigured && maskedToken && (
+            <p className="text-xs text-gray-400 font-mono">{maskedToken}</p>
+          )}
+
+          {/* ── Sync controls (inline, when connected) ──────────── */}
+          {squareConfigured && (
+            <div className="border-t border-blue-200/60 pt-3 space-y-3">
+              {/* Auto-sync toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">Auto-sync daily</p>
+                  <p className="text-xs text-gray-400">
+                    Sync every 24 hours while the app is running
+                    {schedulerRunning && <span className="ml-1 text-emerald-600">&bull; Active</span>}
+                  </p>
+                </div>
+                <button
+                  onClick={toggleAutoSync}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    autoSyncEnabled ? "bg-indigo-600" : "bg-gray-300"
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    autoSyncEnabled ? "translate-x-6" : "translate-x-1"
+                  }`} />
+                </button>
+              </div>
+
+              {/* Last sync info */}
+              {lastSyncAt && !syncing && !syncResult && (
+                <p className="text-xs text-gray-500">
+                  Last sync: {new Date(lastSyncAt).toLocaleString()} &mdash; next sync will fetch only new data
+                </p>
+              )}
+
+              {/* Sync progress bar */}
+              {syncing && (
+                <ProgressBar
+                  progress={syncProgress ?? { phase: "starting", current: 0, total: 0, message: "Starting sync...", done: false }}
+                  color="blue"
+                />
+              )}
+
+              {/* Sync button */}
+              {!syncing && !syncResult && (
+                <button
+                  onClick={triggerSync}
+                  disabled={syncing}
+                  className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                >
+                  {lastSyncAt ? "Sync New Data" : "Sync Now"}
+                </button>
+              )}
+
+              {/* Sync error */}
+              {syncError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700">{syncError}</p>
+                </div>
+              )}
+
+              {/* Sync results */}
+              {syncResult && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-emerald-600">&#10003;</span>
+                      <p className="text-sm font-medium text-gray-800">Sync Complete</p>
+                    </div>
+                    <button
+                      onClick={() => { setSyncResult(null); setSyncError(null); }}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white/80 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500">API Payments</p>
+                      <p className="font-medium text-gray-800 text-sm">{syncResult.totalPayments.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-white/80 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500">Matched Orders</p>
+                      <p className="font-medium text-gray-800 text-sm">{syncResult.matched.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-lg p-2.5">
+                      <p className="text-xs text-emerald-600">Fees Enriched</p>
+                      <p className="font-medium text-emerald-800 text-sm">{syncResult.enriched.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-lg p-2.5">
+                      <p className="text-xs text-emerald-600">Total Fees Added</p>
+                      <p className="font-medium text-emerald-800 text-sm">
+                        ${syncResult.totalFeesAdded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+                  {syncResult.skipped > 0 && (
+                    <p className="text-xs text-gray-500">{syncResult.skipped} order(s) already had fees (skipped).</p>
+                  )}
+                  {syncResult.unmatched > 0 && (
+                    <p className="text-xs text-amber-600">{syncResult.unmatched} API payment(s) had no matching CSV order.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Other platforms ─────────────────────────────────────── */}
+        {PLATFORM_CARDS.map((p) => (
+          <div key={p.key} className={`border ${p.color} rounded-lg p-4 flex items-center justify-between`}>
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{p.icon}</span>
+              <div>
+                <p className="text-sm font-medium text-gray-800">{p.name}</p>
+                <p className="text-xs text-gray-500">CSV import only &mdash; no API available</p>
+              </div>
+            </div>
+            <span className="text-xs text-gray-400 px-2.5 py-1 bg-gray-100 rounded-full">CSV Only</span>
+          </div>
+        ))}
+
+        {/* ── Sync History ────────────────────────────────────────── */}
+        {syncHistory.length > 0 && (
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sync History</h4>
+            <div className="space-y-1">
+              {syncHistory.map((h) => (
+                <div key={h.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <span className={`w-2 h-2 rounded-full ${
+                      h.status === "completed" ? "bg-emerald-500" : h.status === "failed" ? "bg-red-500" : "bg-amber-500"
+                    }`} />
+                    <div>
+                      <p className="text-sm text-gray-700">
+                        {new Date(h.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(h.importedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-700">{h.rowsProcessed.toLocaleString()} payments</p>
+                    <p className={`text-xs ${
+                      h.status === "completed" ? "text-emerald-600" : h.status === "failed" ? "text-red-600" : "text-amber-600"
+                    }`}>
+                      {h.status}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          CARD 2 — Import Data + Supported Formats
+          ═══════════════════════════════════════════════════════════ */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
         <div>
           <h3 className="text-sm font-semibold text-gray-800">Import Data</h3>
@@ -558,254 +807,23 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
-      </div>
 
-      {/* ─── Platform Connections ─────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-800">Platform Connections</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Connect platform APIs to sync data automatically</p>
-        </div>
-
-        {/* Square */}
-        <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔵</span>
-              <div>
-                <p className="text-sm font-medium text-gray-800">Square</p>
-                <p className="text-xs text-gray-500">Sync processing fees via Square Payments API</p>
-              </div>
-            </div>
-            {squareConfigured !== null && (
-              <div className="flex items-center gap-2">
-                <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
-                  squareConfigured ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${squareConfigured ? "bg-emerald-500" : "bg-gray-400"}`} />
-                  {squareConfigured ? squareMerchant || "Connected" : "Not configured"}
-                </span>
-                {squareConfigured && (
-                  <button onClick={disconnectSquare} className="text-xs text-gray-400 hover:text-red-500 transition-colors" title="Disconnect Square">
-                    &#10005;
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {squareConfigured === false && (
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => { setTokenInput(e.target.value); setTokenError(null); }}
-                  placeholder="Paste your Square access token"
-                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono bg-white ${
-                    tokenError ? "border-red-300" : "border-gray-300"
-                  }`}
-                  onKeyDown={(e) => { if (e.key === "Enter") connectSquare(); }}
-                />
-                <button
-                  onClick={connectSquare}
-                  disabled={tokenSaving || !tokenInput.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium whitespace-nowrap"
-                >
-                  {tokenSaving ? (
-                    <span className="flex items-center gap-1.5">
-                      <span className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
-                      Validating...
-                    </span>
-                  ) : "Connect"}
-                </button>
-              </div>
-              {tokenError && <p className="text-xs text-red-600">{tokenError}</p>}
-              <p className="text-xs text-gray-400">
-                Get your production token from{" "}
-                <span className="text-indigo-600">developer.squareup.com/apps</span>
-                {" "}&mdash; stored securely in the local database
-              </p>
-            </div>
-          )}
-
-          {squareConfigured && maskedToken && (
-            <p className="text-xs text-gray-400 font-mono">{maskedToken}</p>
-          )}
-        </div>
-
-        {/* Other platforms */}
-        {PLATFORM_CARDS.map((p) => (
-          <div key={p.key} className={`border ${p.color} rounded-lg p-4 flex items-center justify-between`}>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">{p.icon}</span>
-              <div>
-                <p className="text-sm font-medium text-gray-800">{p.name}</p>
-                <p className="text-xs text-gray-500">CSV import only &mdash; no API available</p>
-              </div>
-            </div>
-            <span className="text-xs text-gray-400 px-2.5 py-1 bg-gray-100 rounded-full">CSV Only</span>
-          </div>
-        ))}
-      </div>
-
-      {/* ─── Data Sync ───────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-800">Data Sync</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Sync processing fees from connected platforms</p>
-        </div>
-
-        {/* Auto-sync toggle */}
-        <div className="flex items-center justify-between py-2 border-b border-gray-100">
-          <div>
-            <p className="text-sm text-gray-700">Auto-sync daily</p>
-            <p className="text-xs text-gray-400">
-              Automatically sync every 24 hours while the app is running
-              {schedulerRunning && <span className="ml-1 text-emerald-600">&bull; Active</span>}
-            </p>
-          </div>
-          <button
-            onClick={toggleAutoSync}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              autoSyncEnabled ? "bg-indigo-600" : "bg-gray-300"
-            }`}
-            disabled={!squareConfigured}
-            title={!squareConfigured ? "Connect a platform first" : undefined}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              autoSyncEnabled ? "translate-x-6" : "translate-x-1"
-            }`} />
-          </button>
-        </div>
-
-        {/* Last sync info */}
-        {lastSyncAt && !syncing && !syncResult && (
-          <p className="text-xs text-gray-500">
-            Last sync: {new Date(lastSyncAt).toLocaleString()} &mdash; next sync will fetch only new data
-          </p>
-        )}
-
-        {/* Sync progress bar */}
-        {syncing && (
-          <ProgressBar
-            progress={syncProgress ?? { phase: "starting", current: 0, total: 0, message: "Starting sync...", done: false }}
-            color="blue"
-          />
-        )}
-
-        {/* Sync button */}
-        {!syncing && !syncResult && (
-          <button
-            onClick={triggerSync}
-            disabled={!squareConfigured || syncing}
-            className="w-full bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-          >
-            {lastSyncAt ? "Sync New Data" : "Sync Now"}
-          </button>
-        )}
-
-        {/* Sync error */}
-        {syncError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-700">{syncError}</p>
-          </div>
-        )}
-
-        {/* Sync results */}
-        {syncResult && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-emerald-600">&#10003;</span>
-                <p className="text-sm font-medium text-gray-800">Sync Complete</p>
-              </div>
-              <button
-                onClick={() => { setSyncResult(null); setSyncError(null); }}
-                className="text-xs text-gray-400 hover:text-gray-600"
-              >
-                Dismiss
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">API Payments</p>
-                <p className="font-medium text-gray-800 text-sm">{syncResult.totalPayments.toLocaleString()}</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Matched Orders</p>
-                <p className="font-medium text-gray-800 text-sm">{syncResult.matched.toLocaleString()}</p>
-              </div>
-              <div className="bg-emerald-50 rounded-lg p-2.5">
-                <p className="text-xs text-emerald-600">Fees Enriched</p>
-                <p className="font-medium text-emerald-800 text-sm">{syncResult.enriched.toLocaleString()}</p>
-              </div>
-              <div className="bg-emerald-50 rounded-lg p-2.5">
-                <p className="text-xs text-emerald-600">Total Fees Added</p>
-                <p className="font-medium text-emerald-800 text-sm">
-                  ${syncResult.totalFeesAdded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
-            {syncResult.skipped > 0 && (
-              <p className="text-xs text-gray-500">{syncResult.skipped} order(s) already had fees (skipped).</p>
-            )}
-            {syncResult.unmatched > 0 && (
-              <p className="text-xs text-amber-600">{syncResult.unmatched} API payment(s) had no matching CSV order.</p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Supported File Formats ──────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Supported File Formats</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          {SUPPORTED_FORMATS.map((p) => (
-            <div key={p.name} className="flex items-start gap-2">
-              <span className="text-indigo-600 mt-0.5">&#9679;</span>
-              <div>
-                <p className="font-medium text-gray-700">{p.name}</p>
-                <p className="text-gray-500 text-xs">{p.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ─── Sync History ────────────────────────────────────────── */}
-      {syncHistory.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-800">Sync History</h3>
-          <div className="space-y-2">
-            {syncHistory.map((h) => (
-              <div key={h.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                <div className="flex items-center gap-3">
-                  <span className={`w-2 h-2 rounded-full ${
-                    h.status === "completed" ? "bg-emerald-500" : h.status === "failed" ? "bg-red-500" : "bg-amber-500"
-                  }`} />
-                  <div>
-                    <p className="text-sm text-gray-700">
-                      {new Date(h.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {new Date(h.importedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-700">{h.rowsProcessed.toLocaleString()} payments</p>
-                  <p className={`text-xs ${
-                    h.status === "completed" ? "text-emerald-600" : h.status === "failed" ? "text-red-600" : "text-amber-600"
-                  }`}>
-                    {h.status}
-                  </p>
+        {/* ── Supported File Formats ─────────────────────────────── */}
+        <div className="border-t border-gray-100 pt-4 mt-4">
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Supported File Formats</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            {SUPPORTED_FORMATS.map((p) => (
+              <div key={p.name} className="flex items-start gap-2">
+                <span className="text-indigo-600 mt-0.5">&#9679;</span>
+                <div>
+                  <p className="font-medium text-gray-700">{p.name}</p>
+                  <p className="text-gray-500 text-xs">{p.desc}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

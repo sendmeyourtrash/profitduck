@@ -5,18 +5,9 @@ import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 import BarChartCard from "@/components/charts/BarChartCard";
 import { formatCurrency } from "@/lib/utils/format";
+import { useDateRange } from "@/contexts/DateRangeContext";
 
-// ---------- Period configuration ----------
-
-type Period = "1d" | "1w" | "1m" | "1q";
-
-const PERIOD_OPTIONS: Period[] = ["1d", "1w", "1m", "1q"];
-const PERIOD_LABELS: Record<Period, string> = {
-  "1d": "1D",
-  "1w": "1W",
-  "1m": "1M",
-  "1q": "1Q",
-};
+// ---------- Helpers ----------
 
 function forecastLabel(days: number): string {
   if (days === 1) return "Next 1 Day";
@@ -141,16 +132,21 @@ function severityBadgeClass(severity: string): string {
 export default function HealthReportPage() {
   const [data, setData] = useState<HealthReportData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<Period>("1m");
   const [seasonalOn, setSeasonalOn] = useState(false);
+  const [compareMode, setCompareMode] = useState<"prior" | "yoy">("prior");
+  const { startDate, endDate } = useDateRange();
 
   const fetchReport = useCallback(() => {
     setLoading(true);
-    fetch(`/api/health-report?period=${period}`)
+    const params = new URLSearchParams();
+    params.set("startDate", startDate);
+    params.set("endDate", endDate);
+    if (compareMode === "yoy") params.set("compare", "yoy");
+    fetch(`/api/health-report?${params}`)
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [startDate, endDate, compareMode]);
 
   useEffect(() => {
     fetchReport();
@@ -206,42 +202,41 @@ export default function HealthReportPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {meta.periodLabel} &middot; Data through {meta.dataThrough}
-            {meta.closedDays > 0 && (
-              <span className="ml-2 text-amber-500">
-                ({meta.closedDays} closed day
-                {meta.closedDays !== 1 ? "s" : ""})
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          onClick={fetchReport}
-          className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"
-        >
-          Refresh
-        </button>
-      </div>
-
-      {/* Period Selector */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400 font-medium">Period</span>
-        <div className="flex bg-gray-100 rounded-lg p-0.5">
-          {PERIOD_OPTIONS.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => setPeriod(opt)}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                period === opt
-                  ? "bg-white text-indigo-600 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {PERIOD_LABELS[opt]}
-            </button>
-          ))}
+        <p className="text-sm text-gray-400">
+          {meta.periodLabel} &middot; Data through {meta.dataThrough}
+          {meta.closedDays > 0 && (
+            <span className="ml-2 text-amber-500">
+              ({meta.closedDays} closed day
+              {meta.closedDays !== 1 ? "s" : ""})
+            </span>
+          )}
+        </p>
+        <div className="flex items-center gap-3">
+          {/* Comparison mode toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            {([
+              { value: "prior" as const, label: "Prior Period" },
+              { value: "yoy" as const, label: "vs Last Year" },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setCompareMode(opt.value)}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  compareMode === opt.value
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={fetchReport}
+            className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"
+          >
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -373,7 +368,7 @@ export default function HealthReportPage() {
       {/* Section 3: Platform Performance */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h3 className="text-sm font-medium text-gray-500 mb-4">
-          Platform Performance (All Time)
+          Platform Performance
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

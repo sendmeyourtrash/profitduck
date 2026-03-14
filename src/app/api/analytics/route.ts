@@ -70,7 +70,8 @@ function getEasternDateStr(d: Date): string {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type") || "daily_summary";
-  const platform = searchParams.get("platform");
+  const platform = searchParams.get("platform"); // single (legacy)
+  const platforms = searchParams.get("platforms"); // comma-separated
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   const dowFilter = searchParams.get("dow"); // 0=Sunday..6=Saturday
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
   const granularity = parseInt(searchParams.get("granularity") || "60", 10); // 60, 30, or 15 minutes
 
   // Check response cache
-  const cacheKey = `${type}|${platform}|${startDate}|${endDate}|${dowFilter}|${excludeClosed}|${granularity}`;
+  const cacheKey = `${type}|${platform}|${platforms}|${startDate}|${endDate}|${dowFilter}|${excludeClosed}|${granularity}`;
   const cached = getCached(cacheKey);
   if (cached) return NextResponse.json(cached);
 
@@ -96,7 +97,13 @@ export async function GET(request: NextRequest) {
   // Base where clause for platform orders
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orderWhere: any = {};
-  if (platform) orderWhere.platform = platform;
+  if (platforms) {
+    const list = platforms.split(",").filter(Boolean);
+    if (list.length === 1) orderWhere.platform = list[0];
+    else if (list.length > 1) orderWhere.platform = { in: list };
+  } else if (platform) {
+    orderWhere.platform = platform;
+  }
   if (startDate || endDate) {
     orderWhere.orderDatetime = {};
     if (startDate) orderWhere.orderDatetime.gte = new Date(startDate);
@@ -110,7 +117,13 @@ export async function GET(request: NextRequest) {
   // Base where clause for transactions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const txWhere: any = {};
-  if (platform) txWhere.sourcePlatform = platform;
+  if (platforms) {
+    const list = platforms.split(",").filter(Boolean);
+    if (list.length === 1) txWhere.sourcePlatform = list[0];
+    else if (list.length > 1) txWhere.sourcePlatform = { in: list };
+  } else if (platform) {
+    txWhere.sourcePlatform = platform;
+  }
   if (startDate || endDate) {
     txWhere.date = {};
     if (startDate) txWhere.date.gte = new Date(startDate);
