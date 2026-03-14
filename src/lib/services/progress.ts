@@ -20,8 +20,19 @@ export type ProgressCallback = (progress: {
   message: string;
 }) => void;
 
-const store = new Map<string, ProgressState>();
 const AUTO_CLEANUP_MS = 5 * 60 * 1000; // 5 minutes
+
+// Use globalThis to ensure the progress store is shared across all API routes
+// in Next.js dev mode (Turbopack can create separate module instances per route).
+const globalStore = globalThis as unknown as {
+  __progressStore?: Map<string, ProgressState>;
+};
+
+if (!globalStore.__progressStore) {
+  globalStore.__progressStore = new Map<string, ProgressState>();
+}
+
+const store = globalStore.__progressStore;
 
 export function setProgress(id: string, state: ProgressState) {
   store.set(id, state);
