@@ -10,13 +10,8 @@ const navItems = [
   { href: "/health-report", label: "Health Report", icon: "🏥" },
   { href: "/dashboard/expenses", label: "Expenses", icon: "📉" },
   { href: "/dashboard/platforms", label: "Platforms", icon: "🏪" },
-  { href: "/reconciliation", label: "Reconciliation", icon: "🔗" },
   { href: "/transactions", label: "Transactions", icon: "📋" },
-  { href: "/manual-entry", label: "Manual Entry", icon: "✏️" },
-  { href: "/categories", label: "Categories", icon: "🏷️" },
-  { href: "/vendor-aliases", label: "Vendor Aliases", icon: "🔄" },
-  { href: "/imports", label: "Import History", icon: "📜" },
-  { href: "/settings", label: "Import & Settings", icon: "⚙️" },
+  { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
 export default function Sidebar() {
@@ -25,18 +20,18 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col min-h-screen">
       {/* Logo */}
-      <div className="p-6 border-b border-gray-700">
+      <div className="px-4 py-4 border-b border-gray-700">
         <div className="flex items-center gap-3">
           <Image
             src="/logo.png"
             alt="Profit Duck"
-            width={40}
-            height={40}
+            width={72}
+            height={72}
             className="rounded-lg"
           />
           <div>
             <h1 className="text-xl font-bold tracking-tight">Profit Duck</h1>
-            <p className="text-xs text-gray-400">Financial Dashboard</p>
+            <p className="text-xs text-gray-400">Restaurant Dashboard</p>
           </div>
         </div>
       </div>

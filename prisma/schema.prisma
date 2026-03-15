@@ -73,6 +73,9 @@ model PlatformOrder {
   refunds         Float    @default(0)                // UE: customer refunds
   adjustments     Float    @default(0)                // DD: error charges & adjustments
 
+  // Platform's native payout ID (e.g. DoorDash "Payout ID" from CSV)
+  platformPayoutId     String?  @map("platform_payout_id")
+
   // Reconciliation: link L1 order to L2 payout
   linkedPayoutId       String?  @map("linked_payout_id")
   linkedPayout         Payout?  @relation(fields: [linkedPayoutId], references: [id])
@@ -80,6 +83,7 @@ model PlatformOrder {
 
   @@unique([orderId, platform])
   @@index([platform, orderDatetime])
+  @@index([platform, platformPayoutId])
   @@index([orderDatetime])
   @@map("platform_orders")
 }
@@ -114,6 +118,10 @@ model Expense {
   expenseCategoryId String?          @map("expense_category_id")
   expenseCategory   ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
 
+  // Link to corresponding bank transaction (dedup across sources)
+  linkedBankTransactionId String?          @map("linked_bank_transaction_id")
+  linkedBankTransaction   BankTransaction? @relation(fields: [linkedBankTransactionId], references: [id])
+
   @@index([vendorId, date])
   @@index([date])
   @@map("expenses")
@@ -126,12 +134,15 @@ model Payout {
   grossAmount       Float            @map("gross_amount")
   fees              Float            @default(0)
   netAmount         Float            @map("net_amount")
-  bankTransactionId String?          @unique @map("bank_transaction_id")
+  bankTransactionId String?          @map("bank_transaction_id")
   bankTransaction   BankTransaction? @relation(fields: [bankTransactionId], references: [id])
   rawData           String?          @map("raw_data")
   importId          String?          @map("import_id")
   import            Import?          @relation(fields: [importId], references: [id])
   createdAt         DateTime         @default(now()) @map("created_at")
+
+  // Platform's native payout ID (e.g. DoorDash "Payout ID" from CSV)
+  platformPayoutId     String?  @map("platform_payout_id")
 
   // Reconciliation: back-references from L1 + status
   transactions         Transaction[]
@@ -150,7 +161,7 @@ model BankTransaction {
   amount      Float
   category    String?
   reconciled  Boolean  @default(false)
-  payout      Payout?
+  payouts     Payout[]
 
   // Rocket Money account info
   accountType   String?  @map("account_type")     // Cash, Credit Card, etc.
@@ -165,6 +176,7 @@ model BankTransaction {
 
   // Reconciliation: back-references from L1 transactions + status
   linkedTransactions   Transaction[]
+  linkedExpenses       Expense[]
   reconciliationStatus String  @default("unreconciled") @map("reconciliation_status")
 
   @@index([date])
@@ -270,6 +282,36 @@ model VendorAlias {
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("vendor_aliases")
+}
+
+// ---------------------------------------------------------------------------
+// Menu item aliases — map renamed menu items together (e.g. "Mushroom Crêpe" → "Fun Guy")
+// ---------------------------------------------------------------------------
+
+model MenuItemAlias {
+  id          String   @id @default(uuid())
+  pattern     String   // item name pattern to match
+  matchType   String   @map("match_type") // contains | starts_with | exact
+  displayName String   @map("display_name") // canonical item name
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("menu_item_aliases")
+}
+
+model MenuItemIgnore {
+  id        String   @id @default(uuid())
+  itemName  String   @unique @map("item_name") // exact item name to hide from unmatched list
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("menu_item_ignores")
+}
+
+model VendorIgnore {
+  id         String   @id @default(uuid())
+  vendorName String   @unique @map("vendor_name") // exact vendor name to hide from unmatched list
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("vendor_ignores")
 }
 
 // ---------------------------------------------------------------------------

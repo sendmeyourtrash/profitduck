@@ -1,11 +1,50 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils/format";
 import FilterBar, {
   FilterState,
   emptyFilters,
 } from "@/components/filters/FilterBar";
+
+const ManualEntryPanel = dynamic(
+  () => import("@/components/panels/ManualEntryPanel"),
+  { loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    </div>
+  )}
+);
+
+const CategoriesPanel = dynamic(
+  () => import("@/components/panels/CategoriesPanel"),
+  { loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    </div>
+  )}
+);
+
+const VendorAliasesPanel = dynamic(
+  () => import("@/components/panels/VendorAliasesPanel"),
+  { loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    </div>
+  )}
+);
+
+const MenuItemAliasesPanel = dynamic(
+  () => import("@/components/panels/MenuItemAliasesPanel"),
+  { loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    </div>
+  )}
+);
+
+type TransactionsTab = "transactions" | "manual-entry" | "categories" | "vendor-aliases" | "menu-aliases";
 
 interface AuditLog {
   id: string;
@@ -15,6 +54,26 @@ interface AuditLog {
   reason: string | null;
   actor: string;
   createdAt: string;
+}
+
+interface OrderItem {
+  name: string;
+  category: string;
+  qty: number;
+  price: number;
+}
+
+interface OrderDetail {
+  cardBrand: string | null;
+  diningOption: string | null;
+  channel: string | null;
+  fulfillmentType: string | null;
+  subtotal: number;
+  tax: number;
+  tip: number;
+  fees: number;
+  netPayout: number;
+  items: OrderItem[] | null;
 }
 
 interface Transaction {
@@ -55,6 +114,34 @@ interface Transaction {
     reconciliationStatus: string;
   } | null;
   auditLogs: AuditLog[];
+  orderDetail: OrderDetail | null;
+}
+
+function getOrderType(tx: Transaction): string | null {
+  if (!tx.orderDetail) {
+    // Default for delivery platforms even without orderDetail
+    if (["doordash", "ubereats", "grubhub"].includes(tx.sourcePlatform)) {
+      return "Delivery";
+    }
+    return null;
+  }
+  const d = tx.orderDetail;
+  if (d.diningOption) return d.diningOption;
+  if (d.fulfillmentType) return d.fulfillmentType;
+  if (d.channel && d.channel !== "INCREPEABLE") return d.channel;
+  // Default for delivery platforms
+  if (["doordash", "ubereats", "grubhub"].includes(tx.sourcePlatform)) {
+    return "Delivery";
+  }
+  return null;
+}
+
+function getPaymentMethod(tx: Transaction): string | null {
+  if (!tx.orderDetail) return null;
+  if (tx.orderDetail.cardBrand) return tx.orderDetail.cardBrand;
+  // No card brand on a Square order = cash payment
+  if (tx.sourcePlatform === "square") return "Cash";
+  return null;
 }
 
 const RECON_STYLES: Record<string, string> = {
@@ -81,13 +168,19 @@ function DetailField({
 }
 
 function ExpandedRow({ tx }: { tx: Transaction }) {
-  const [showRaw, setShowRaw] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   const hasImport = !!tx.import;
   const hasPayout = !!tx.linkedPayout;
   const hasBankTx = !!tx.linkedBankTransaction;
   const hasAudit = tx.auditLogs && tx.auditLogs.length > 0;
   const hasRaw = !!tx.rawData;
+  const od = tx.orderDetail;
+  const hasItems = !!(od?.items && od.items.length > 0);
+
+  const orderType = getOrderType(tx);
+  const paymentMethod = getPaymentMethod(tx);
+  const isPlatformOrder = ["square", "doordash", "ubereats", "grubhub"].includes(tx.sourcePlatform);
 
   let parsedRaw: string | null = null;
   if (hasRaw) {
@@ -99,219 +192,225 @@ function ExpandedRow({ tx }: { tx: Transaction }) {
   }
 
   return (
-    <td colSpan={6} className="px-4 py-4 bg-gray-50/70">
-      <div className="space-y-4">
-        {/* Details Section */}
-        <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Details
-          </h4>
-          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
-            <DetailField label="Transaction ID" value={tx.id.slice(0, 8) + "..."} />
-            <DetailField
-              label="Reconciliation"
-              value={
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    RECON_STYLES[tx.reconciliationStatus] || RECON_STYLES.unreconciled
-                  }`}
-                >
-                  {tx.reconciliationStatus}
+    <td colSpan={8} className="px-0 py-0">
+      <div className="bg-gray-50/80 border-t border-gray-100">
+        {/* Top summary bar: key info at a glance */}
+        {isPlatformOrder && (
+          <div className="px-5 py-3 flex items-center gap-6 border-b border-gray-100 bg-white/60">
+            {paymentMethod && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Payment</span>
+                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                  {paymentMethod}
                 </span>
-              }
-            />
-            <DetailField
-              label="Source ID"
-              value={tx.rawSourceId}
-            />
-            <DetailField
-              label="Added"
-              value={formatDateTime(tx.createdAt)}
-            />
-          </dl>
-        </div>
-
-        {/* Import Source */}
-        {hasImport && (
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Import Source
-            </h4>
-            <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
-              <DetailField label="File" value={tx.import!.fileName} />
-              <DetailField
-                label="Source"
-                value={
-                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
-                    {tx.import!.source}
-                  </span>
-                }
-              />
-              <DetailField
-                label="Imported"
-                value={formatDateTime(tx.import!.importedAt)}
-              />
-            </dl>
-          </div>
-        )}
-
-        {/* Linked Payout */}
-        {hasPayout && (
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Linked Payout
-            </h4>
-            <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
-              <DetailField
-                label="Platform"
-                value={tx.linkedPayout!.platform}
-              />
-              <DetailField
-                label="Payout Date"
-                value={formatDate(tx.linkedPayout!.payoutDate)}
-              />
-              <DetailField
-                label="Gross"
-                value={formatCurrency(tx.linkedPayout!.grossAmount)}
-              />
-              <DetailField
-                label="Fees"
-                value={formatCurrency(tx.linkedPayout!.fees)}
-              />
-              <DetailField
-                label="Net"
-                value={
-                  <span className="font-medium text-emerald-700">
-                    {formatCurrency(tx.linkedPayout!.netAmount)}
-                  </span>
-                }
-              />
-              <DetailField
-                label="Status"
-                value={
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      RECON_STYLES[tx.linkedPayout!.reconciliationStatus] ||
-                      RECON_STYLES.unreconciled
-                    }`}
-                  >
-                    {tx.linkedPayout!.reconciliationStatus}
-                  </span>
-                }
-              />
-            </dl>
-          </div>
-        )}
-
-        {/* Linked Bank Transaction */}
-        {hasBankTx && (
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Linked Bank Transaction
-            </h4>
-            <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
-              <DetailField
-                label="Date"
-                value={formatDate(tx.linkedBankTransaction!.date)}
-              />
-              <DetailField
-                label="Description"
-                value={tx.linkedBankTransaction!.description}
-              />
-              <DetailField
-                label="Amount"
-                value={formatCurrency(tx.linkedBankTransaction!.amount)}
-              />
-              <DetailField
-                label="Institution"
-                value={tx.linkedBankTransaction!.institutionName}
-              />
-              <DetailField
-                label="Account"
-                value={tx.linkedBankTransaction!.accountName}
-              />
-              <DetailField
-                label="Category"
-                value={tx.linkedBankTransaction!.category}
-              />
-            </dl>
-          </div>
-        )}
-
-        {/* Audit History */}
-        {hasAudit && (
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Change History
-            </h4>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-100">
-                  <tr className="text-left text-gray-500">
-                    <th className="px-3 py-1.5 font-medium">Field</th>
-                    <th className="px-3 py-1.5 font-medium">Old Value</th>
-                    <th className="px-3 py-1.5 font-medium">New Value</th>
-                    <th className="px-3 py-1.5 font-medium">Reason</th>
-                    <th className="px-3 py-1.5 font-medium">By</th>
-                    <th className="px-3 py-1.5 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tx.auditLogs.map((log) => (
-                    <tr
-                      key={log.id}
-                      className="border-t border-gray-100"
-                    >
-                      <td className="px-3 py-1.5 text-gray-700 font-medium">
-                        {log.field}
-                      </td>
-                      <td className="px-3 py-1.5 text-red-600 line-through">
-                        {log.oldValue || "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-emerald-700">
-                        {log.newValue || "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-500">
-                        {log.reason || "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-gray-500">{log.actor}</td>
-                      <td className="px-3 py-1.5 text-gray-500">
-                        {formatDateTime(log.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Raw Data */}
-        {hasRaw && (
-          <div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowRaw(!showRaw);
-              }}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
-            >
-              <span>{showRaw ? "▾" : "▸"}</span>
-              Raw Import Data
-            </button>
-            {showRaw && (
-              <pre className="mt-2 p-3 bg-gray-900 text-gray-200 text-xs rounded-lg overflow-x-auto max-h-64">
-                {parsedRaw}
-              </pre>
+              </div>
+            )}
+            {orderType && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Order</span>
+                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700">
+                  {orderType}
+                </span>
+              </div>
+            )}
+            {od && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Subtotal</span>
+                  <span className="text-xs font-medium text-gray-700">{formatCurrency(od.subtotal)}</span>
+                </div>
+                {od.tax > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Tax</span>
+                    <span className="text-xs text-gray-600">{formatCurrency(od.tax)}</span>
+                  </div>
+                )}
+                {od.tip > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Tip</span>
+                    <span className="text-xs text-emerald-600">{formatCurrency(od.tip)}</span>
+                  </div>
+                )}
+                {od.fees > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Fees</span>
+                    <span className="text-xs text-red-500">{formatCurrency(od.fees)}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Net Payout</span>
+                  <span className="text-sm font-semibold text-emerald-700">{formatCurrency(od.netPayout)}</span>
+                </div>
+              </>
             )}
           </div>
         )}
+
+        <div className="px-5 py-3 space-y-3">
+          {/* Items Ordered */}
+          {hasItems && (
+            <div>
+              <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                Items Ordered
+              </h4>
+              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-gray-400 border-b border-gray-100">
+                      <th className="px-3 py-1.5 font-medium">Item</th>
+                      <th className="px-3 py-1.5 font-medium">Category</th>
+                      <th className="px-3 py-1.5 font-medium text-right">Qty</th>
+                      <th className="px-3 py-1.5 font-medium text-right">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {od!.items!.map((item, i) => (
+                      <tr key={i} className="border-t border-gray-50">
+                        <td className="px-3 py-1.5 text-gray-800 font-medium">{item.name}</td>
+                        <td className="px-3 py-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-50 text-gray-500">
+                            {item.category}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-gray-600">{item.qty}</td>
+                        <td className="px-3 py-1.5 text-right text-gray-800 font-medium">{formatCurrency(item.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Linked Payout */}
+          {hasPayout && (
+            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+              <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Linked Payout
+              </h4>
+              <div className="flex items-center gap-6 text-xs">
+                <span className="text-gray-500">{tx.linkedPayout!.platform}</span>
+                <span className="text-gray-500">{formatDate(tx.linkedPayout!.payoutDate)}</span>
+                <span className="text-gray-700">Gross {formatCurrency(tx.linkedPayout!.grossAmount)}</span>
+                <span className="text-red-500">Fees {formatCurrency(tx.linkedPayout!.fees)}</span>
+                <span className="font-medium text-emerald-700">Net {formatCurrency(tx.linkedPayout!.netAmount)}</span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium ml-auto ${
+                    RECON_STYLES[tx.linkedPayout!.reconciliationStatus] ||
+                    RECON_STYLES.unreconciled
+                  }`}
+                >
+                  {tx.linkedPayout!.reconciliationStatus}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Linked Bank Transaction */}
+          {hasBankTx && (
+            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+              <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                Linked Bank Transaction
+              </h4>
+              <div className="flex items-center gap-6 text-xs">
+                <span className="text-gray-500">{formatDate(tx.linkedBankTransaction!.date)}</span>
+                <span className="text-gray-700 truncate max-w-[200px]">{tx.linkedBankTransaction!.description}</span>
+                <span className="font-medium text-gray-800">{formatCurrency(tx.linkedBankTransaction!.amount)}</span>
+                {tx.linkedBankTransaction!.institutionName && (
+                  <span className="text-gray-400">{tx.linkedBankTransaction!.institutionName}</span>
+                )}
+                {tx.linkedBankTransaction!.accountName && (
+                  <span className="text-gray-400">{tx.linkedBankTransaction!.accountName}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Collapsible metadata section */}
+          <div className="flex items-center gap-4 pt-1">
+            <div className="flex items-center gap-3 text-[10px] text-gray-400">
+              <span
+                className={`px-2 py-0.5 rounded-full font-medium ${
+                  RECON_STYLES[tx.reconciliationStatus] || RECON_STYLES.unreconciled
+                }`}
+              >
+                {tx.reconciliationStatus}
+              </span>
+              {tx.rawSourceId && (
+                <span className="font-mono">{tx.rawSourceId.length > 16 ? tx.rawSourceId.slice(0, 16) + "..." : tx.rawSourceId}</span>
+              )}
+              {hasImport && (
+                <span>{tx.import!.source} &middot; {formatDateTime(tx.import!.importedAt)}</span>
+              )}
+            </div>
+
+            {(hasAudit || hasRaw) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMore(!showMore);
+                }}
+                className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium ml-auto"
+              >
+                {showMore ? "Less" : "More"}
+              </button>
+            )}
+          </div>
+
+          {/* Expanded metadata */}
+          {showMore && (
+            <div className="space-y-3 pt-1">
+              {hasAudit && (
+                <div>
+                  <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                    Change History
+                  </h4>
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-gray-400 border-b border-gray-100">
+                          <th className="px-3 py-1.5 font-medium">Field</th>
+                          <th className="px-3 py-1.5 font-medium">Old</th>
+                          <th className="px-3 py-1.5 font-medium">New</th>
+                          <th className="px-3 py-1.5 font-medium">Reason</th>
+                          <th className="px-3 py-1.5 font-medium">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tx.auditLogs.map((log) => (
+                          <tr key={log.id} className="border-t border-gray-50">
+                            <td className="px-3 py-1.5 text-gray-700 font-medium">{log.field}</td>
+                            <td className="px-3 py-1.5 text-red-500 line-through">{log.oldValue || "—"}</td>
+                            <td className="px-3 py-1.5 text-emerald-600">{log.newValue || "—"}</td>
+                            <td className="px-3 py-1.5 text-gray-400">{log.reason || "—"}</td>
+                            <td className="px-3 py-1.5 text-gray-400">{formatDateTime(log.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {hasRaw && (
+                <div>
+                  <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
+                    Raw Import Data
+                  </h4>
+                  <pre className="p-3 bg-gray-900 text-gray-300 text-[10px] rounded-lg overflow-x-auto max-h-48 leading-relaxed">
+                    {parsedRaw}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </td>
   );
 }
 
 export default function TransactionsPage() {
+  const [activeTab, setActiveTab] = useState<TransactionsTab>("transactions");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -368,6 +467,74 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Tab Bar */}
+      <div className="flex border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab("transactions")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "transactions"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Transactions
+        </button>
+        <button
+          onClick={() => setActiveTab("manual-entry")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "manual-entry"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Manual Entry
+        </button>
+        <button
+          onClick={() => setActiveTab("categories")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "categories"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Categories
+        </button>
+        <button
+          onClick={() => setActiveTab("vendor-aliases")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "vendor-aliases"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Vendor Aliases
+        </button>
+        <button
+          onClick={() => setActiveTab("menu-aliases")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "menu-aliases"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Menu Aliases
+        </button>
+      </div>
+
+      {/* Tab: Manual Entry */}
+      {activeTab === "manual-entry" && <ManualEntryPanel />}
+
+      {/* Tab: Categories */}
+      {activeTab === "categories" && <CategoriesPanel />}
+
+      {/* Tab: Vendor Aliases */}
+      {activeTab === "vendor-aliases" && <VendorAliasesPanel />}
+
+      {/* Tab: Menu Aliases */}
+      {activeTab === "menu-aliases" && <MenuItemAliasesPanel />}
+
+      {/* Tab: Transactions */}
+      {activeTab === "transactions" && <>
       <FilterBar
         filters={filters}
         onChange={handleFilterChange}
@@ -396,6 +563,8 @@ export default function TransactionsPage() {
                   <th className="px-4 py-3 font-medium">Date</th>
                   <th className="px-4 py-3 font-medium">Description</th>
                   <th className="px-4 py-3 font-medium">Platform</th>
+                  <th className="px-4 py-3 font-medium">Payment</th>
+                  <th className="px-4 py-3 font-medium">Order Type</th>
                   <th className="px-4 py-3 font-medium">Category</th>
                   <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium text-right">Amount</th>
@@ -439,6 +608,12 @@ export default function TransactionsPage() {
                           <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
                             {tx.sourcePlatform}
                           </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600 text-xs">
+                          {getPaymentMethod(tx) || "-"}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600 text-xs capitalize">
+                          {getOrderType(tx) || "-"}
                         </td>
                         <td className="px-4 py-2.5 text-gray-600">
                           {tx.category || "-"}
@@ -506,6 +681,7 @@ export default function TransactionsPage() {
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 }

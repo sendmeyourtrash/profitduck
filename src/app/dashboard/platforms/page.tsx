@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import StatCard from "@/components/charts/StatCard";
 import BarChartCard from "@/components/charts/BarChartCard";
+import PlatformNav from "@/components/layout/PlatformNav";
 import { formatCurrency } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
@@ -11,6 +13,13 @@ const PLATFORM_LABELS: Record<string, string> = {
   doordash: "DoorDash",
   ubereats: "Uber Eats",
   grubhub: "Grubhub",
+};
+
+const PLATFORM_COLORS: Record<string, string> = {
+  square: "#006aff",
+  doordash: "#ff3008",
+  ubereats: "#06c167",
+  grubhub: "#ff8b00",
 };
 
 interface PlatformStats {
@@ -39,6 +48,7 @@ export default function PlatformsPage() {
   const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<PlatformData | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     setLoading(true);
@@ -83,6 +93,9 @@ export default function PlatformsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Platform Navigation */}
+      <PlatformNav />
+
       {/* Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
@@ -115,16 +128,16 @@ export default function PlatformsPage() {
           data={data.platforms.map((p) => ({
             name: PLATFORM_LABELS[p.platform] || p.platform,
             value: p.netPayout,
+            color: PLATFORM_COLORS[p.platform],
           }))}
-          color="#10b981"
         />
         <BarChartCard
           title="Commission Fees by Platform"
           data={data.platforms.map((p) => ({
             name: PLATFORM_LABELS[p.platform] || p.platform,
             value: p.totalFees,
+            color: PLATFORM_COLORS[p.platform],
           }))}
-          color="#ef4444"
         />
       </div>
 
@@ -149,7 +162,11 @@ export default function PlatformsPage() {
             </thead>
             <tbody>
               {data.platforms.map((p) => (
-                <tr key={p.platform} className="border-b border-gray-50">
+                <tr
+                  key={p.platform}
+                  className="border-b border-gray-50 cursor-pointer transition-colors hover:bg-gray-50"
+                  onClick={() => router.push(`/dashboard/platforms/${p.platform}`)}
+                >
                   <td className="py-3 text-gray-800 font-medium">
                     {PLATFORM_LABELS[p.platform] || p.platform}
                   </td>

@@ -47,6 +47,8 @@ export interface ParsedPlatformOrder {
   marketingFees?: number;
   refunds?: number;
   adjustments?: number;
+  // Platform's native payout ID linking this order to a specific payout
+  platformPayoutId?: string;
 }
 
 export interface ParsedBankTransaction {
@@ -80,6 +82,8 @@ export interface ParsedPayout {
   fees: number;
   netAmount: number;
   rawData: string;
+  // Platform's native payout identifier (e.g. DoorDash Payout ID)
+  platformPayoutId?: string;
 }
 
 /**

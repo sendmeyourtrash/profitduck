@@ -18,10 +18,9 @@ export async function GET(
   let endDate: Date | undefined;
 
   if (rawStart) {
-    startDate = new Date(rawStart);
+    startDate = new Date(rawStart + "T00:00:00.000Z");
     if (rawEnd) {
-      endDate = new Date(rawEnd);
-      endDate.setHours(23, 59, 59, 999);
+      endDate = new Date(rawEnd + "T23:59:59.999Z");
     }
   } else if (rawDays) {
     const days = parseInt(rawDays);

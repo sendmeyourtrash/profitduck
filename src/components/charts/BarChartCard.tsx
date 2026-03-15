@@ -8,10 +8,11 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
 
 interface BarChartCardProps {
-  data: { name: string; value: number }[];
+  data: { name: string; value: number; color?: string }[];
   title: string;
   color?: string;
   valuePrefix?: string;
@@ -79,7 +80,12 @@ export default function BarChartCard({
                     }
                   : undefined
               }
-            />
+            >
+              {data.some((d) => d.color) &&
+                data.map((d, i) => (
+                  <Cell key={i} fill={d.color || color} />
+                ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>

@@ -8,7 +8,7 @@ import {
 
 /**
  * GET /api/vendor-aliases
- * Returns all aliases + unmatched vendor summary.
+ * Returns all aliases + unmatched vendor summary + ignored vendors.
  * Seeds defaults on first call if table is empty.
  */
 export async function GET() {
@@ -18,32 +18,40 @@ export async function GET() {
     await ensureDefaultAliases();
   }
 
-  const aliases = await prisma.vendorAlias.findMany({
-    orderBy: { displayName: "asc" },
-  });
+  const [aliases, ignoredRecords] = await Promise.all([
+    prisma.vendorAlias.findMany({ orderBy: { displayName: "asc" } }),
+    prisma.vendorIgnore.findMany({ orderBy: { vendorName: "asc" } }),
+  ]);
+
+  // Build ignored names set
+  const ignoredNames = new Set(ignoredRecords.map((r) => r.vendorName.toLowerCase()));
 
   // Count how many vendors are matched vs unmatched
   const matchedCount = await prisma.vendor.count({
     where: { displayName: { not: null } },
   });
-  const unmatchedCount = await prisma.vendor.count({
-    where: { displayName: null },
-  });
 
-  // Get unmatched vendors with their expense totals (top 50)
-  const unmatched = await prisma.vendor.findMany({
+  // Get all unmatched vendors (no alias displayName assigned)
+  const allUnmatched = await prisma.vendor.findMany({
     where: { displayName: null },
     include: { _count: { select: { expenses: true } } },
     orderBy: { expenses: { _count: "desc" } },
-    take: 50,
   });
 
-  // Single groupBy query instead of N+1 individual aggregates
-  const unmatchedIds = unmatched.map((v) => v.id);
-  const expenseTotals = unmatchedIds.length > 0
+  // Split into truly unmatched vs ignored
+  const unmatchedVendors = allUnmatched.filter(
+    (v) => !ignoredNames.has(v.name.toLowerCase())
+  );
+  const ignoredVendors = allUnmatched.filter(
+    (v) => ignoredNames.has(v.name.toLowerCase())
+  );
+
+  // Single groupBy query for expense totals
+  const allUnmatchedIds = allUnmatched.map((v) => v.id);
+  const expenseTotals = allUnmatchedIds.length > 0
     ? await prisma.expense.groupBy({
         by: ["vendorId"],
-        where: { vendorId: { in: unmatchedIds } },
+        where: { vendorId: { in: allUnmatchedIds } },
         _sum: { amount: true },
       })
     : [];
@@ -51,7 +59,14 @@ export async function GET() {
     expenseTotals.map((e) => [e.vendorId, e._sum.amount || 0])
   );
 
-  const unmatchedWithTotals = unmatched.map((v) => ({
+  const unmatchedWithTotals = unmatchedVendors.slice(0, 50).map((v) => ({
+    id: v.id,
+    name: v.name,
+    expenseCount: v._count.expenses,
+    totalSpent: totalMap.get(v.id) || 0,
+  }));
+
+  const ignoredWithTotals = ignoredVendors.map((v) => ({
     id: v.id,
     name: v.name,
     expenseCount: v._count.expenses,
@@ -61,15 +76,18 @@ export async function GET() {
   return NextResponse.json({
     aliases,
     matchedCount,
-    unmatchedCount,
+    unmatchedCount: unmatchedVendors.length,
     unmatched: unmatchedWithTotals,
+    ignoredCount: ignoredVendors.length,
+    ignored: ignoredWithTotals,
   });
 }
 
 /**
  * POST /api/vendor-aliases
  * Create a new alias, or action: "apply" to apply all aliases to vendors,
- * or action: "seed" to re-seed defaults.
+ * or action: "seed" to re-seed defaults,
+ * or action: "ignore" / "unignore" to manage ignored vendors.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -86,6 +104,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ seeded: inserted, ...result });
   }
 
+  // Handle ignore action
+  if (body.action === "ignore") {
+    const { vendorName } = body;
+    if (!vendorName) {
+      return NextResponse.json({ error: "vendorName is required" }, { status: 400 });
+    }
+    await prisma.vendorIgnore.upsert({
+      where: { vendorName },
+      create: { vendorName },
+      update: {},
+    });
+    return NextResponse.json({ ignored: true });
+  }
+
+  // Handle unignore action
+  if (body.action === "unignore") {
+    const { vendorName } = body;
+    if (!vendorName) {
+      return NextResponse.json({ error: "vendorName is required" }, { status: 400 });
+    }
+    await prisma.vendorIgnore.deleteMany({ where: { vendorName } });
+    return NextResponse.json({ unignored: true });
+  }
+
   // Create new alias
   const { pattern, matchType, displayName } = body;
   if (!pattern || !matchType || !displayName) {
@@ -97,6 +139,11 @@ export async function POST(req: NextRequest) {
 
   const alias = await prisma.vendorAlias.create({
     data: { pattern, matchType, displayName, autoCreated: false },
+  });
+
+  // Also remove from ignored list if it was there
+  await prisma.vendorIgnore.deleteMany({
+    where: { vendorName: pattern },
   });
 
   clearAliasCache();

@@ -21,6 +21,11 @@ interface ExpenseData {
     count: number;
   }[];
   monthlyExpenses: { month: string; total: number }[];
+  expensesByPaymentMethod: {
+    paymentMethod: string;
+    total: number;
+    count: number;
+  }[];
   feesByPlatform: {
     platform: string;
     fees: number;
@@ -116,6 +121,54 @@ export default function ExpensesPage() {
             )
           }
         />
+      </div>
+
+      {/* Payment Method Breakdown */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <h3 className="text-sm font-medium text-gray-500 mb-4">
+          Expenses by Payment Method
+        </h3>
+        {data.expensesByPaymentMethod.length === 0 ? (
+          <p className="text-gray-400 text-sm">No payment method data available</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-400 border-b">
+                <th className="pb-2 font-medium">Payment Method</th>
+                <th className="pb-2 font-medium text-right">Total</th>
+                <th className="pb-2 font-medium text-right">Transactions</th>
+                <th className="pb-2 font-medium text-right">% of Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.expensesByPaymentMethod.map((pm) => (
+                <tr key={pm.paymentMethod} className="border-b border-gray-50">
+                  <td className="py-2 text-gray-800 font-medium">{pm.paymentMethod}</td>
+                  <td className="py-2 text-right font-medium text-red-600">
+                    {formatCurrency(pm.total)}
+                  </td>
+                  <td className="py-2 text-right text-gray-600">{pm.count}</td>
+                  <td className="py-2 text-right text-gray-600">
+                    {totalExpenses > 0
+                      ? ((pm.total / totalExpenses) * 100).toFixed(1)
+                      : "0"}
+                    %
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t border-gray-200 font-medium">
+                <td className="py-2 text-gray-800">Total</td>
+                <td className="py-2 text-right font-medium text-red-600">
+                  {formatCurrency(totalExpenses)}
+                </td>
+                <td className="py-2 text-right text-gray-600">
+                  {data.expensesByPaymentMethod.reduce((s, pm) => s + pm.count, 0)}
+                </td>
+                <td className="py-2 text-right text-gray-600">100%</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Monthly Trend */}

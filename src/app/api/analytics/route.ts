@@ -106,11 +106,9 @@ export async function GET(request: NextRequest) {
   }
   if (startDate || endDate) {
     orderWhere.orderDatetime = {};
-    if (startDate) orderWhere.orderDatetime.gte = new Date(startDate);
+    if (startDate) orderWhere.orderDatetime.gte = new Date(startDate + "T00:00:00.000Z");
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      orderWhere.orderDatetime.lte = end;
+      orderWhere.orderDatetime.lte = new Date(endDate + "T23:59:59.999Z");
     }
   }
 
@@ -126,11 +124,9 @@ export async function GET(request: NextRequest) {
   }
   if (startDate || endDate) {
     txWhere.date = {};
-    if (startDate) txWhere.date.gte = new Date(startDate);
+    if (startDate) txWhere.date.gte = new Date(startDate + "T00:00:00.000Z");
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      txWhere.date.lte = end;
+      txWhere.date.lte = new Date(endDate + "T23:59:59.999Z");
     }
   }
 

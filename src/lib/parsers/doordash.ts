@@ -147,6 +147,7 @@ function parseSimplifiedTxRow(
     customerFees: customerFees + taxCustomerFees,
     marketingFees: marketingFees - ddMarketingCredit, // Net marketing cost
     adjustments: errorCharges + adjustments + thirdPartyContribution,
+    platformPayoutId: norm["payout id"] || undefined,
     rawData,
   });
 
@@ -261,6 +262,7 @@ function parsePayoutSummaryRow(
     grossAmount: subtotal + taxPassed,
     fees: totalFees,
     netAmount: netTotal,
+    platformPayoutId: payoutId || undefined,
     rawData,
   });
 

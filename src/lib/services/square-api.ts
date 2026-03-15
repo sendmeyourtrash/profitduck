@@ -62,6 +62,7 @@ export interface SquarePayment {
   id: string;
   created_at: string;
   status: string;
+  source_type?: string; // "CARD", "CASH", "WALLET", "EXTERNAL", etc.
   amount_money?: { amount: number; currency: string };
   processing_fee?: Array<{
     amount_money: { amount: number; currency: string };
@@ -69,7 +70,18 @@ export interface SquarePayment {
   order_id?: string;
   total_money?: { amount: number; currency: string };
   tip_money?: { amount: number; currency: string };
+  tax_money?: { amount: number; currency: string };
   refund_ids?: string[];
+  card_details?: {
+    card?: {
+      card_brand?: string; // "VISA", "MASTERCARD", "AMERICAN_EXPRESS", etc.
+      last_4?: string;
+    };
+  };
+  cash_details?: {
+    buyer_supplied_money?: { amount: number; currency: string };
+    change_back_money?: { amount: number; currency: string };
+  };
 }
 
 interface ListPaymentsResponse {
@@ -263,6 +275,121 @@ export async function fetchAllPayments(
   );
 
   return allPayments;
+}
+
+export interface SquareOrderLineItem {
+  name: string;
+  quantity: string;
+  category?: string;
+  base_price_money?: { amount: number; currency: string };
+  total_money?: { amount: number; currency: string };
+  total_tax_money?: { amount: number; currency: string };
+  total_discount_money?: { amount: number; currency: string };
+  variation_name?: string;
+}
+
+export interface SquareOrderData {
+  totalTaxCents: number;
+  lineItems: SquareOrderLineItem[];
+  fulfillmentType: string | null; // "PICKUP", "DELIVERY", etc.
+  diningOption: string | null;    // "For Here", "To Go", etc.
+}
+
+/**
+ * Batch-retrieve Square orders by order IDs (up to 100 per call).
+ * Returns tax, line items, fulfillment, and dining option data.
+ */
+export async function batchRetrieveOrders(
+  orderIds: string[]
+): Promise<Map<string, SquareOrderData>> {
+  const token = getToken();
+  const result = new Map<string, SquareOrderData>();
+
+  // Process in batches of 100 (Square API limit)
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const batch = orderIds.slice(i, i + 100);
+
+    const response = await fetch(
+      `${SQUARE_BASE_URL}/orders/batch-retrieve`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Square-Version": "2025-01-23",
+        },
+        body: JSON.stringify({ order_ids: batch }),
+      }
+    );
+
+    if (!response.ok) {
+      // Non-fatal: just skip data for this batch
+      console.warn(
+        `[Square API] Failed to batch-retrieve orders (HTTP ${response.status}), skipping order data`
+      );
+      continue;
+    }
+
+    const data = await response.json();
+    if (data.orders) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const order of data.orders as any[]) {
+        const taxCents = order.total_tax_money?.amount || 0;
+
+        // Extract line items
+        const lineItems: SquareOrderLineItem[] = (order.line_items || []).map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (li: any) => ({
+            name: li.name || "",
+            quantity: li.quantity || "0",
+            category: li.catalog_object_id ? undefined : undefined, // category not directly on line_items
+            base_price_money: li.base_price_money,
+            total_money: li.total_money,
+            total_tax_money: li.total_tax_money,
+            total_discount_money: li.total_discount_money,
+            variation_name: li.variation_name,
+          })
+        );
+
+        // Extract fulfillment type (PICKUP, DELIVERY, SHIPMENT, etc.)
+        let fulfillmentType: string | null = null;
+        if (order.fulfillments && order.fulfillments.length > 0) {
+          fulfillmentType = order.fulfillments[0].type || null;
+        }
+
+        // Derive dining option from fulfillment or metadata
+        let diningOption: string | null = null;
+        if (fulfillmentType === "PICKUP") {
+          diningOption = "To Go";
+        } else if (fulfillmentType === "DELIVERY") {
+          diningOption = "Delivery";
+        } else if (fulfillmentType === "SHIPMENT") {
+          diningOption = "Shipment";
+        } else if (!fulfillmentType) {
+          // No fulfillment = likely dine-in
+          diningOption = "For Here";
+        }
+
+        // Check metadata for explicit dining option
+        if (order.metadata?.dining_option) {
+          diningOption = order.metadata.dining_option;
+        }
+
+        result.set(order.id, {
+          totalTaxCents: taxCents,
+          lineItems,
+          fulfillmentType,
+          diningOption,
+        });
+      }
+    }
+
+    if (i + 100 < orderIds.length) {
+      await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+    }
+  }
+
+  return result;
 }
 
 /**

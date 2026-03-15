@@ -9,9 +9,7 @@ const pageTitles: Record<string, string> = {
   "/dashboard/expenses": "Expense Analytics",
   "/dashboard/platforms": "Platform Performance",
   "/health-report": "Business Health Report",
-  "/reconciliation": "Reconciliation",
   "/transactions": "All Transactions",
-  "/imports": "Import History",
   "/settings": "Import & Settings",
 };
 
@@ -35,12 +33,22 @@ export default function Header() {
   } else if (pathname.startsWith("/dashboard/expenses/vendor/")) {
     const vendor = decodeURIComponent(pathname.split("/").pop() || "");
     title = `${vendor} — Expenses`;
+  } else if (pathname.startsWith("/dashboard/platforms/")) {
+    const platformSlug = decodeURIComponent(pathname.split("/").pop() || "");
+    const platformLabels: Record<string, string> = {
+      square: "Square (In-Store)",
+      doordash: "DoorDash",
+      ubereats: "Uber Eats",
+      grubhub: "Grubhub",
+    };
+    title = `${platformLabels[platformSlug] || platformSlug} — Platform Detail`;
   }
 
   const showDatePicker =
     DATE_PICKER_PATHS.has(pathname) ||
     pathname.startsWith("/dashboard/expenses/category/") ||
-    pathname.startsWith("/dashboard/expenses/vendor/");
+    pathname.startsWith("/dashboard/expenses/vendor/") ||
+    pathname.startsWith("/dashboard/platforms/");
 
   return (
     <header className="bg-white border-b border-gray-200 px-6 py-4">

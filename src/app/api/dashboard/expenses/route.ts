@@ -11,10 +11,9 @@ export async function GET(request: NextRequest) {
   let endDate: Date | undefined;
 
   if (rawStart) {
-    startDate = new Date(rawStart);
+    startDate = new Date(rawStart + "T00:00:00.000Z");
     if (rawEnd) {
-      endDate = new Date(rawEnd);
-      endDate.setHours(23, 59, 59, 999);
+      endDate = new Date(rawEnd + "T23:59:59.999Z");
     }
   } else if (rawDays) {
     const days = parseInt(rawDays);
@@ -64,6 +63,15 @@ export async function GET(request: NextRequest) {
     where: { id: { in: catIds } },
   });
   const catNameMap = new Map(expenseCategories.map((c) => [c.id, c.name]));
+
+  // Expenses by payment method
+  const expensesByPaymentMethod = await prisma.expense.groupBy({
+    by: ["paymentMethod"],
+    where: { date: dateFilter },
+    _sum: { amount: true },
+    _count: true,
+    orderBy: { _sum: { amount: "desc" } },
+  });
 
   // Monthly expense trend (filtered by selected period)
   const monthlyExpenses = await prisma.$queryRawUnsafe<
@@ -126,6 +134,11 @@ export async function GET(request: NextRequest) {
     monthlyExpenses: monthlyExpenses.map((m) => ({
       month: m.month,
       total: Number(m.total),
+    })),
+    expensesByPaymentMethod: expensesByPaymentMethod.map((e) => ({
+      paymentMethod: e.paymentMethod || "Unknown",
+      total: e._sum.amount || 0,
+      count: e._count,
     })),
     feesByPlatform: platformFees
       .map((f) => ({

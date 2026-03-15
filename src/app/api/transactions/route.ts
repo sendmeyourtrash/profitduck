@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { resolveItemNames } from "@/lib/services/menu-item-aliases";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -47,12 +48,10 @@ export async function GET(request: NextRequest) {
   // Date range
   if (startDate || endDate) {
     where.date = {};
-    if (startDate) where.date.gte = new Date(startDate);
+    if (startDate) where.date.gte = new Date(startDate + "T00:00:00.000Z");
     if (endDate) {
-      // End date is inclusive — set to end of day
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      where.date.lte = end;
+      // End date is inclusive — set to end of day (UTC)
+      where.date.lte = new Date(endDate + "T23:59:59.999Z");
     }
   }
 
@@ -112,5 +111,107 @@ export async function GET(request: NextRequest) {
     prisma.transaction.count({ where }),
   ]);
 
-  return NextResponse.json({ transactions, total, limit, offset });
+  // Enrich platform transactions with order details (payment method, dining option, items)
+  const platformTxs = transactions.filter(
+    (t) => t.rawSourceId && ["square", "doordash", "ubereats", "grubhub"].includes(t.sourcePlatform)
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const orderDetailsMap = new Map<string, any>();
+
+  if (platformTxs.length > 0) {
+    // Build OR conditions for each (orderId, platform) pair
+    const orConditions = platformTxs.map((t) => ({
+      orderId: t.rawSourceId!,
+      platform: t.sourcePlatform,
+    }));
+
+    const platformOrders = await prisma.platformOrder.findMany({
+      where: { OR: orConditions },
+      select: {
+        orderId: true,
+        platform: true,
+        cardBrand: true,
+        diningOption: true,
+        channel: true,
+        fulfillmentType: true,
+        subtotal: true,
+        tax: true,
+        tip: true,
+        commissionFee: true,
+        serviceFee: true,
+        deliveryFee: true,
+        netPayout: true,
+        rawData: true,
+      },
+    });
+
+    // Collect all raw item names across all Square orders for batch alias resolution
+    const allRawItemNames = new Set<string>();
+    const parsedItemsByKey = new Map<string, { name: string; category: string; qty: number; price: number }[]>();
+
+    for (const po of platformOrders) {
+      const key = `${po.orderId}|${po.platform}`;
+
+      let items: { name: string; category: string; qty: number; price: number }[] | null = null;
+      if (po.platform === "square" && po.rawData) {
+        try {
+          const parsed = JSON.parse(po.rawData) as Record<string, string>[];
+          items = parsed
+            .filter((row) => (row["item"] || "").trim() && parseFloat(row["qty"] || "0") > 0)
+            .map((row) => {
+              const name = (row["item"] || "").trim();
+              allRawItemNames.add(name);
+              return {
+                name,
+                category: (row["category"] || "").trim(),
+                qty: parseFloat(row["qty"] || "0"),
+                price: parseFloat((row["net sales"] || "0").replace(/[$,]/g, "")) || 0,
+              };
+            });
+          parsedItemsByKey.set(key, items);
+        } catch {
+          // skip
+        }
+      }
+
+      orderDetailsMap.set(key, {
+        cardBrand: po.cardBrand || null,
+        diningOption: po.diningOption || null,
+        channel: po.channel || null,
+        fulfillmentType: po.fulfillmentType || null,
+        subtotal: po.subtotal,
+        tax: po.tax,
+        tip: po.tip,
+        fees: po.commissionFee + po.serviceFee + po.deliveryFee,
+        netPayout: po.netPayout,
+        items: null, // populated below after alias resolution
+      });
+    }
+
+    // Resolve item aliases in one batch
+    const itemAliasMap = allRawItemNames.size > 0
+      ? await resolveItemNames([...allRawItemNames])
+      : new Map<string, string>();
+
+    // Apply resolved names to items
+    for (const [key, items] of parsedItemsByKey) {
+      const detail = orderDetailsMap.get(key);
+      if (detail) {
+        detail.items = items.map((item) => ({
+          ...item,
+          name: itemAliasMap.get(item.name) || item.name,
+        }));
+      }
+    }
+  }
+
+  // Merge order details into transactions
+  const enriched = transactions.map((t) => {
+    const key = `${t.rawSourceId}|${t.sourcePlatform}`;
+    const orderDetail = orderDetailsMap.get(key) || null;
+    return { ...t, orderDetail };
+  });
+
+  return NextResponse.json({ transactions: enriched, total, limit, offset });
 }

@@ -1,9 +1,34 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { ProgressBar, type ProgressState } from "@/components/ui/ProgressBar";
 import { useProgressStream } from "@/hooks/useProgressStream";
+
+const ReconciliationPanel = dynamic(
+  () => import("@/components/panels/ReconciliationPanel"),
+  { loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    </div>
+  )}
+);
+
 /* ── Types ─────────────────────────────────────────────────────── */
+
+interface ImportRecord {
+  id: string;
+  source: string;
+  fileName: string;
+  importedAt: string;
+  rowsProcessed: number;
+  rowsFailed: number;
+  rowsSkipped: number;
+  status: string;
+  errorMessage: string | null;
+}
+
+type SettingsTab = "settings" | "history" | "reconciliation";
 
 type SourcePlatform =
   | "square"
@@ -52,6 +77,7 @@ interface SyncResult {
   enriched: number;
   skipped: number;
   unmatched: number;
+  created: number;
   totalFeesAdded: number;
   importId: string;
 }
@@ -127,6 +153,11 @@ export default function SettingsPage() {
   // History
   const [syncHistory, setSyncHistory] = useState<SyncHistory[]>([]);
 
+  // Tab & import history
+  const [activeTab, setActiveTab] = useState<SettingsTab>("settings");
+  const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   /* ── SSE progress streams ─────────────────────────────────────── */
 
   useProgressStream(
@@ -146,6 +177,7 @@ export default function SettingsPage() {
         } else {
           setImportResult(data as ImportResult);
           setDuplicateInfo(null);
+          loadImportHistory();
         }
       }
     }
@@ -174,6 +206,7 @@ export default function SettingsPage() {
     loadSettings();
     loadSyncStatus();
     loadSyncHistory();
+    loadImportHistory();
   }, []);
 
   async function loadSettings() {
@@ -210,6 +243,19 @@ export default function SettingsPage() {
       setSyncHistory(data.imports || []);
     } catch {
       // ignore
+    }
+  }
+
+  async function loadImportHistory() {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/imports");
+      const data = await res.json();
+      setImportHistory(data.imports || []);
+    } catch {
+      // ignore
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -356,7 +402,131 @@ export default function SettingsPage() {
   /* ── Render ───────────────────────────────────────────────────── */
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-6">
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB BAR
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="flex border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab("settings")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "settings"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Import & Settings
+        </button>
+        <button
+          onClick={() => { setActiveTab("history"); loadImportHistory(); }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "history"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Import History
+        </button>
+        <button
+          onClick={() => setActiveTab("reconciliation")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "reconciliation"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Reconciliation
+        </button>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB: Reconciliation
+          ═══════════════════════════════════════════════════════════ */}
+      {activeTab === "reconciliation" && <ReconciliationPanel />}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB: Import History
+          ═══════════════════════════════════════════════════════════ */}
+      {activeTab === "history" && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {historyLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+            </div>
+          ) : importHistory.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg">No imports yet</p>
+              <p className="mt-2 text-sm">Upload your first file to see import history.</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Source</th>
+                  <th className="px-4 py-3 font-medium">File Name</th>
+                  <th className="px-4 py-3 font-medium text-right">Rows</th>
+                  <th className="px-4 py-3 font-medium text-right">Skipped</th>
+                  <th className="px-4 py-3 font-medium text-right">Failed</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importHistory.map((imp) => (
+                  <tr key={imp.id} className="border-t border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
+                      {new Date(imp.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                      <span className="text-gray-400 ml-1 text-xs">
+                        {new Date(imp.importedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
+                        {imp.source}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-800 max-w-[200px] truncate">{imp.fileName}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{imp.rowsProcessed.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {imp.rowsSkipped > 0 ? (
+                        <span className="text-amber-600">{imp.rowsSkipped.toLocaleString()}</span>
+                      ) : (
+                        <span className="text-gray-400">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {imp.rowsFailed > 0 ? (
+                        <span className="text-red-600">{imp.rowsFailed}</span>
+                      ) : (
+                        <span className="text-gray-400">0</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        imp.status === "completed"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : imp.status === "failed"
+                            ? "bg-red-100 text-red-700"
+                            : imp.status === "processing"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-gray-100 text-gray-600"
+                      }`}>
+                        {imp.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB: Import & Settings
+          ═══════════════════════════════════════════════════════════ */}
+      {activeTab === "settings" && <div className="max-w-3xl mx-auto">
 
       {/* ═══════════════════════════════════════════════════════════
           CARD 1 — Platform Connections & Sync
@@ -543,11 +713,14 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
-                  {syncResult.skipped > 0 && (
-                    <p className="text-xs text-gray-500">{syncResult.skipped} order(s) already had fees (skipped).</p>
+                  {syncResult.created > 0 && (
+                    <div className="bg-blue-50 rounded-lg p-2.5">
+                      <p className="text-xs text-blue-600">New Orders Created</p>
+                      <p className="font-medium text-blue-800 text-sm">{syncResult.created.toLocaleString()}</p>
+                    </div>
                   )}
-                  {syncResult.unmatched > 0 && (
-                    <p className="text-xs text-amber-600">{syncResult.unmatched} API payment(s) had no matching CSV order.</p>
+                  {syncResult.skipped > 0 && (
+                    <p className="text-xs text-gray-500">{syncResult.skipped} order(s) already synced (skipped).</p>
                   )}
                 </div>
               )}
@@ -824,6 +997,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      </div>}
     </div>
   );
 }

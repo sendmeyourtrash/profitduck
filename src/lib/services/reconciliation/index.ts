@@ -15,7 +15,7 @@ export {
   autoMatchL2L3,
 } from "./l2-l3-matcher";
 
-export { matchLevel1ToLevel2 } from "./l1-l2-matcher";
+export { matchLevel1ToLevel2, resetReconciliationLinks } from "./l1-l2-matcher";
 
 export {
   buildReconciliationChains,

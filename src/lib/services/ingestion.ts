@@ -8,6 +8,8 @@ import {
   isTransactionDuplicate,
   isBankTransactionDuplicate,
   isExpenseDuplicate,
+  isPayoutDuplicate,
+  findMatchingBankTransaction,
   computeDateRange,
 } from "./dedup";
 import { ProgressCallback } from "./progress";
@@ -272,6 +274,7 @@ async function storeResults(
           marketingFees: order.marketingFees ?? 0,
           refunds: order.refunds ?? 0,
           adjustments: order.adjustments ?? 0,
+          platformPayoutId: order.platformPayoutId || null,
           rawData: order.rawData,
           importId,
         },
@@ -280,11 +283,11 @@ async function storeResults(
       if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
     }
 
-    // Store bank transactions with dedup
+    // Store bank transactions with dedup (cross-source aware)
     for (const bt of result.bankTransactions) {
       if (enableRowDedup) {
         const isDup = await isBankTransactionDuplicate(
-          { date: bt.date, amount: bt.amount, description: bt.description },
+          { date: bt.date, amount: bt.amount, description: bt.description, accountName: bt.accountName },
           tx
         );
         if (isDup) {
@@ -356,6 +359,12 @@ async function storeResults(
         }
       }
 
+      // Try to find a matching bank transaction to link
+      const matchedBankTxId = await findMatchingBankTransaction(
+        { date: exp.date, amount: exp.amount, importId },
+        tx
+      );
+
       await tx.expense.create({
         data: {
           vendorId: vendor.id,
@@ -367,27 +376,46 @@ async function storeResults(
           rawData: exp.rawData,
           importId,
           expenseCategoryId,
+          linkedBankTransactionId: matchedBankTxId,
         },
       });
       stored++;
       if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
     }
 
-    // Store payouts
-    if (result.payouts.length > 0) {
-      await tx.payout.createMany({
-        data: result.payouts.map((p) => ({
+    // Store payouts with dedup
+    for (const p of result.payouts) {
+      if (enableRowDedup) {
+        const isDup = await isPayoutDuplicate(
+          {
+            platformPayoutId: p.platformPayoutId,
+            platform: p.platform,
+            payoutDate: p.payoutDate,
+            netAmount: p.netAmount,
+          },
+          tx
+        );
+        if (isDup) {
+          rowsSkipped++;
+          stored++;
+          if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
+          continue;
+        }
+      }
+      await tx.payout.create({
+        data: {
           platform: p.platform,
           payoutDate: p.payoutDate,
           grossAmount: p.grossAmount,
           fees: p.fees,
           netAmount: p.netAmount,
+          platformPayoutId: p.platformPayoutId || null,
           rawData: p.rawData,
           importId,
-        })),
+        },
       });
-      stored += result.payouts.length;
-      onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
+      stored++;
+      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
     }
   });
 
