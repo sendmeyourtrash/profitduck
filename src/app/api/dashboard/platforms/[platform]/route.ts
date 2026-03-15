@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { resolveItemNames } from "@/lib/services/menu-item-aliases";
+import { resolveCategoryNames } from "@/lib/services/menu-category-aliases";
 
 const VALID_PLATFORMS = new Set(["square", "doordash", "ubereats", "grubhub"]);
 
@@ -34,7 +35,8 @@ export async function GET(
     startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
   } else {
-    startDate = new Date(0);
+    startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
   }
 
   const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
@@ -248,8 +250,9 @@ export async function GET(
       select: { rawData: true },
     });
 
-    // First pass: collect all unique raw item names
+    // First pass: collect all unique raw item and category names
     const rawItemNames = new Set<string>();
+    const rawCategoryNames = new Set<string>();
     const parsedOrders: { name: string; category: string; qty: number; netSales: number }[][] = [];
 
     for (const order of allSquareOrders) {
@@ -264,6 +267,7 @@ export async function GET(
           const netSales = parseFloat((item["net sales"] || "0").replace(/[$,]/g, "")) || 0;
           if (!name || qty <= 0) continue;
           rawItemNames.add(name);
+          rawCategoryNames.add(category);
           orderItems.push({ name, category, qty, netSales });
         }
         parsedOrders.push(orderItems);
@@ -272,8 +276,9 @@ export async function GET(
       }
     }
 
-    // Resolve all item names through aliases in one batch
+    // Resolve all item names and category names through aliases in one batch
     const aliasMap = await resolveItemNames([...rawItemNames]);
+    const categoryAliasMap = await resolveCategoryNames([...rawCategoryNames]);
 
     // Second pass: aggregate using resolved names
     const itemMap = new Map<string, { name: string; category: string; qty: number; revenue: number }>();
@@ -282,6 +287,7 @@ export async function GET(
     for (const orderItems of parsedOrders) {
       for (const item of orderItems) {
         const resolvedName = aliasMap.get(item.name) || item.name;
+        const resolvedCategory = categoryAliasMap.get(item.category) || item.category;
 
         // Item-level aggregation (keyed by resolved name)
         const existing = itemMap.get(resolvedName);
@@ -289,24 +295,23 @@ export async function GET(
           existing.qty += item.qty;
           existing.revenue += item.netSales;
         } else {
-          itemMap.set(resolvedName, { name: resolvedName, category: item.category, qty: item.qty, revenue: item.netSales });
+          itemMap.set(resolvedName, { name: resolvedName, category: resolvedCategory, qty: item.qty, revenue: item.netSales });
         }
 
-        // Category-level aggregation
-        const catExisting = categoryMap.get(item.category);
+        // Category-level aggregation (keyed by resolved category)
+        const catExisting = categoryMap.get(resolvedCategory);
         if (catExisting) {
           catExisting.qty += item.qty;
           catExisting.revenue += item.netSales;
           catExisting.itemCount++;
         } else {
-          categoryMap.set(item.category, { category: item.category, qty: item.qty, revenue: item.netSales, itemCount: 1 });
+          categoryMap.set(resolvedCategory, { category: resolvedCategory, qty: item.qty, revenue: item.netSales, itemCount: 1 });
         }
       }
     }
 
     response.topItems = [...itemMap.values()]
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 20);
+      .sort((a, b) => b.qty - a.qty);
 
     response.categoryBreakdown = [...categoryMap.values()]
       .sort((a, b) => b.revenue - a.revenue);

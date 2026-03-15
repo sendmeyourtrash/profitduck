@@ -315,6 +315,28 @@ model VendorIgnore {
 }
 
 // ---------------------------------------------------------------------------
+// Menu category aliases — merge/rename categories (e.g. "Sweet Crêpes" + "Savory Crêpes" → "Crêpes")
+// ---------------------------------------------------------------------------
+
+model MenuCategoryAlias {
+  id          String   @id @default(uuid())
+  pattern     String   // category name pattern to match
+  matchType   String   @map("match_type") // contains | starts_with | exact
+  displayName String   @map("display_name") // canonical category name
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("menu_category_aliases")
+}
+
+model MenuCategoryIgnore {
+  id           String   @id @default(uuid())
+  categoryName String   @unique @map("category_name")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("menu_category_ignores")
+}
+
+// ---------------------------------------------------------------------------
 // Closed days (excluded from analytics averages)
 // ---------------------------------------------------------------------------
 

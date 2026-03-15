@@ -46,8 +46,13 @@ export default function MenuItemAliasesPanel() {
   const [showAliases, setShowAliases] = useState(false);
   const [showIgnored, setShowIgnored] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Pagination
+  const PAGE_SIZE = 25;
+  const [unmatchedVisible, setUnmatchedVisible] = useState(PAGE_SIZE);
+  const [ignoredVisible, setIgnoredVisible] = useState(PAGE_SIZE);
+
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const res = await fetch("/api/menu-item-aliases");
     const data = await res.json();
     setAliases(data.aliases || []);
@@ -79,7 +84,7 @@ export default function MenuItemAliasesPanel() {
     setNewPattern("");
     setNewDisplayName("");
     setMessage("Alias created.");
-    fetchData();
+    fetchData(true);
   };
 
   const quickAdd = async (itemName: string) => {
@@ -97,13 +102,13 @@ export default function MenuItemAliasesPanel() {
     setQuickAddItem(null);
     setQuickDisplayName("");
     setMessage("Alias created.");
-    fetchData();
+    fetchData(true);
   };
 
   const deleteAlias = async (id: string) => {
     await fetch(`/api/menu-item-aliases?id=${id}`, { method: "DELETE" });
     setMessage("Alias deleted.");
-    fetchData();
+    fetchData(true);
   };
 
   const ignoreItem = async (itemName: string) => {
@@ -113,7 +118,7 @@ export default function MenuItemAliasesPanel() {
       body: JSON.stringify({ action: "ignore", itemName }),
     });
     setMessage(`"${itemName}" ignored.`);
-    fetchData();
+    fetchData(true);
   };
 
   const unignoreItem = async (itemName: string) => {
@@ -123,7 +128,7 @@ export default function MenuItemAliasesPanel() {
       body: JSON.stringify({ action: "unignore", itemName }),
     });
     setMessage(`"${itemName}" restored.`);
-    fetchData();
+    fetchData(true);
   };
 
   const startEdit = (alias: MenuItemAlias) => {
@@ -150,7 +155,7 @@ export default function MenuItemAliasesPanel() {
     });
     setEditId(null);
     setMessage("Alias updated.");
-    fetchData();
+    fetchData(true);
   };
 
   // Group aliases by displayName
@@ -378,7 +383,7 @@ export default function MenuItemAliasesPanel() {
               </tr>
             </thead>
             <tbody>
-              {unmatched.map((item) => (
+              {unmatched.slice(0, unmatchedVisible).map((item) => (
                 <tr key={item.name} className="border-t border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-2 text-gray-800 max-w-[300px]">
                     <span className="block truncate" title={item.name}>
@@ -443,6 +448,14 @@ export default function MenuItemAliasesPanel() {
               ))}
             </tbody>
           </table>
+          {unmatched.length > unmatchedVisible && (
+            <button
+              onClick={() => setUnmatchedVisible((v) => v + PAGE_SIZE)}
+              className="w-full py-2.5 text-sm text-indigo-600 hover:bg-indigo-50 border-t border-gray-200 transition-colors"
+            >
+              Load {Math.min(PAGE_SIZE, unmatched.length - unmatchedVisible)} more ({unmatched.length - unmatchedVisible} remaining)
+            </button>
+          )}
         </div>
       )}
 
@@ -466,6 +479,7 @@ export default function MenuItemAliasesPanel() {
             </svg>
           </button>
           {showIgnored && (
+            <>
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr className="text-left text-gray-500">
@@ -476,7 +490,7 @@ export default function MenuItemAliasesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {ignored.map((item) => (
+                {ignored.slice(0, ignoredVisible).map((item) => (
                   <tr key={item.name} className="border-t border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-2 text-gray-400 max-w-[300px]">
                       <span className="block truncate" title={item.name}>
@@ -499,6 +513,15 @@ export default function MenuItemAliasesPanel() {
                 ))}
               </tbody>
             </table>
+            {ignored.length > ignoredVisible && (
+              <button
+                onClick={() => setIgnoredVisible((v) => v + PAGE_SIZE)}
+                className="w-full py-2.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-200 transition-colors"
+              >
+                Load {Math.min(PAGE_SIZE, ignored.length - ignoredVisible)} more ({ignored.length - ignoredVisible} remaining)
+              </button>
+            )}
+            </>
           )}
         </div>
       )}

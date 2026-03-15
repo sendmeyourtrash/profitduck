@@ -59,7 +59,7 @@ export async function GET() {
     expenseTotals.map((e) => [e.vendorId, e._sum.amount || 0])
   );
 
-  const unmatchedWithTotals = unmatchedVendors.slice(0, 50).map((v) => ({
+  const unmatchedWithTotals = unmatchedVendors.map((v) => ({
     id: v.id,
     name: v.name,
     expenseCount: v._count.expenses,

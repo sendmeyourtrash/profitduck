@@ -1,35 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { clearMenuItemAliasCache } from "@/lib/services/menu-item-aliases";
+import { clearMenuCategoryAliasCache } from "@/lib/services/menu-category-aliases";
 
 /**
- * Scan all Square orders' rawData to extract unique item names with totals.
+ * Scan all Square orders' rawData to extract unique category names with totals.
  */
-async function getUniqueItems() {
+async function getUniqueCategories() {
   const orders = await prisma.platformOrder.findMany({
     where: { platform: "square", rawData: { not: null } },
     select: { rawData: true },
   });
 
-  const itemMap = new Map<string, { name: string; qty: number; revenue: number }>();
+  const categoryMap = new Map<string, { name: string; qty: number; revenue: number }>();
 
   for (const order of orders) {
     if (!order.rawData) continue;
     try {
       const items = JSON.parse(order.rawData) as Record<string, string>[];
       for (const item of items) {
-        const name = (item["item"] || "").trim();
+        const name = (item["category"] || "").trim();
         if (!name) continue;
         const qty = parseFloat(item["qty"] || "0") || 0;
         const revenue = parseFloat((item["net sales"] || "0").replace(/[$,]/g, "")) || 0;
         if (qty <= 0) continue;
 
-        const existing = itemMap.get(name);
+        const existing = categoryMap.get(name);
         if (existing) {
           existing.qty += qty;
           existing.revenue += revenue;
         } else {
-          itemMap.set(name, { name, qty, revenue });
+          categoryMap.set(name, { name, qty, revenue });
         }
       }
     } catch {
@@ -37,88 +37,86 @@ async function getUniqueItems() {
     }
   }
 
-  return itemMap;
+  return categoryMap;
 }
 
 /**
- * GET /api/menu-item-aliases
- * Returns all aliases + unmatched items summary + ignored items.
+ * GET /api/menu-category-aliases
+ * Returns all aliases + unmatched categories summary + ignored categories.
  */
 export async function GET() {
   const [aliases, ignoredRecords] = await Promise.all([
-    prisma.menuItemAlias.findMany({ orderBy: { displayName: "asc" } }),
-    prisma.menuItemIgnore.findMany({ orderBy: { itemName: "asc" } }),
+    prisma.menuCategoryAlias.findMany({ orderBy: { displayName: "asc" } }),
+    prisma.menuCategoryIgnore.findMany({ orderBy: { categoryName: "asc" } }),
   ]);
 
   // Build ignored names set for fast lookup
-  const ignoredNames = new Set(ignoredRecords.map((r) => r.itemName.toLowerCase()));
+  const ignoredNames = new Set(ignoredRecords.map((r) => r.categoryName.toLowerCase()));
 
-  // Scan all unique item names from Square orders
-  const itemMap = await getUniqueItems();
+  // Scan all unique category names from Square orders
+  const categoryMap = await getUniqueCategories();
 
-  // Build set of final display names (follow chains to get canonical targets).
-  // e.g. if "A" → "B" → "C", both "B" and "C" are considered matched names.
+  // Build set of all alias names (both patterns and display names)
   const allAliasNames = new Set<string>();
   for (const alias of aliases) {
     allAliasNames.add(alias.displayName.toLowerCase());
     allAliasNames.add(alias.pattern.toLowerCase());
   }
 
-  // Check each item against aliases
+  // Check each category against aliases
   let matchedCount = 0;
-  const unmatchedItems: { name: string; qty: number; revenue: number }[] = [];
-  const ignoredItems: { name: string; qty: number; revenue: number }[] = [];
+  const unmatchedCategories: { name: string; qty: number; revenue: number }[] = [];
+  const ignoredCategories: { name: string; qty: number; revenue: number }[] = [];
 
-  for (const item of itemMap.values()) {
-    const lowerName = item.name.toLowerCase();
+  for (const cat of categoryMap.values()) {
+    const lowerName = cat.name.toLowerCase();
 
-    // Item is matched if it appears in any alias (as pattern or display name)
     const matched = allAliasNames.has(lowerName);
     if (matched) {
       matchedCount++;
     } else if (ignoredNames.has(lowerName)) {
-      ignoredItems.push(item);
+      ignoredCategories.push(cat);
     } else {
-      unmatchedItems.push(item);
+      unmatchedCategories.push(cat);
     }
   }
 
   // Sort unmatched by qty descending
-  unmatchedItems.sort((a, b) => b.qty - a.qty);
+  unmatchedCategories.sort((a, b) => b.qty - a.qty);
 
   // Sort ignored by name
-  ignoredItems.sort((a, b) => a.name.localeCompare(b.name));
+  ignoredCategories.sort((a, b) => a.name.localeCompare(b.name));
 
   return NextResponse.json({
     aliases,
-    totalItems: itemMap.size,
+    totalCategories: categoryMap.size,
     matchedCount,
-    unmatchedCount: unmatchedItems.length,
-    unmatched: unmatchedItems,
-    ignoredCount: ignoredItems.length,
-    ignored: ignoredItems,
+    unmatchedCount: unmatchedCategories.length,
+    unmatched: unmatchedCategories,
+    ignoredCount: ignoredCategories.length,
+    ignored: ignoredCategories,
   });
 }
 
 /**
- * POST /api/menu-item-aliases
- * Create a new alias OR ignore an item.
+ * POST /api/menu-category-aliases
+ * Create a new alias OR ignore a category.
  * Body: { pattern, matchType, displayName } for alias
- *    OR { action: "ignore", itemName } to ignore an item
+ *    OR { action: "ignore", categoryName } to ignore
+ *    OR { action: "unignore", categoryName } to unignore
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
   // Handle ignore action
   if (body.action === "ignore") {
-    const { itemName } = body;
-    if (!itemName) {
-      return NextResponse.json({ error: "itemName is required" }, { status: 400 });
+    const { categoryName } = body;
+    if (!categoryName) {
+      return NextResponse.json({ error: "categoryName is required" }, { status: 400 });
     }
-    // Upsert to avoid unique constraint errors
-    await prisma.menuItemIgnore.upsert({
-      where: { itemName },
-      create: { itemName },
+    await prisma.menuCategoryIgnore.upsert({
+      where: { categoryName },
+      create: { categoryName },
       update: {},
     });
     return NextResponse.json({ ignored: true });
@@ -126,11 +124,11 @@ export async function POST(req: NextRequest) {
 
   // Handle unignore action
   if (body.action === "unignore") {
-    const { itemName } = body;
-    if (!itemName) {
-      return NextResponse.json({ error: "itemName is required" }, { status: 400 });
+    const { categoryName } = body;
+    if (!categoryName) {
+      return NextResponse.json({ error: "categoryName is required" }, { status: 400 });
     }
-    await prisma.menuItemIgnore.deleteMany({ where: { itemName } });
+    await prisma.menuCategoryIgnore.deleteMany({ where: { categoryName } });
     return NextResponse.json({ unignored: true });
   }
 
@@ -144,22 +142,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const alias = await prisma.menuItemAlias.create({
+  const alias = await prisma.menuCategoryAlias.create({
     data: { pattern, matchType, displayName },
   });
 
   // Also remove from ignored list if it was there
-  await prisma.menuItemIgnore.deleteMany({
-    where: { itemName: pattern },
+  await prisma.menuCategoryIgnore.deleteMany({
+    where: { categoryName: pattern },
   });
 
-  clearMenuItemAliasCache();
+  clearMenuCategoryAliasCache();
 
   return NextResponse.json({ alias });
 }
 
 /**
- * PATCH /api/menu-item-aliases
+ * PATCH /api/menu-category-aliases
  * Update an existing alias.
  */
 export async function PATCH(req: NextRequest) {
@@ -175,14 +173,14 @@ export async function PATCH(req: NextRequest) {
   if (matchType !== undefined) data.matchType = matchType;
   if (displayName !== undefined) data.displayName = displayName;
 
-  const alias = await prisma.menuItemAlias.update({ where: { id }, data });
-  clearMenuItemAliasCache();
+  const alias = await prisma.menuCategoryAlias.update({ where: { id }, data });
+  clearMenuCategoryAliasCache();
 
   return NextResponse.json({ alias });
 }
 
 /**
- * DELETE /api/menu-item-aliases?id=<id>
+ * DELETE /api/menu-category-aliases?id=<id>
  */
 export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
@@ -190,8 +188,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  await prisma.menuItemAlias.delete({ where: { id } });
-  clearMenuItemAliasCache();
+  await prisma.menuCategoryAlias.delete({ where: { id } });
+  clearMenuCategoryAliasCache();
 
   return NextResponse.json({ deleted: true });
 }

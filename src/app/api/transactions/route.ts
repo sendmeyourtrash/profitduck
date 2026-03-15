@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { resolveItemNames } from "@/lib/services/menu-item-aliases";
+import { resolveCategoryNames } from "@/lib/services/menu-category-aliases";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -146,8 +147,9 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Collect all raw item names across all Square orders for batch alias resolution
+    // Collect all raw item and category names across all Square orders for batch alias resolution
     const allRawItemNames = new Set<string>();
+    const allRawCategoryNames = new Set<string>();
     const parsedItemsByKey = new Map<string, { name: string; category: string; qty: number; price: number }[]>();
 
     for (const po of platformOrders) {
@@ -161,10 +163,12 @@ export async function GET(request: NextRequest) {
             .filter((row) => (row["item"] || "").trim() && parseFloat(row["qty"] || "0") > 0)
             .map((row) => {
               const name = (row["item"] || "").trim();
+              const category = (row["category"] || "").trim();
               allRawItemNames.add(name);
+              if (category) allRawCategoryNames.add(category);
               return {
                 name,
-                category: (row["category"] || "").trim(),
+                category,
                 qty: parseFloat(row["qty"] || "0"),
                 price: parseFloat((row["net sales"] || "0").replace(/[$,]/g, "")) || 0,
               };
@@ -189,9 +193,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Resolve item aliases in one batch
+    // Resolve item and category aliases in one batch
     const itemAliasMap = allRawItemNames.size > 0
       ? await resolveItemNames([...allRawItemNames])
+      : new Map<string, string>();
+    const categoryAliasMap = allRawCategoryNames.size > 0
+      ? await resolveCategoryNames([...allRawCategoryNames])
       : new Map<string, string>();
 
     // Apply resolved names to items
@@ -201,6 +208,7 @@ export async function GET(request: NextRequest) {
         detail.items = items.map((item) => ({
           ...item,
           name: itemAliasMap.get(item.name) || item.name,
+          category: categoryAliasMap.get(item.category) || item.category,
         }));
       }
     }

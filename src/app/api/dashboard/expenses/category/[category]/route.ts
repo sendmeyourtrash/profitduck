@@ -27,7 +27,8 @@ export async function GET(
     startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
   } else {
-    startDate = new Date(0);
+    startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
   }
 
   const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };

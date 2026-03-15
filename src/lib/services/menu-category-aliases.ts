@@ -7,7 +7,7 @@ let aliasCacheTime = 0;
 
 async function getAllAliasesCached(): Promise<AliasEntry[]> {
   if (aliasCache && Date.now() - aliasCacheTime < 5000) return aliasCache;
-  const result = await prisma.menuItemAlias.findMany({
+  const result = await prisma.menuCategoryAlias.findMany({
     select: { pattern: true, matchType: true, displayName: true },
   });
   aliasCache = result;
@@ -15,7 +15,7 @@ async function getAllAliasesCached(): Promise<AliasEntry[]> {
   return result;
 }
 
-export function clearMenuItemAliasCache() {
+export function clearMenuCategoryAliasCache() {
   aliasCache = null;
 }
 
@@ -56,23 +56,22 @@ function followChain(name: string, aliases: AliasEntry[], maxHops = 5): string {
 }
 
 /**
- * Resolve a single item name against all aliases (follows chains).
+ * Resolve a single category name against all aliases (follows chains).
  * Returns the final display name if matched, or null if no match.
  */
-export async function resolveItemName(rawName: string): Promise<string | null> {
+export async function resolveCategoryName(rawName: string): Promise<string | null> {
   const aliases = await getAllAliasesCached();
-  // Check if there's any match at all
   const hasMatch = aliases.some((a) => isMatch(rawName, a.pattern, a.matchType));
   if (!hasMatch) return null;
   return followChain(rawName, aliases);
 }
 
 /**
- * Batch resolve item names — single cache read, many lookups.
+ * Batch resolve category names — single cache read, many lookups.
  * Follows alias chains so "A" → "B" → "C" resolves to "C".
  * Returns a Map of rawName → resolvedName (only includes entries that matched).
  */
-export async function resolveItemNames(names: string[]): Promise<Map<string, string>> {
+export async function resolveCategoryNames(names: string[]): Promise<Map<string, string>> {
   const aliases = await getAllAliasesCached();
   const result = new Map<string, string>();
   for (const name of names) {
@@ -85,9 +84,9 @@ export async function resolveItemNames(names: string[]): Promise<Map<string, str
 }
 
 /**
- * Check if a given item name matches any alias.
+ * Check if a given category name matches any alias.
  */
-export async function isItemMatched(rawName: string): Promise<boolean> {
+export async function isCategoryMatched(rawName: string): Promise<boolean> {
   const aliases = await getAllAliasesCached();
   return aliases.some((alias) => isMatch(rawName, alias.pattern, alias.matchType));
 }

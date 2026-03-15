@@ -155,7 +155,7 @@ function resolveCustomDates(
   now: Date,
   compare: "prior" | "yoy" = "prior"
 ): PeriodDateRanges {
-  const currentStart = rawStart ? startOfDay(new Date(rawStart)) : new Date(0);
+  const currentStart = rawStart ? startOfDay(new Date(rawStart)) : startOfDay(new Date(now.getTime() - 30 * 86_400_000));
   const currentEnd = rawEnd ? endOfDay(new Date(rawEnd)) : endOfDay(now);
 
   const spanMs = currentEnd.getTime() - currentStart.getTime();

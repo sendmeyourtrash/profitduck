@@ -1,11 +1,34 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useMemo, useCallback, use } from "react";
 import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 import PlatformNav from "@/components/layout/PlatformNav";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
+
+type SortDirection = "asc" | "desc";
+type SortConfig = { key: string; dir: SortDirection } | null;
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDirection }) {
+  return (
+    <svg className={`inline-block w-3 h-3 ml-1 ${active ? "text-indigo-600" : "text-gray-300"}`} viewBox="0 0 10 14" fill="currentColor">
+      {(!active || dir === "asc") && <path d="M5 0L9.33 5H0.67L5 0Z" opacity={active && dir === "asc" ? 1 : 0.4} />}
+      {(!active || dir === "desc") && <path d="M5 14L0.67 9H9.33L5 14Z" opacity={active && dir === "desc" ? 1 : 0.4} />}
+    </svg>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sortData<T extends Record<string, any>>(items: T[], sort: SortConfig): T[] {
+  if (!sort) return items;
+  return [...items].sort((a, b) => {
+    const aVal = a[sort.key] ?? "";
+    const bVal = b[sort.key] ?? "";
+    const cmp = typeof aVal === "string" ? aVal.localeCompare(bVal) : (aVal as number) - (bVal as number);
+    return sort.dir === "asc" ? cmp : -cmp;
+  });
+}
 
 const PLATFORM_LABELS: Record<string, string> = {
   square: "Square (In-Store)",
@@ -79,10 +102,50 @@ export default function PlatformDetailPage({
   const [data, setData] = useState<PlatformDetailData | null>(null);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [itemsVisible, setItemsVisible] = useState(10);
+
+  // Sort states for each table
+  const [paymentSort, setPaymentSort] = useState<SortConfig>(null);
+  const [orderTypeSort, setOrderTypeSort] = useState<SortConfig>(null);
+  const [categorySort, setCategorySort] = useState<SortConfig>(null);
+  const [topItemsSort, setTopItemsSort] = useState<SortConfig>(null);
+  const [ordersSort, setOrdersSort] = useState<SortConfig>(null);
+
+  const toggleSort = useCallback((setter: React.Dispatch<React.SetStateAction<SortConfig>>, key: string) => {
+    setter((prev) => {
+      if (prev?.key === key) {
+        return prev.dir === "asc" ? { key, dir: "desc" } : null;
+      }
+      return { key, dir: "asc" };
+    });
+  }, []);
+
+  // Memoized sorted data
+  const sortedTopItems = useMemo(
+    () => sortData(data?.topItems || [], topItemsSort),
+    [data?.topItems, topItemsSort]
+  );
+  const sortedCategories = useMemo(
+    () => sortData(data?.categoryBreakdown || [], categorySort),
+    [data?.categoryBreakdown, categorySort]
+  );
+  const sortedPayments = useMemo(
+    () => sortData(data?.paymentTypeBreakdown || [], paymentSort),
+    [data?.paymentTypeBreakdown, paymentSort]
+  );
+  const sortedOrderTypes = useMemo(
+    () => sortData(data?.orderTypeBreakdown || [], orderTypeSort),
+    [data?.orderTypeBreakdown, orderTypeSort]
+  );
+  const sortedOrders = useMemo(
+    () => sortData(data?.orders || [], ordersSort),
+    [data?.orders, ordersSort]
+  );
 
   useEffect(() => {
     setLoading(true);
     setPage(0);
+    setItemsVisible(10);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
@@ -197,12 +260,23 @@ export default function PlatformDetailPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-400 border-b">
-                <th className="pb-2 font-medium">Payment Type</th>
-                <th className="pb-2 font-medium text-right">Orders</th>
-                <th className="pb-2 font-medium text-right">Subtotal</th>
-                <th className="pb-2 font-medium text-right">Tax</th>
-                <th className="pb-2 font-medium text-right">Tips</th>
-                <th className="pb-2 font-medium text-right">Net Total</th>
+                {[
+                  { key: "type", label: "Payment Type" },
+                  { key: "count", label: "Orders", right: true },
+                  { key: "subtotal", label: "Subtotal", right: true },
+                  { key: "tax", label: "Tax", right: true },
+                  { key: "tip", label: "Tips", right: true },
+                  { key: "total", label: "Net Total", right: true },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className={`pb-2 font-medium cursor-pointer select-none hover:text-gray-600 ${col.right ? "text-right" : ""}`}
+                    onClick={() => toggleSort(setPaymentSort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={paymentSort?.key === col.key} dir={paymentSort?.dir || "asc"} />
+                  </th>
+                ))}
                 <th className="pb-2 font-medium text-right">%</th>
               </tr>
             </thead>
@@ -211,7 +285,7 @@ export default function PlatformDetailPage({
                 const total = data.paymentTypeBreakdown!.reduce((s, p) => s + p.total, 0);
                 return (
                   <>
-                    {data.paymentTypeBreakdown!.map((p) => (
+                    {sortedPayments.map((p) => (
                       <tr key={p.type} className="border-b border-gray-50">
                         <td className="py-2 text-gray-800 font-medium">
                           <span className="inline-flex items-center gap-1.5">
@@ -265,29 +339,60 @@ export default function PlatformDetailPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-400 border-b">
-                <th className="pb-2 font-medium">Type</th>
-                <th className="pb-2 font-medium text-right">Orders</th>
-                <th className="pb-2 font-medium text-right">Revenue</th>
-                <th className="pb-2 font-medium text-right">Fees</th>
-                <th className="pb-2 font-medium text-right">Net Payout</th>
+                {[
+                  { key: "type", label: "Type" },
+                  { key: "count", label: "Orders", right: true },
+                  { key: "revenue", label: "Revenue", right: true },
+                  { key: "fees", label: "Fees", right: true },
+                  { key: "netPayout", label: "Net Payout", right: true },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className={`pb-2 font-medium cursor-pointer select-none hover:text-gray-600 ${col.right ? "text-right" : ""}`}
+                    onClick={() => toggleSort(setOrderTypeSort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={orderTypeSort?.key === col.key} dir={orderTypeSort?.dir || "asc"} />
+                  </th>
+                ))}
                 <th className="pb-2 font-medium text-right">%</th>
               </tr>
             </thead>
             <tbody>
               {(() => {
                 const totalRev = data.orderTypeBreakdown!.reduce((s, o) => s + o.revenue, 0);
-                return data.orderTypeBreakdown!.map((o) => (
-                  <tr key={o.type} className="border-b border-gray-50">
-                    <td className="py-2 text-gray-800 font-medium capitalize">{o.type || "Unknown"}</td>
-                    <td className="py-2 text-right text-gray-600">{o.count}</td>
-                    <td className="py-2 text-right text-gray-600">{formatCurrency(o.revenue)}</td>
-                    <td className="py-2 text-right text-red-600">{formatCurrency(o.fees)}</td>
-                    <td className="py-2 text-right font-medium text-emerald-600">{formatCurrency(o.netPayout)}</td>
-                    <td className="py-2 text-right text-gray-600">
-                      {totalRev > 0 ? ((o.revenue / totalRev) * 100).toFixed(1) : "0"}%
-                    </td>
-                  </tr>
-                ));
+                return (
+                  <>
+                    {sortedOrderTypes.map((o) => (
+                      <tr key={o.type} className="border-b border-gray-50">
+                        <td className="py-2 text-gray-800 font-medium capitalize">{o.type || "Unknown"}</td>
+                        <td className="py-2 text-right text-gray-600">{o.count}</td>
+                        <td className="py-2 text-right text-gray-600">{formatCurrency(o.revenue)}</td>
+                        <td className="py-2 text-right text-red-600">{formatCurrency(o.fees)}</td>
+                        <td className="py-2 text-right font-medium text-emerald-600">{formatCurrency(o.netPayout)}</td>
+                        <td className="py-2 text-right text-gray-600">
+                          {totalRev > 0 ? ((o.revenue / totalRev) * 100).toFixed(1) : "0"}%
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-gray-200 font-medium">
+                      <td className="py-2 text-gray-800">Total</td>
+                      <td className="py-2 text-right text-gray-600">
+                        {data.orderTypeBreakdown!.reduce((s, o) => s + o.count, 0)}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">
+                        {formatCurrency(totalRev)}
+                      </td>
+                      <td className="py-2 text-right text-red-600">
+                        {formatCurrency(data.orderTypeBreakdown!.reduce((s, o) => s + o.fees, 0))}
+                      </td>
+                      <td className="py-2 text-right font-medium text-emerald-600">
+                        {formatCurrency(data.orderTypeBreakdown!.reduce((s, o) => s + o.netPayout, 0))}
+                      </td>
+                      <td className="py-2 text-right text-gray-600">100%</td>
+                    </tr>
+                  </>
+                );
               })()}
             </tbody>
           </table>
@@ -321,25 +426,47 @@ export default function PlatformDetailPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-400 border-b">
-                <th className="pb-2 font-medium">Category</th>
-                <th className="pb-2 font-medium text-right">Items Sold</th>
-                <th className="pb-2 font-medium text-right">Revenue</th>
+                {[
+                  { key: "category", label: "Category" },
+                  { key: "qty", label: "Items Sold", right: true },
+                  { key: "revenue", label: "Revenue", right: true },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className={`pb-2 font-medium cursor-pointer select-none hover:text-gray-600 ${col.right ? "text-right" : ""}`}
+                    onClick={() => toggleSort(setCategorySort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={categorySort?.key === col.key} dir={categorySort?.dir || "asc"} />
+                  </th>
+                ))}
                 <th className="pb-2 font-medium text-right">%</th>
               </tr>
             </thead>
             <tbody>
               {(() => {
                 const totalRev = data.categoryBreakdown!.reduce((s, c) => s + c.revenue, 0);
-                return data.categoryBreakdown!.map((c) => (
-                  <tr key={c.category} className="border-b border-gray-50">
-                    <td className="py-2 text-gray-800 font-medium">{c.category}</td>
-                    <td className="py-2 text-right text-gray-600">{c.qty}</td>
-                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.revenue)}</td>
-                    <td className="py-2 text-right text-gray-600">
-                      {totalRev > 0 ? ((c.revenue / totalRev) * 100).toFixed(1) : "0"}%
-                    </td>
-                  </tr>
-                ));
+                const totalQty = data.categoryBreakdown!.reduce((s, c) => s + c.qty, 0);
+                return (
+                  <>
+                    {sortedCategories.map((c) => (
+                      <tr key={c.category} className="border-b border-gray-50">
+                        <td className="py-2 text-gray-800 font-medium">{c.category}</td>
+                        <td className="py-2 text-right text-gray-600">{c.qty}</td>
+                        <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.revenue)}</td>
+                        <td className="py-2 text-right text-gray-600">
+                          {totalRev > 0 ? ((c.revenue / totalRev) * 100).toFixed(1) : "0"}%
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-gray-200 font-medium">
+                      <td className="py-2 text-gray-800">Total</td>
+                      <td className="py-2 text-right text-gray-600">{totalQty}</td>
+                      <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(totalRev)}</td>
+                      <td className="py-2 text-right text-gray-600">100%</td>
+                    </tr>
+                  </>
+                );
               })()}
             </tbody>
           </table>
@@ -350,20 +477,31 @@ export default function PlatformDetailPage({
       {data.topItems && data.topItems.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-sm font-medium text-gray-500 mb-4">
-            Top Selling Items
+            Top Selling Items ({data.topItems.length})
           </h3>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-400 border-b">
-                <th className="pb-2 font-medium">Item</th>
-                <th className="pb-2 font-medium">Category</th>
-                <th className="pb-2 font-medium text-right">Qty Sold</th>
-                <th className="pb-2 font-medium text-right">Revenue</th>
+                {[
+                  { key: "name", label: "Item" },
+                  { key: "category", label: "Category" },
+                  { key: "qty", label: "Qty Sold", right: true },
+                  { key: "revenue", label: "Revenue", right: true },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className={`pb-2 font-medium cursor-pointer select-none hover:text-gray-600 ${col.right ? "text-right" : ""}`}
+                    onClick={() => toggleSort(setTopItemsSort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={topItemsSort?.key === col.key} dir={topItemsSort?.dir || "asc"} />
+                  </th>
+                ))}
                 <th className="pb-2 font-medium text-right">Avg Price</th>
               </tr>
             </thead>
             <tbody>
-              {data.topItems.map((item) => (
+              {sortedTopItems.slice(0, itemsVisible).map((item) => (
                 <tr key={item.name} className="border-b border-gray-50">
                   <td className="py-2 text-gray-800 font-medium">{item.name}</td>
                   <td className="py-2 text-gray-500">
@@ -378,8 +516,31 @@ export default function PlatformDetailPage({
                   </td>
                 </tr>
               ))}
+              {(() => {
+                const totalQty = data.topItems!.reduce((s, i) => s + i.qty, 0);
+                const totalRev = data.topItems!.reduce((s, i) => s + i.revenue, 0);
+                return (
+                  <tr className="border-t border-gray-200 font-medium">
+                    <td className="py-2 text-gray-800">Total</td>
+                    <td className="py-2" />
+                    <td className="py-2 text-right text-gray-600">{totalQty}</td>
+                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(totalRev)}</td>
+                    <td className="py-2 text-right text-gray-600">
+                      {formatCurrency(totalQty > 0 ? totalRev / totalQty : 0)}
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
+          {sortedTopItems.length > itemsVisible && (
+            <button
+              onClick={() => setItemsVisible((v) => v + 10)}
+              className="mt-3 w-full text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium py-2 rounded-lg hover:bg-indigo-50 transition-colors"
+            >
+              Show 10 more ({sortedTopItems.length - itemsVisible} remaining)
+            </button>
+          )}
         </div>
       )}
 
@@ -394,20 +555,66 @@ export default function PlatformDetailPage({
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr className="text-left text-gray-500">
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Order ID</th>
-                {isSquare && <th className="px-4 py-3 font-medium">Payment</th>}
-                {isSquare && <th className="px-4 py-3 font-medium">Dining</th>}
-                {!isSquare && <th className="px-4 py-3 font-medium">Channel</th>}
-                <th className="px-4 py-3 font-medium text-right">Subtotal</th>
-                <th className="px-4 py-3 font-medium text-right">Tax</th>
-                <th className="px-4 py-3 font-medium text-right">Tip</th>
-                <th className="px-4 py-3 font-medium text-right">Fees</th>
-                <th className="px-4 py-3 font-medium text-right">Net Payout</th>
+                {[
+                  { key: "datetime", label: "Date" },
+                  { key: "orderId", label: "Order ID" },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    onClick={() => toggleSort(setOrdersSort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={ordersSort?.key === col.key} dir={ordersSort?.dir || "asc"} />
+                  </th>
+                ))}
+                {isSquare && (
+                  <th
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    onClick={() => toggleSort(setOrdersSort, "cardBrand")}
+                  >
+                    Payment
+                    <SortIcon active={ordersSort?.key === "cardBrand"} dir={ordersSort?.dir || "asc"} />
+                  </th>
+                )}
+                {isSquare && (
+                  <th
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    onClick={() => toggleSort(setOrdersSort, "diningOption")}
+                  >
+                    Dining
+                    <SortIcon active={ordersSort?.key === "diningOption"} dir={ordersSort?.dir || "asc"} />
+                  </th>
+                )}
+                {!isSquare && (
+                  <th
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    onClick={() => toggleSort(setOrdersSort, "channel")}
+                  >
+                    Channel
+                    <SortIcon active={ordersSort?.key === "channel"} dir={ordersSort?.dir || "asc"} />
+                  </th>
+                )}
+                {[
+                  { key: "subtotal", label: "Subtotal" },
+                  { key: "tax", label: "Tax" },
+                  { key: "tip", label: "Tip" },
+                  { key: "fees", label: "Fees" },
+                  { key: "netPayout", label: "Net Payout" },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className="px-4 py-3 font-medium text-right cursor-pointer select-none hover:text-gray-700"
+                    onClick={() => toggleSort(setOrdersSort, col.key)}
+                  >
+                    {col.label}
+                    <SortIcon active={ordersSort?.key === col.key} dir={ordersSort?.dir || "asc"} />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {data.orders.map((o) => (
+              {sortedOrders.map((o) => (
                 <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2.5 text-gray-600">{formatDateTime(o.datetime)}</td>
                   <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">
@@ -433,6 +640,28 @@ export default function PlatformDetailPage({
                   </td>
                 </tr>
               ))}
+              {data.orders.length > 0 && (
+                <tr className="border-t-2 border-gray-200 bg-gray-50 font-medium">
+                  <td className="px-4 py-2.5 text-gray-800" colSpan={isSquare ? 4 : 3}>
+                    Page Total ({data.orders.length} orders)
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-gray-600">
+                    {formatCurrency(data.orders.reduce((s, o) => s + o.subtotal, 0))}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-gray-600">
+                    {formatCurrency(data.orders.reduce((s, o) => s + o.tax, 0))}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-gray-600">
+                    {formatCurrency(data.orders.reduce((s, o) => s + o.tip, 0))}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-red-600">
+                    {formatCurrency(data.orders.reduce((s, o) => s + o.fees, 0))}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-medium text-emerald-600">
+                    {formatCurrency(data.orders.reduce((s, o) => s + o.netPayout, 0))}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
