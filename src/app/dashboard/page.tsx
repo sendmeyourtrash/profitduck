@@ -7,12 +7,21 @@ import PlatformPieChart from "@/components/charts/PlatformPieChart";
 import { formatCurrency } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
+interface PeriodStats {
+  revenue: number;
+  fees: number;
+  expenses: number;
+  netProfit: number;
+}
+
 interface OverviewData {
-  today: { revenue: number; fees: number; expenses: number; netProfit: number };
-  week: { revenue: number; fees: number; expenses: number; netProfit: number };
-  month: { revenue: number; fees: number; expenses: number; netProfit: number };
-  total: { revenue: number; fees: number; expenses: number; netProfit: number };
+  today: PeriodStats;
+  week: PeriodStats;
+  month: PeriodStats;
+  total: PeriodStats & { netProfitSinceFirstSale?: number };
   platformBreakdown: { platform: string; revenue: number; orders: number }[];
+  transfers?: { count: number; total: number; label: string };
+  expensesByCategory?: { category: string; total: number; count: number }[];
   recentTransactions: {
     id: string;
     date: string;
@@ -27,11 +36,20 @@ interface RevenueData {
   dailyRevenue: { date: string; total: number; count: number }[];
 }
 
+const PLATFORM_LABELS: Record<string, string> = {
+  square: "Square",
+  doordash: "DoorDash",
+  ubereats: "Uber Eats",
+  grubhub: "Grubhub",
+  rocketmoney: "Rocket Money",
+};
+
 export default function DashboardPage() {
   const { startDate, endDate } = useDateRange();
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [reconSummary, setReconSummary] = useState<{
     reconciledChains: number;
@@ -42,6 +60,7 @@ export default function DashboardPage() {
   } | null>(null);
 
   useEffect(() => {
+    if (overview) setRefreshing(true);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
@@ -55,10 +74,11 @@ export default function DashboardPage() {
         setRevenueData(rev);
         if (recon?.summary) setReconSummary(recon.summary);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { setInitialLoading(false); setRefreshing(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -78,7 +98,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Period Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -116,27 +136,105 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* All-Time Summary */}
+      {/* All-Time Summary + Transfer Info */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
           title="Total Revenue"
           value={formatCurrency(overview.total.revenue)}
+          subtitle="Platform payouts deposited"
         />
         <StatCard
           title="Total Fees"
           value={formatCurrency(overview.total.fees)}
           variant="warning"
+          subtitle="Platform commissions & fees"
         />
         <StatCard
           title="Total Expenses"
           value={formatCurrency(overview.total.expenses)}
           variant="danger"
+          subtitle="Business operating costs"
         />
         <StatCard
-          title="Total Net Profit"
+          title="Net Profit"
           value={formatCurrency(overview.total.netProfit)}
           variant={overview.total.netProfit >= 0 ? "success" : "danger"}
+          subtitle={overview.total.netProfitSinceFirstSale != null
+            ? `Since first sale: ${formatCurrency(overview.total.netProfitSinceFirstSale)}`
+            : undefined}
         />
+      </div>
+
+      {/* Expense Breakdown + Transfer Notice */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Expense Categories */}
+        {overview.expensesByCategory && overview.expensesByCategory.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-500">Top Expense Categories</h3>
+              <a href="/dashboard/expenses" className="text-xs text-indigo-600 hover:text-indigo-700">
+                View All →
+              </a>
+            </div>
+            <div className="space-y-3">
+              {overview.expensesByCategory.slice(0, 8).map((cat) => {
+                const pct = overview.total.expenses > 0
+                  ? (cat.total / overview.total.expenses) * 100
+                  : 0;
+                return (
+                  <div key={cat.category} className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700 truncate">{cat.category}</span>
+                        <span className="text-gray-500 font-medium ml-2">{formatCurrency(cat.total)}</span>
+                      </div>
+                      <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-red-400 rounded-full"
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400 w-10 text-right">{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Internal Transfers + Data Source Info */}
+        <div className="space-y-4">
+          {overview.transfers && overview.transfers.count > 0 && (
+            <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
+              <h3 className="text-sm font-medium text-amber-700 mb-2">
+                Internal Transfers (Excluded)
+              </h3>
+              <p className="text-xs text-amber-600 mb-3">
+                {overview.transfers.count} CC auto-payment records totaling{" "}
+                {formatCurrency(overview.transfers.total)} are excluded from revenue.
+                These are internal transfers between checking and credit card accounts.
+              </p>
+              <div className="flex items-center gap-2 text-xs text-amber-500">
+                <span className="px-2 py-0.5 bg-amber-100 rounded-full font-medium">
+                  Not counted as income
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
+            <h3 className="text-sm font-medium text-blue-700 mb-2">
+              Data Source
+            </h3>
+            <p className="text-xs text-blue-600">
+              All financial data flows through <strong>Rocket Money</strong> as the
+              single source of truth. Chase bank records are verified duplicates and
+              excluded from totals. Platform API data (Square, DoorDash, Uber Eats,
+              Grubhub) powers the Sales page with order-level detail.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Reconciliation Status */}
@@ -206,13 +304,13 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-2">
                       <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
-                        {tx.sourcePlatform}
+                        {PLATFORM_LABELS[tx.sourcePlatform] || tx.sourcePlatform}
                       </span>
                     </td>
                     <td className="py-2">
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs ${
-                          tx.type === "income"
+                          tx.type === "payout"
                             ? "bg-emerald-100 text-emerald-700"
                             : tx.type === "fee"
                               ? "bg-amber-100 text-amber-700"
@@ -226,9 +324,11 @@ export default function DashboardPage() {
                     </td>
                     <td
                       className={`py-2 text-right font-medium ${
-                        tx.type === "income"
+                        tx.type === "payout"
                           ? "text-emerald-600"
-                          : "text-gray-800"
+                          : tx.type === "expense"
+                            ? "text-red-600"
+                            : "text-gray-800"
                       }`}
                     >
                       {formatCurrency(tx.amount)}

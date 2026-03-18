@@ -5,13 +5,45 @@ import dynamic from "next/dynamic";
 import { ProgressBar, type ProgressState } from "@/components/ui/ProgressBar";
 import { useProgressStream } from "@/hooks/useProgressStream";
 
+const loadingSpinner = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+  </div>
+);
+
 const ReconciliationPanel = dynamic(
   () => import("@/components/panels/ReconciliationPanel"),
-  { loading: () => (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
-    </div>
-  )}
+  { loading: loadingSpinner }
+);
+
+const ManualEntryPanel = dynamic(
+  () => import("@/components/panels/ManualEntryPanel"),
+  { loading: loadingSpinner }
+);
+
+const CategoriesPanel = dynamic(
+  () => import("@/components/panels/CategoriesPanel"),
+  { loading: loadingSpinner }
+);
+
+const VendorAliasesPanel = dynamic(
+  () => import("@/components/panels/VendorAliasesPanel"),
+  { loading: loadingSpinner }
+);
+
+const MenuItemAliasesPanel = dynamic(
+  () => import("@/components/panels/MenuItemAliasesPanel"),
+  { loading: loadingSpinner }
+);
+
+const MenuCategoryAliasesPanel = dynamic(
+  () => import("@/components/panels/MenuCategoryAliasesPanel"),
+  { loading: loadingSpinner }
+);
+
+const ClosedDaysPanel = dynamic(
+  () => import("@/components/panels/ClosedDaysPanel"),
+  { loading: loadingSpinner }
 );
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -28,7 +60,7 @@ interface ImportRecord {
   errorMessage: string | null;
 }
 
-type SettingsTab = "settings" | "history" | "reconciliation";
+type SettingsTab = "settings" | "history" | "reconciliation" | "manual-entry" | "categories" | "vendor-aliases" | "menu-aliases" | "category-aliases" | "closed-days";
 
 type SourcePlatform =
   | "square"
@@ -109,7 +141,7 @@ const PLATFORM_CARDS = [
 
 const SUPPORTED_FORMATS = [
   { name: "SquareUp", desc: "Transaction CSV export from Square Dashboard" },
-  { name: "Chase Bank", desc: "Transaction CSV from Chase online banking" },
+  { name: "Chase Bank", desc: "Transaction CSV or PDF statement from Chase online banking" },
   { name: "DoorDash", desc: "Order or payout report from Merchant Portal" },
   { name: "Uber Eats", desc: "Order or payment CSV from Uber Eats Manager" },
   { name: "Grubhub", desc: "Order report from Grubhub for Restaurants" },
@@ -149,6 +181,11 @@ export default function SettingsPage() {
   // Auto-sync
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [schedulerRunning, setSchedulerRunning] = useState(false);
+
+  // Business info
+  const [openDate, setOpenDate] = useState("");
+  const [openDateSaving, setOpenDateSaving] = useState(false);
+  const [openDateSaved, setOpenDateSaved] = useState(false);
 
   // History
   const [syncHistory, setSyncHistory] = useState<SyncHistory[]>([]);
@@ -219,8 +256,29 @@ export default function SettingsPage() {
         setMaskedToken(data.settings.square_api_token);
       }
       setAutoSyncEnabled(data.settings?.auto_sync_enabled === "true");
+      if (data.settings?.restaurant_open_date) {
+        setOpenDate(data.settings.restaurant_open_date);
+      }
     } catch {
       // ignore
+    }
+  }
+
+  async function saveOpenDate() {
+    setOpenDateSaving(true);
+    setOpenDateSaved(false);
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "restaurant_open_date", value: openDate }),
+      });
+      setOpenDateSaved(true);
+      setTimeout(() => setOpenDateSaved(false), 2000);
+    } catch {
+      // ignore
+    } finally {
+      setOpenDateSaving(false);
     }
   }
 
@@ -438,12 +496,79 @@ export default function SettingsPage() {
         >
           Reconciliation
         </button>
+        <div className="border-l border-gray-200 mx-2" />
+        <button
+          onClick={() => setActiveTab("manual-entry")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "manual-entry"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Manual Entry
+        </button>
+        <button
+          onClick={() => setActiveTab("categories")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "categories"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Categories
+        </button>
+        <button
+          onClick={() => setActiveTab("vendor-aliases")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "vendor-aliases"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Vendor Aliases
+        </button>
+        <button
+          onClick={() => setActiveTab("menu-aliases")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "menu-aliases"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Menu Aliases
+        </button>
+        <button
+          onClick={() => setActiveTab("category-aliases")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "category-aliases"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Category Aliases
+        </button>
+        <button
+          onClick={() => setActiveTab("closed-days")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "closed-days"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Closed Days
+        </button>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════
           TAB: Reconciliation
           ═══════════════════════════════════════════════════════════ */}
       {activeTab === "reconciliation" && <ReconciliationPanel />}
+      {activeTab === "manual-entry" && <ManualEntryPanel />}
+      {activeTab === "categories" && <CategoriesPanel />}
+      {activeTab === "vendor-aliases" && <VendorAliasesPanel />}
+      {activeTab === "menu-aliases" && <MenuItemAliasesPanel />}
+      {activeTab === "category-aliases" && <MenuCategoryAliasesPanel />}
+      {activeTab === "closed-days" && <ClosedDaysPanel />}
 
       {/* ═══════════════════════════════════════════════════════════
           TAB: Import History
@@ -527,6 +652,41 @@ export default function SettingsPage() {
           TAB: Import & Settings
           ═══════════════════════════════════════════════════════════ */}
       {activeTab === "settings" && <div className="max-w-3xl mx-auto">
+
+      {/* ═══════════════════════════════════════════════════════════
+          CARD 0 — Business Info
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 mb-6">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">Business Info</h3>
+          <p className="text-xs text-gray-500 mt-0.5">General information about your restaurant</p>
+        </div>
+
+        <div className="flex items-end gap-3">
+          <div className="flex-1 max-w-xs">
+            <label htmlFor="openDate" className="block text-xs font-medium text-gray-600 mb-1">
+              Restaurant Open Date
+            </label>
+            <input
+              id="openDate"
+              type="date"
+              value={openDate}
+              onChange={(e) => { setOpenDate(e.target.value); setOpenDateSaved(false); }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={saveOpenDate}
+            disabled={openDateSaving || !openDate}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+          >
+            {openDateSaving ? "Saving..." : openDateSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">
+          Used in reports to provide context for profit calculations.
+        </p>
+      </div>
 
       {/* ═══════════════════════════════════════════════════════════
           CARD 1 — Platform Connections & Sync
@@ -820,12 +980,12 @@ export default function SettingsPage() {
                 Browse Files
                 <input
                   type="file"
-                  accept=".csv,.tsv,.xlsx,.xls"
+                  accept=".csv,.tsv,.xlsx,.xls,.pdf"
                   className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
                 />
               </label>
-              <p className="text-xs text-gray-400 mt-3">Supported: CSV, TSV, XLSX, XLS</p>
+              <p className="text-xs text-gray-400 mt-3">Supported: CSV, TSV, XLSX, XLS, PDF (Chase statements)</p>
             </div>
           )}
         </div>

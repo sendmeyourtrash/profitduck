@@ -28,6 +28,13 @@ export {
   resolveAlert,
 } from "./alert-engine";
 
+export {
+  runCrossSourceDedup,
+  resetDuplicateLinks,
+} from "./cross-source-dedup";
+
+export { normalizeCategories } from "./normalize-categories";
+
 // Backward-compatible wrappers matching original reconciliation.ts API
 import { findL2L3Suggestions, confirmL2L3Match, undoL2L3Match } from "./l2-l3-matcher";
 import { prisma } from "../../db/prisma";

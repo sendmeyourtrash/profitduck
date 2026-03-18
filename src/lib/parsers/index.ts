@@ -7,6 +7,8 @@ import { grubhubParser } from "./grubhub";
 import { rocketmoneyParser } from "./rocketmoney";
 
 export type { ParseResult, SourcePlatform, PlatformParser } from "./types";
+export { detectChasePdf, parseChasePdfText } from "./chase-pdf";
+export type { PdfData } from "./chase-pdf";
 
 /**
  * Registry of all available platform parsers.

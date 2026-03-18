@@ -1,19 +1,28 @@
+/**
+ * CSV Upload Orchestrator
+ * =======================
+ *
+ * Handles file uploads from the Settings page. Routes files through
+ * the 2-step pipeline:
+ *
+ *   Step 1: CSV → Vendor DB (raw + cleanup)
+ *   Step 2: Vendor DB → Unified DB (normalize)
+ *
+ * Also records import history in Prisma (dev.db) for tracking.
+ *
+ * @see pipeline-step1-ingest.ts — Step 1 implementation
+ * @see pipeline-step2-unify.ts — Step 2 implementation
+ * @see PIPELINE.md — Full documentation
+ */
+
 import { prisma } from "../db/prisma";
-import { readFile } from "./file-reader";
-import { getParser, detectParser, SourcePlatform, ParseResult } from "../parsers";
-import {
-  computeFileHash,
-  checkDuplicateFile,
-  checkOverlappingImports,
-  isTransactionDuplicate,
-  isBankTransactionDuplicate,
-  isExpenseDuplicate,
-  isPayoutDuplicate,
-  findMatchingBankTransaction,
-  computeDateRange,
-} from "./dedup";
+import { readFile, readPdfFile } from "./file-reader";
+import { getParser, detectParser, SourcePlatform, ParseResult, detectChasePdf, parseChasePdfText } from "../parsers";
+import { computeFileHash, checkDuplicateFile, checkOverlappingImports, computeDateRange } from "./dedup";
 import { ProgressCallback } from "./progress";
-import { resolveVendorName } from "./vendor-aliases";
+import { step1Ingest, IngestResult } from "./pipeline-step1-ingest";
+import { step2Unify, UnifyResult } from "./pipeline-step2-unify";
+import { step3ApplyAliases } from "./pipeline-step3-aliases";
 
 export interface IngestOptions {
   /** Skip file-level duplicate check */
@@ -25,8 +34,12 @@ export interface IngestOptions {
 }
 
 /**
- * Process an uploaded file: detect source, parse, and store normalized data.
- * Now with SHA256 dedup and row-level dedup support.
+ * Process an uploaded file through the 2-step pipeline.
+ *
+ * 1. Read and parse the file
+ * 2. Step 1: Write raw data to vendor DB (with cleanup/dedup)
+ * 3. Step 2: Read from vendor DB, write normalized data to unified DB
+ * 4. Record import in Prisma for tracking
  */
 export async function ingestFile(
   filePath: string,
@@ -46,13 +59,9 @@ export async function ingestFile(
         summary: {
           source: duplicateImport.source,
           rowsProcessed: 0,
-          transactions: 0,
-          platformOrders: 0,
-          bankTransactions: 0,
-          expenses: 0,
-          payouts: 0,
+          step1: { platform: duplicateImport.source, inserted: 0, skipped: 0, cleaned: 0, errors: [] },
+          step2: { platform: duplicateImport.source, inserted: 0, skipped: 0, errors: [] },
           errors: [],
-          rowsSkipped: 0,
         },
         duplicate: {
           isDuplicate: true,
@@ -66,57 +75,73 @@ export async function ingestFile(
 
   // 3. Read the file
   options.onProgress?.({ phase: "reading", current: 0, total: 0, message: "Reading file..." });
-  const { headers, rows } = readFile(filePath);
 
-  if (rows.length === 0) {
-    throw new Error("File is empty or contains no data rows.");
-  }
+  const ext = fileName.toLowerCase().split(".").pop() || "";
+  let rawRows: Record<string, string>[] = [];
+  let parserSource: SourcePlatform;
+  let parsedResult: ParseResult | null = null;
 
-  // 4. Detect or select parser
-  let parser;
-  if (sourcePlatform) {
-    parser = getParser(sourcePlatform);
-    if (!parser) {
-      throw new Error(`Unknown platform: ${sourcePlatform}`);
+  if (ext === "pdf") {
+    // PDF flow: Chase statements — use existing parser, handled separately
+    const { text, pdfData } = await readPdfFile(filePath);
+
+    const confidence = detectChasePdf(text);
+    if (confidence < 0.5) {
+      throw new Error("Could not detect this PDF as a Chase statement. Only Chase bank and credit card PDF statements are currently supported.");
+    }
+
+    options.onProgress?.({ phase: "parsing", current: 0, total: 1, message: "Parsing PDF statement..." });
+    parsedResult = parseChasePdfText(text, fileName, pdfData);
+    parserSource = "chase";
+
+    if (parsedResult.bankTransactions.length === 0 && parsedResult.transactions.length === 0) {
+      throw new Error("No transactions found in this PDF. Make sure it's a Chase bank or credit card statement.");
     }
   } else {
-    const detected = detectParser(fileName, headers);
-    if (!detected) {
-      throw new Error(
-        "Could not auto-detect the source platform. Please specify it manually."
-      );
+    // CSV/XLSX flow: read rows, detect platform
+    const { headers, rows } = readFile(filePath);
+
+    if (rows.length === 0) {
+      throw new Error("File is empty or contains no data rows.");
     }
-    parser = detected.parser;
+
+    // Detect or use specified platform
+    if (sourcePlatform) {
+      const parser = getParser(sourcePlatform);
+      if (!parser) throw new Error(`Unknown platform: ${sourcePlatform}`);
+      parserSource = parser.source;
+    } else {
+      const detected = detectParser(fileName, headers);
+      if (!detected) {
+        throw new Error("Could not auto-detect the source platform. Please specify it manually.");
+      }
+      parserSource = detected.parser.source;
+    }
+
+    rawRows = rows;
+    options.onProgress?.({ phase: "parsing", current: 0, total: rows.length, message: `Detected ${parserSource}: ${rows.length.toLocaleString()} rows` });
   }
 
-  // 5. Parse the data
-  options.onProgress?.({ phase: "parsing", current: 0, total: rows.length, message: `Parsing ${rows.length.toLocaleString()} rows...` });
-  const result = parser.parse(rows);
+  // 4. Compute date range for import tracking
+  let dateRange: { start: Date; end: Date } | null = null;
+  if (parsedResult) {
+    const allDates: Date[] = [
+      ...parsedResult.transactions.map((t) => t.date),
+      ...parsedResult.bankTransactions.map((bt) => bt.date),
+    ];
+    dateRange = computeDateRange(allDates);
+  }
 
-  // 6. Compute date range from all parsed records
-  const allDates: Date[] = [
-    ...result.transactions.map((t) => t.date),
-    ...result.platformOrders.map((o) => o.orderDatetime),
-    ...result.bankTransactions.map((bt) => bt.date),
-    ...result.expenses.map((e) => e.date),
-    ...result.payouts.map((p) => p.payoutDate),
-  ];
-  const dateRange = computeDateRange(allDates);
-
-  // 7. Check for overlapping time ranges
+  // 5. Check for overlapping imports
   let overlappingImports: { id: string; fileName: string; importedAt: Date }[] = [];
   if (dateRange) {
-    overlappingImports = await checkOverlappingImports(
-      parser.source,
-      dateRange.start,
-      dateRange.end
-    );
+    overlappingImports = await checkOverlappingImports(parserSource, dateRange.start, dateRange.end);
   }
 
-  // 8. Create Import record
+  // 6. Create import record in Prisma (for tracking)
   const importRecord = await prisma.import.create({
     data: {
-      source: parser.source,
+      source: parserSource,
       fileName,
       status: "processing",
       fileHash,
@@ -126,25 +151,69 @@ export async function ingestFile(
   });
 
   try {
-    // 9. Store parsed data with row-level dedup
-    const rowsSkipped = await storeResults(
-      importRecord.id,
-      result,
-      !options.skipRowDedup,
-      options.onProgress
-    );
+    let step1Result: IngestResult = { platform: parserSource, inserted: 0, skipped: 0, cleaned: 0, errors: [] };
+    let step2Result: UnifyResult = { platform: parserSource, inserted: 0, skipped: 0, errors: [] };
 
-    // 10. Update Import with results
+    if (parsedResult && parserSource === "chase") {
+      // Chase PDFs don't go through the standard pipeline yet
+      // TODO: Create chase.db vendor DB and pipeline
+      options.onProgress?.({ phase: "storing", current: 0, total: 0, message: "Storing Chase data..." });
+      // For now, write directly to bank.db chase_statements
+      const Database = (await import("better-sqlite3")).default;
+      const path = await import("path");
+      const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+      bankDb.exec(`CREATE TABLE IF NOT EXISTS chase_statements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT, description TEXT, amount REAL,
+        account_type TEXT, account_name TEXT, source TEXT DEFAULT 'chase'
+      )`);
+      const insert = bankDb.prepare("INSERT INTO chase_statements (date, description, amount, account_type, account_name) VALUES (?,?,?,?,?)");
+      const insertAll = bankDb.transaction(() => {
+        for (const bt of parsedResult!.bankTransactions) {
+          const existing = bankDb.prepare("SELECT 1 FROM chase_statements WHERE date = ? AND amount = ? AND description = ?")
+            .get(bt.date.toISOString().slice(0, 10), bt.amount, bt.description);
+          if (existing) { step1Result.skipped++; continue; }
+          insert.run(bt.date.toISOString().slice(0, 10), bt.description, bt.amount, bt.accountType, bt.accountName);
+          step1Result.inserted++;
+        }
+      });
+      insertAll();
+      bankDb.close();
+    } else if (rawRows.length > 0) {
+      // ============================================================
+      // STEP 1: CSV rows → Vendor DB (raw + cleanup)
+      // ============================================================
+      options.onProgress?.({ phase: "storing", current: 0, total: rawRows.length, message: `Step 1: Writing to ${parserSource} vendor DB...` });
+      step1Result = step1Ingest(parserSource, rawRows);
+      console.log(`[Ingest] Step 1 (${parserSource}): inserted=${step1Result.inserted}, skipped=${step1Result.skipped}, cleaned=${step1Result.cleaned}`);
+
+      // ============================================================
+      // STEP 2: Vendor DB → Unified DB (normalize)
+      // ============================================================
+      options.onProgress?.({ phase: "syncing", current: 0, total: 0, message: `Step 2: Normalizing to unified DB...` });
+      step2Result = step2Unify(parserSource);
+      console.log(`[Ingest] Step 2 (${parserSource}): inserted=${step2Result.inserted}, skipped=${step2Result.skipped}`);
+
+      // ============================================================
+      // STEP 3: Apply aliases (categories.db → sales.db order_items)
+      // ============================================================
+      options.onProgress?.({ phase: "syncing", current: 0, total: 0, message: `Step 3: Applying aliases...` });
+      const aliasResult = step3ApplyAliases();
+      console.log(`[Ingest] Step 3: items=${aliasResult.itemAliasesApplied}, categories=${aliasResult.categoryAliasesApplied}`);
+    }
+
+    // 7. Update import record
+    const totalProcessed = step1Result.inserted + step1Result.skipped;
     const updated = await prisma.import.update({
       where: { id: importRecord.id },
       data: {
         status: "completed",
-        rowsProcessed: result.rowsProcessed,
-        rowsFailed: result.errors.length,
-        rowsSkipped,
+        rowsProcessed: totalProcessed,
+        rowsFailed: step1Result.errors.length + step2Result.errors.length,
+        rowsSkipped: step1Result.skipped,
         errorMessage:
-          result.errors.length > 0
-            ? result.errors.slice(0, 10).join("; ")
+          [...step1Result.errors, ...step2Result.errors].length > 0
+            ? [...step1Result.errors, ...step2Result.errors].slice(0, 10).join("; ")
             : null,
       },
     });
@@ -152,272 +221,23 @@ export async function ingestFile(
     return {
       import: updated,
       summary: {
-        source: parser.source,
-        rowsProcessed: result.rowsProcessed,
-        transactions: result.transactions.length,
-        platformOrders: result.platformOrders.length,
-        bankTransactions: result.bankTransactions.length,
-        expenses: result.expenses.length,
-        payouts: result.payouts.length,
-        errors: result.errors,
-        rowsSkipped,
+        source: parserSource,
+        rowsProcessed: totalProcessed,
+        step1: step1Result,
+        step2: step2Result,
+        errors: [...step1Result.errors, ...step2Result.errors],
       },
       duplicate: null,
-      overlappingImports:
-        overlappingImports.length > 0 ? overlappingImports : null,
+      overlappingImports: overlappingImports.length > 0 ? overlappingImports : null,
     };
   } catch (error) {
     await prisma.import.update({
       where: { id: importRecord.id },
       data: {
         status: "failed",
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown error",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
       },
     });
     throw error;
   }
-}
-
-/**
- * Store all parsed results into the database with optional row-level dedup.
- * Returns the number of rows skipped due to dedup.
- */
-async function storeResults(
-  importId: string,
-  result: ParseResult,
-  enableRowDedup: boolean,
-  onProgress?: ProgressCallback
-): Promise<number> {
-  let rowsSkipped = 0;
-  const totalRecords =
-    result.transactions.length +
-    result.platformOrders.length +
-    result.bankTransactions.length +
-    result.expenses.length +
-    result.payouts.length;
-  let stored = 0;
-
-  await prisma.$transaction(async (tx) => {
-    // Store transactions with dedup
-    for (const t of result.transactions) {
-      if (enableRowDedup) {
-        const isDup = await isTransactionDuplicate(
-          {
-            rawSourceId: t.rawSourceId,
-            sourcePlatform: t.sourcePlatform,
-            date: t.date,
-            amount: t.amount,
-            description: t.description,
-          },
-          tx
-        );
-        if (isDup) {
-          rowsSkipped++;
-          stored++;
-          if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-          continue;
-        }
-      }
-      await tx.transaction.create({
-        data: {
-          date: t.date,
-          amount: t.amount,
-          type: t.type,
-          sourcePlatform: t.sourcePlatform,
-          category: t.category || null,
-          description: t.description || null,
-          rawSourceId: t.rawSourceId || null,
-          rawData: t.rawData,
-          importId,
-        },
-      });
-      stored++;
-      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-    }
-
-    // Store platform orders (already has unique constraint dedup)
-    for (const order of result.platformOrders) {
-      const existing = await tx.platformOrder.findUnique({
-        where: {
-          orderId_platform: {
-            orderId: order.orderId,
-            platform: order.platform,
-          },
-        },
-      });
-      if (existing) {
-        rowsSkipped++;
-        stored++;
-        if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-        continue;
-      }
-      await tx.platformOrder.create({
-        data: {
-          orderId: order.orderId,
-          platform: order.platform,
-          orderDatetime: order.orderDatetime,
-          subtotal: order.subtotal,
-          tax: order.tax,
-          deliveryFee: order.deliveryFee,
-          serviceFee: order.serviceFee,
-          commissionFee: order.commissionFee,
-          tip: order.tip,
-          netPayout: order.netPayout,
-          discounts: order.discounts ?? 0,
-          itemCategory: order.itemCategory || null,
-          diningOption: order.diningOption || null,
-          channel: order.channel || null,
-          cardBrand: order.cardBrand || null,
-          fulfillmentType: order.fulfillmentType || null,
-          customerFees: order.customerFees ?? 0,
-          marketingFees: order.marketingFees ?? 0,
-          refunds: order.refunds ?? 0,
-          adjustments: order.adjustments ?? 0,
-          platformPayoutId: order.platformPayoutId || null,
-          rawData: order.rawData,
-          importId,
-        },
-      });
-      stored++;
-      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-    }
-
-    // Store bank transactions with dedup (cross-source aware)
-    for (const bt of result.bankTransactions) {
-      if (enableRowDedup) {
-        const isDup = await isBankTransactionDuplicate(
-          { date: bt.date, amount: bt.amount, description: bt.description, accountName: bt.accountName },
-          tx
-        );
-        if (isDup) {
-          rowsSkipped++;
-          stored++;
-          if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-          continue;
-        }
-      }
-      await tx.bankTransaction.create({
-        data: {
-          date: bt.date,
-          description: bt.description,
-          amount: bt.amount,
-          category: bt.category || null,
-          accountType: bt.accountType || null,
-          accountName: bt.accountName || null,
-          institutionName: bt.institutionName || null,
-          taxDeductible: bt.taxDeductible ?? false,
-          tags: bt.tags || null,
-          rawData: bt.rawData,
-          importId,
-        },
-      });
-      stored++;
-      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-    }
-
-    // Store expenses with dedup and auto-create vendors
-    for (const exp of result.expenses) {
-      if (enableRowDedup) {
-        const isDup = await isExpenseDuplicate(
-          { date: exp.date, amount: exp.amount, vendorName: exp.vendorName },
-          tx
-        );
-        if (isDup) {
-          rowsSkipped++;
-          stored++;
-          if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-          continue;
-        }
-      }
-
-      let vendor = await tx.vendor.findUnique({
-        where: { name: exp.vendorName },
-      });
-      if (!vendor) {
-        const displayName = await resolveVendorName(exp.vendorName);
-        vendor = await tx.vendor.create({
-          data: {
-            name: exp.vendorName,
-            displayName,
-            category: exp.category || null,
-          },
-        });
-      }
-
-      // Try to match category string to an ExpenseCategory
-      let expenseCategoryId: string | null = null;
-      if (exp.category) {
-        const matchedRule = await tx.categorizationRule.findFirst({
-          where: {
-            type: "category_match",
-            pattern: exp.category,
-          },
-        });
-        if (matchedRule) {
-          expenseCategoryId = matchedRule.categoryId;
-        }
-      }
-
-      // Try to find a matching bank transaction to link
-      const matchedBankTxId = await findMatchingBankTransaction(
-        { date: exp.date, amount: exp.amount, importId },
-        tx
-      );
-
-      await tx.expense.create({
-        data: {
-          vendorId: vendor.id,
-          amount: exp.amount,
-          date: exp.date,
-          category: exp.category || null,
-          paymentMethod: exp.paymentMethod || null,
-          notes: exp.notes || null,
-          rawData: exp.rawData,
-          importId,
-          expenseCategoryId,
-          linkedBankTransactionId: matchedBankTxId,
-        },
-      });
-      stored++;
-      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-    }
-
-    // Store payouts with dedup
-    for (const p of result.payouts) {
-      if (enableRowDedup) {
-        const isDup = await isPayoutDuplicate(
-          {
-            platformPayoutId: p.platformPayoutId,
-            platform: p.platform,
-            payoutDate: p.payoutDate,
-            netAmount: p.netAmount,
-          },
-          tx
-        );
-        if (isDup) {
-          rowsSkipped++;
-          stored++;
-          if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-          continue;
-        }
-      }
-      await tx.payout.create({
-        data: {
-          platform: p.platform,
-          payoutDate: p.payoutDate,
-          grossAmount: p.grossAmount,
-          fees: p.fees,
-          netAmount: p.netAmount,
-          platformPayoutId: p.platformPayoutId || null,
-          rawData: p.rawData,
-          importId,
-        },
-      });
-      stored++;
-      if (stored % 50 === 0) onProgress?.({ phase: "storing", current: stored, total: totalRecords, message: `Storing records... ${stored.toLocaleString()} / ${totalRecords.toLocaleString()}` });
-    }
-  });
-
-  return rowsSkipped;
 }

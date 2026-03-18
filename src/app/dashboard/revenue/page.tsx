@@ -31,20 +31,23 @@ const PLATFORM_LABELS: Record<string, string> = {
 export default function RevenuePage() {
   const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<RevenueData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    if (data) setRefreshing(true);
+    else setInitialLoading(true);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     fetch(`/api/dashboard/revenue?${params}`)
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => { setInitialLoading(false); setRefreshing(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -64,7 +67,7 @@ export default function RevenuePage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard

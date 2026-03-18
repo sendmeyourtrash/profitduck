@@ -5,10 +5,7 @@ import { usePathname } from "next/navigation";
 
 const PLATFORMS = [
   { slug: "overview", label: "Overview", href: "/dashboard/platforms" },
-  { slug: "square", label: "Square", href: "/dashboard/platforms/square" },
-  { slug: "doordash", label: "DoorDash", href: "/dashboard/platforms/doordash" },
-  { slug: "ubereats", label: "Uber Eats", href: "/dashboard/platforms/ubereats" },
-  { slug: "grubhub", label: "Grubhub", href: "/dashboard/platforms/grubhub" },
+  { slug: "analytics", label: "Analytics", href: "/dashboard/platforms/analytics" },
 ];
 
 export default function PlatformNav() {
@@ -17,7 +14,7 @@ export default function PlatformNav() {
   const activeSlug =
     pathname === "/dashboard/platforms"
       ? "overview"
-      : PLATFORMS.find((p) => p.href === pathname)?.slug || "overview";
+      : PLATFORMS.find((p) => p.slug !== "overview" && pathname.startsWith(p.href))?.slug || "overview";
 
   return (
     <nav className="flex gap-1 bg-gray-100 rounded-lg p-1">

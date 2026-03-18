@@ -35,12 +35,18 @@ model Transaction {
   linkedBankTransaction   BankTransaction? @relation(fields: [linkedBankTransactionId], references: [id])
   reconciliationStatus    String           @default("unreconciled") @map("reconciliation_status")
 
+  // Cross-source dedup: marks this record as a duplicate of another
+  duplicateOfId String?       @map("duplicate_of_id")
+  duplicateOf   Transaction?  @relation("DuplicateChain", fields: [duplicateOfId], references: [id])
+  duplicates    Transaction[] @relation("DuplicateChain")
+
   // Audit trail
   auditLogs AuditLog[]
 
   @@index([type, date])
   @@index([sourcePlatform, date])
   @@index([date])
+  @@index([duplicateOfId])
   @@map("transactions")
 }
 

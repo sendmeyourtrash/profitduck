@@ -1,5 +1,18 @@
+/**
+ * Expenses Dashboard API — Source of truth: Rocket Money transactions table.
+ *
+ * Uses the `transactions` table filtered to RM expenses (not the legacy `expenses` table)
+ * so that dedup, reconciliation, and category data are consistent across the app.
+ *
+ * Excludes:
+ *   - Internal transfers (category LIKE 'transfer:%')
+ *   - Negative amounts (CC payment outflows — these cancel with income records)
+ *   - Chase records (100% duplicates of RM)
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+
+const PRIMARY_SOURCE = "rocketmoney";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -20,52 +33,99 @@ export async function GET(request: NextRequest) {
     startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
   } else {
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
+    // "All" — find the earliest expense
+    const earliest = await prisma.transaction.findFirst({
+      where: {
+        type: "expense",
+        sourcePlatform: PRIMARY_SOURCE,
+        duplicateOfId: null,
+        amount: { gt: 0 },
+      },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    });
+    startDate = earliest
+      ? earliest.date
+      : new Date(new Date().setDate(new Date().getDate() - 365));
   }
 
+  const dateGte = startDate.toISOString();
+  const dateLte = endDate ? endDate.toISOString() : undefined;
+  const dateClause = dateLte
+    ? `AND date >= '${dateGte}' AND date <= '${dateLte}'`
+    : `AND date >= '${dateGte}'`;
+
+  // ── Expenses by category (from RM transactions) ──────────────────────
+  const expensesByCategory = await prisma.$queryRawUnsafe<
+    { category: string; total: number; cnt: number }[]
+  >(`
+    SELECT
+      COALESCE(category, '(uncategorized)') as category,
+      ROUND(SUM(amount), 2) as total,
+      COUNT(*) as cnt
+    FROM transactions
+    WHERE source_platform = '${PRIMARY_SOURCE}'
+      AND type = 'expense'
+      AND duplicate_of_id IS NULL
+      AND amount > 0
+      AND (category IS NULL OR category NOT LIKE 'transfer:%')
+      ${dateClause}
+    GROUP BY category
+    ORDER BY total DESC
+  `);
+
+  // ── Expenses by vendor (description-based grouping) ──────────────────
+  const expensesByVendor = await prisma.$queryRawUnsafe<
+    { vendor: string; total: number; cnt: number }[]
+  >(`
+    SELECT
+      CASE
+        WHEN description LIKE 'Rent%' OR description LIKE '%1654 Third%' THEN 'Rent (1654 Third Ave)'
+        WHEN description LIKE 'Groceries - Costco%' THEN 'Costco'
+        WHEN description LIKE 'Groceries - JETRO%' THEN 'Jetro Cash & Carry'
+        WHEN description LIKE 'Groceries - Restaurant Depot%' OR description LIKE 'Groceries - RESTAURANT DEPOT%' THEN 'Restaurant Depot'
+        WHEN description LIKE 'Insurance%' THEN 'Insurance'
+        WHEN description LIKE 'Payroll%' OR description LIKE '%Gusto%' THEN 'Payroll (Gusto)'
+        WHEN description LIKE 'Taxes%' THEN 'Taxes'
+        WHEN description LIKE 'Bills%' THEN 'Bills & Utilities'
+        WHEN description LIKE 'Shopping - Amazon%' THEN 'Amazon'
+        WHEN description LIKE 'Permits%' THEN 'Permits & Licenses'
+        WHEN description LIKE 'Marketing%' OR description LIKE 'Ads%' THEN 'Marketing & Advertising'
+        WHEN description LIKE 'Construction%' OR description LIKE 'Maintenance%' THEN 'Construction & Maintenance'
+        ELSE substr(description, 1, 40)
+      END as vendor,
+      ROUND(SUM(amount), 2) as total,
+      COUNT(*) as cnt
+    FROM transactions
+    WHERE source_platform = '${PRIMARY_SOURCE}'
+      AND type = 'expense'
+      AND duplicate_of_id IS NULL
+      AND amount > 0
+      AND (category IS NULL OR category NOT LIKE 'transfer:%')
+      ${dateClause}
+    GROUP BY vendor
+    ORDER BY total DESC
+    LIMIT 20
+  `);
+
+  // ── Daily expense trend ──────────────────────────────────────────────
+  const dailyExpenses = await prisma.$queryRawUnsafe<
+    { date: string; total: number }[]
+  >(`
+    SELECT strftime('%Y-%m-%d', date) as date, ROUND(SUM(amount), 2) as total
+    FROM transactions
+    WHERE source_platform = '${PRIMARY_SOURCE}'
+      AND type = 'expense'
+      AND duplicate_of_id IS NULL
+      AND amount > 0
+      AND (category IS NULL OR category NOT LIKE 'transfer:%')
+      ${dateClause}
+    GROUP BY strftime('%Y-%m-%d', date)
+    ORDER BY date ASC
+  `);
+
+  // ── Expenses by payment method (from legacy expenses table — still useful) ──
   const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
-
-  // Expenses by vendor — fetch ALL, merge by displayName, then take top 20.
-  // We cannot use `take` here because vendor aliases may merge many vendorIds
-  // into a single display name (e.g. 12 rent payments → "Rent (1654 Third Ave)").
-  const expensesByVendor = await prisma.expense.groupBy({
-    by: ["vendorId"],
-    where: { date: dateFilter },
-    _sum: { amount: true },
-    _count: true,
-  });
-
-  // Look up vendor names (prefer displayName from alias system)
-  const vendorIds = expensesByVendor
-    .map((e) => e.vendorId)
-    .filter((id): id is string => id !== null);
-  const vendors = await prisma.vendor.findMany({
-    where: { id: { in: vendorIds } },
-  });
-  const vendorMap = new Map(
-    vendors.map((v) => [v.id, v.displayName || v.name])
-  );
-
-  // Expenses by category — group by expenseCategoryId to use proper category names
-  const expensesByCategoryRaw = await prisma.expense.groupBy({
-    by: ["expenseCategoryId"],
-    where: { date: dateFilter },
-    _sum: { amount: true },
-    _count: true,
-    orderBy: { _sum: { amount: "desc" } },
-  });
-
-  // Look up ExpenseCategory names
-  const catIds = expensesByCategoryRaw
-    .map((e) => e.expenseCategoryId)
-    .filter((id): id is string => id !== null);
-  const expenseCategories = await prisma.expenseCategory.findMany({
-    where: { id: { in: catIds } },
-  });
-  const catNameMap = new Map(expenseCategories.map((c) => [c.id, c.name]));
-
-  // Expenses by payment method
   const expensesByPaymentMethod = await prisma.expense.groupBy({
     by: ["paymentMethod"],
     where: { date: dateFilter },
@@ -74,25 +134,10 @@ export async function GET(request: NextRequest) {
     orderBy: { _sum: { amount: "desc" } },
   });
 
-  // Monthly expense trend (filtered by selected period)
-  const monthlyExpenses = await prisma.$queryRawUnsafe<
-    { month: string; total: number }[]
-  >(
-    `SELECT strftime('%Y-%m', date) as month, SUM(amount) as total
-     FROM expenses
-     WHERE date >= ?${endDate ? " AND date <= ?" : ""}
-     GROUP BY strftime('%Y-%m', date)
-     ORDER BY month ASC`,
-    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
-  );
-
-  // Fees by platform — aggregate from platform_orders which has detailed fee columns
-  // (commission, service, delivery, marketing, customer fees)
+  // ── Fees by platform (from platform_orders — granular breakdown) ─────
   const platformFees = await prisma.platformOrder.groupBy({
     by: ["platform"],
-    where: {
-      orderDatetime: dateFilter,
-    },
+    where: { orderDatetime: dateFilter },
     _sum: {
       commissionFee: true,
       serviceFee: true,
@@ -102,39 +147,36 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Merge vendors that share the same displayName
-  const mergedVendors = new Map<string, { vendorId: string; vendorName: string; total: number; count: number }>();
-  for (const e of expensesByVendor) {
-    const name = e.vendorId ? vendorMap.get(e.vendorId) || "Unknown" : "Unknown";
-    const existing = mergedVendors.get(name);
-    if (existing) {
-      existing.total += e._sum.amount || 0;
-      existing.count += e._count;
-    } else {
-      mergedVendors.set(name, {
-        vendorId: e.vendorId || "unknown",
-        vendorName: name,
-        total: e._sum.amount || 0,
-        count: e._count,
-      });
-    }
-  }
-  const sortedVendors = [...mergedVendors.values()]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 20);
+  // ── Internal transfers summary ───────────────────────────────────────
+  const transferExpenses = await prisma.$queryRawUnsafe<
+    { category: string; total: number; cnt: number }[]
+  >(`
+    SELECT category, ROUND(SUM(ABS(amount)), 2) as total, COUNT(*) as cnt
+    FROM transactions
+    WHERE source_platform = '${PRIMARY_SOURCE}'
+      AND type = 'expense'
+      AND duplicate_of_id IS NULL
+      AND category LIKE 'transfer:%'
+      ${dateClause}
+    GROUP BY category
+    ORDER BY total DESC
+  `);
 
   return NextResponse.json({
-    expensesByVendor: sortedVendors,
-    expensesByCategory: expensesByCategoryRaw.map((e) => ({
-      category: e.expenseCategoryId
-        ? catNameMap.get(e.expenseCategoryId) || "Uncategorized"
-        : "Uncategorized",
-      total: e._sum.amount || 0,
-      count: e._count,
+    expensesByVendor: expensesByVendor.map((e) => ({
+      vendorId: e.vendor,
+      vendorName: e.vendor,
+      total: Number(e.total),
+      count: Number(e.cnt),
     })),
-    monthlyExpenses: monthlyExpenses.map((m) => ({
-      month: m.month,
-      total: Number(m.total),
+    expensesByCategory: expensesByCategory.map((e) => ({
+      category: e.category,
+      total: Number(e.total),
+      count: Number(e.cnt),
+    })),
+    dailyExpenses: dailyExpenses.map((d) => ({
+      date: d.date,
+      total: Number(d.total),
     })),
     expensesByPaymentMethod: expensesByPaymentMethod.map((e) => ({
       paymentMethod: e.paymentMethod || "Unknown",
@@ -160,5 +202,10 @@ export async function GET(request: NextRequest) {
       }))
       .filter((f) => f.fees > 0)
       .sort((a, b) => b.fees - a.fees),
+    transfers: transferExpenses.map((t) => ({
+      category: t.category,
+      total: Number(t.total),
+      count: Number(t.cnt),
+    })),
   });
 }

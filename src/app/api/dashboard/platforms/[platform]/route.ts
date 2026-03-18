@@ -1,7 +1,8 @@
+/**
+ * Per-platform detail API — reads from sales.db orders + order_items
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
-import { resolveItemNames } from "@/lib/services/menu-item-aliases";
-import { resolveCategoryNames } from "@/lib/services/menu-category-aliases";
+import { getSalesDb } from "@/lib/db/sales-db";
 
 const VALID_PLATFORMS = new Set(["square", "doordash", "ubereats", "grubhub"]);
 
@@ -16,334 +17,176 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
-  const rawStart = searchParams.get("startDate");
-  const rawEnd = searchParams.get("endDate");
-  const rawDays = searchParams.get("days");
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
   const page = parseInt(searchParams.get("page") || "0");
   const limit = parseInt(searchParams.get("limit") || "50");
 
-  let startDate: Date;
-  let endDate: Date | undefined;
+  const db = getSalesDb();
 
-  if (rawStart) {
-    startDate = new Date(rawStart + "T00:00:00.000Z");
-    if (rawEnd) {
-      endDate = new Date(rawEnd + "T23:59:59.999Z");
-    }
-  } else if (rawDays) {
-    const days = parseInt(rawDays);
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-  } else {
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
-  }
+  const conditions = ["platform = ?"];
+  const queryParams: (string | number)[] = [platform];
 
-  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
-  const where = { platform, orderDatetime: dateFilter };
+  if (startDate) { conditions.push("date >= ?"); queryParams.push(startDate); }
+  if (endDate) { conditions.push("date <= ?"); queryParams.push(endDate); }
 
-  // Run all queries in parallel
-  const queries: Promise<unknown>[] = [
-    // [0] Aggregate stats
-    prisma.platformOrder.aggregate({
-      where,
-      _sum: {
-        subtotal: true,
-        tax: true,
-        tip: true,
-        commissionFee: true,
-        serviceFee: true,
-        deliveryFee: true,
-        marketingFees: true,
-        customerFees: true,
-        netPayout: true,
-        discounts: true,
-        refunds: true,
-        adjustments: true,
-      },
-      _avg: { subtotal: true },
-      _count: true,
-    }),
+  const where = `WHERE ${conditions.join(" AND ")}`;
 
-    // [1] Daily revenue trend
-    prisma.$queryRawUnsafe<
-      { date: string; total: number; orders: number }[]
-    >(
-      `SELECT date(order_datetime) as date,
-              SUM(subtotal + tax + tip) as total,
-              COUNT(*) as orders
-       FROM platform_orders
-       WHERE platform = ? AND order_datetime >= ?${endDate ? " AND order_datetime <= ?" : ""}
-       GROUP BY date(order_datetime)
-       ORDER BY date ASC`,
-      platform,
-      startDate.toISOString(),
-      ...(endDate ? [endDate.toISOString()] : [])
-    ),
+  // Aggregate stats
+  const agg = db.prepare(`
+    SELECT COUNT(*) as order_count,
+      ROUND(SUM(gross_sales), 2) as gross_sales,
+      ROUND(SUM(tax), 2) as tax,
+      ROUND(SUM(tip), 2) as tip,
+      ROUND(SUM(fees_total), 2) as fees_total,
+      ROUND(SUM(marketing_total), 2) as marketing_total,
+      ROUND(SUM(net_sales), 2) as net_sales,
+      ROUND(AVG(gross_sales), 2) as avg_order,
+      ROUND(SUM(commission_fee), 2) as commission_fee,
+      ROUND(SUM(processing_fee), 2) as processing_fee,
+      ROUND(SUM(delivery_fee), 2) as delivery_fee,
+      ROUND(SUM(marketing_fee), 2) as marketing_fee,
+      ROUND(SUM(discounts), 2) as discounts,
+      ROUND(SUM(refunds_total), 2) as refunds_total,
+      ROUND(SUM(adjustments_total), 2) as adjustments_total
+    FROM orders ${where}
+  `).get(...queryParams) as Record<string, number>;
 
-    // [2] Paginated orders
-    prisma.platformOrder.findMany({
-      where,
-      orderBy: { orderDatetime: "desc" },
-      skip: page * limit,
-      take: limit,
-    }),
+  const grossRevenue = (agg.gross_sales || 0) + (agg.tax || 0) + (agg.tip || 0);
+  const commissionRate = grossRevenue > 0 ? Math.round((Math.abs(agg.fees_total || 0) / grossRevenue) * 1000) / 10 : 0;
 
-    // [3] Total order count for pagination
-    prisma.platformOrder.count({ where }),
-  ];
+  // Daily revenue trend
+  const dailyRevenue = db.prepare(`
+    SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as orders
+    FROM orders ${where}
+    GROUP BY date ORDER BY date ASC
+  `).all(...queryParams) as { date: string; total: number; orders: number }[];
 
-  // Square-specific: payment type breakdown
-  if (platform === "square") {
-    queries.push(
-      // [4] Card brand grouping
-      prisma.platformOrder.groupBy({
-        by: ["cardBrand"],
-        where,
-        _sum: { netPayout: true, subtotal: true, tax: true, tip: true },
-        _count: true,
-      }),
-      // [5] Dining option grouping
-      prisma.platformOrder.groupBy({
-        by: ["diningOption"],
-        where,
-        _sum: { subtotal: true, tax: true, tip: true, netPayout: true },
-        _count: true,
-      })
-    );
-  }
+  // Paginated orders
+  const orders = db.prepare(`
+    SELECT * FROM orders ${where}
+    ORDER BY date DESC, time DESC
+    LIMIT ? OFFSET ?
+  `).all(...queryParams, limit, page * limit) as Record<string, unknown>[];
 
-  // Delivery platforms: order type breakdown
-  if (platform === "doordash" || platform === "ubereats") {
-    queries.push(
-      // [4] Channel grouping (Marketplace vs Storefront, etc.)
-      prisma.platformOrder.groupBy({
-        by: ["channel"],
-        where,
-        _sum: { subtotal: true, tax: true, tip: true, netPayout: true, commissionFee: true, serviceFee: true, deliveryFee: true },
-        _count: true,
-      })
-    );
-  }
+  const totalCount = (db.prepare(`SELECT COUNT(*) as cnt FROM orders ${where}`).get(...queryParams) as { cnt: number }).cnt;
 
-  if (platform === "grubhub") {
-    queries.push(
-      // [4] Fulfillment type grouping (delivery/pickup)
-      prisma.platformOrder.groupBy({
-        by: ["fulfillmentType"],
-        where,
-        _sum: { subtotal: true, tax: true, tip: true, netPayout: true, commissionFee: true, serviceFee: true, deliveryFee: true },
-        _count: true,
-      })
-    );
-  }
-
-  const results = await Promise.all(queries);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const agg = results[0] as any;
-  const dailyRevenue = (results[1] as { date: string; total: number; orders: number }[]).map((d) => ({
-    date: d.date,
-    total: Number(d.total),
-    orders: Number(d.orders),
-  }));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orders = results[2] as any[];
-  const totalCount = results[3] as number;
-
-  const grossRevenue = (agg._sum.subtotal || 0) + (agg._sum.tax || 0) + (agg._sum.tip || 0);
-  const totalFees = (agg._sum.commissionFee || 0) + (agg._sum.serviceFee || 0);
-  const commissionRate = grossRevenue > 0 ? Math.round((totalFees / grossRevenue) * 1000) / 10 : 0;
-
-  // Build response
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response: Record<string, any> = {
     platform,
-    orderCount: agg._count,
+    orderCount: agg.order_count,
     grossRevenue,
-    totalFees,
-    netPayout: agg._sum.netPayout || 0,
+    grossSales: agg.gross_sales,
+    totalFees: agg.fees_total,
+    marketingTotal: agg.marketing_total,
+    netPayout: agg.net_sales,
+    netRevenue: (agg.gross_sales || 0) + (agg.fees_total || 0) + (agg.marketing_total || 0) + (agg.discounts || 0),
     commissionRate,
-    avgOrderValue: agg._avg.subtotal || 0,
-    tips: agg._sum.tip || 0,
+    avgOrderValue: agg.avg_order,
+    tips: agg.tip,
+    tax: agg.tax,
     feeBreakdown: {
-      commission: agg._sum.commissionFee || 0,
-      service: agg._sum.serviceFee || 0,
-      delivery: agg._sum.deliveryFee || 0,
-      marketing: agg._sum.marketingFees || 0,
-      customer: agg._sum.customerFees || 0,
+      commission: agg.commission_fee || 0,
+      processing: agg.processing_fee || 0,
+      delivery: agg.delivery_fee || 0,
+      marketing: agg.marketing_fee || 0,
     },
-    dailyRevenue,
+    dailyRevenue: dailyRevenue.map((d) => ({ date: d.date, total: Number(d.total), orders: Number(d.orders) })),
     orders: orders.map((o) => ({
-      id: o.id,
-      orderId: o.orderId,
-      datetime: o.orderDatetime,
-      subtotal: o.subtotal,
+      id: `${o.platform}-${o.order_id}`,
+      orderId: o.order_id,
+      datetime: o.date,
+      subtotal: o.gross_sales,
       tax: o.tax,
       tip: o.tip,
-      fees: o.commissionFee + o.serviceFee + o.deliveryFee,
-      netPayout: o.netPayout,
-      cardBrand: o.cardBrand,
-      diningOption: o.diningOption,
-      channel: o.channel,
-      fulfillmentType: o.fulfillmentType,
+      fees: o.fees_total,
+      netPayout: o.net_sales,
+      items: o.items,
+      paymentMethod: o.payment_method,
+      diningOption: o.dining_option,
+      orderStatus: o.order_status,
     })),
     totalOrders: totalCount,
     totalPages: Math.ceil(totalCount / limit),
   };
 
-  // Square-specific breakdowns
-  if (platform === "square" && results[4]) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cardBrandData = results[4] as any[];
-    response.paymentTypeBreakdown = cardBrandData
-      .map((e) => {
-        const brand = (e.cardBrand || "").trim();
-        let label: string;
-        if (!brand) {
-          label = "Cash";
-        } else if (brand.includes(",")) {
-          label = "Split Payment";
-        } else {
-          label = brand;
-        }
-        return {
-          type: label,
-          total: e._sum.netPayout || 0,
-          subtotal: e._sum.subtotal || 0,
-          tax: e._sum.tax || 0,
-          tip: e._sum.tip || 0,
-          count: e._count,
-        };
-      })
-      .reduce<{ type: string; total: number; subtotal: number; tax: number; tip: number; count: number }[]>(
-        (acc, cur) => {
-          const existing = acc.find((a) => a.type === cur.type);
-          if (existing) {
-            existing.total += cur.total;
-            existing.subtotal += cur.subtotal;
-            existing.tax += cur.tax;
-            existing.tip += cur.tip;
-            existing.count += cur.count;
-          } else {
-            acc.push({ ...cur });
-          }
-          return acc;
-        },
-        []
-      )
-      .sort((a, b) => b.total - a.total);
+  // Item and category analytics from order_items (using display names after aliases)
+  if (platform === "square") {
+    const itemConditions = conditions.map(c => c.replace("platform", "oi.platform").replace("date", "oi.date"));
+    const itemWhere = `WHERE ${itemConditions.join(" AND ")}`;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const diningData = results[5] as any[];
-    response.diningOptionBreakdown = diningData
-      .map((d) => ({
-        option: d.diningOption || "Unknown",
-        count: d._count,
-        revenue: (d._sum.subtotal || 0) + (d._sum.tax || 0) + (d._sum.tip || 0),
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
+    // Top items (using display_name)
+    const topItems = db.prepare(`
+      SELECT oi.display_name as name, oi.display_category as category,
+        ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue
+      FROM order_items oi
+      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0
+      GROUP BY oi.display_name
+      ORDER BY qty DESC
+    `).all(...queryParams) as { name: string; category: string; qty: number; revenue: number }[];
 
-    // Parse rawData to get item-level analytics
-    const allSquareOrders = await prisma.platformOrder.findMany({
-      where,
-      select: { rawData: true },
-    });
+    response.topItems = topItems;
 
-    // First pass: collect all unique raw item and category names
-    const rawItemNames = new Set<string>();
-    const rawCategoryNames = new Set<string>();
-    const parsedOrders: { name: string; category: string; qty: number; netSales: number }[][] = [];
+    // Category breakdown (using display_category)
+    const categoryBreakdown = db.prepare(`
+      SELECT oi.display_category as category,
+        ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue,
+        COUNT(*) as itemCount
+      FROM order_items oi
+      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0
+      GROUP BY oi.display_category
+      ORDER BY revenue DESC
+    `).all(...queryParams) as { category: string; qty: number; revenue: number; itemCount: number }[];
 
-    for (const order of allSquareOrders) {
-      if (!order.rawData) continue;
-      try {
-        const items = JSON.parse(order.rawData) as Record<string, string>[];
-        const orderItems: { name: string; category: string; qty: number; netSales: number }[] = [];
-        for (const item of items) {
-          const name = (item["item"] || "").trim();
-          const category = (item["category"] || "Uncategorized").trim();
-          const qty = parseFloat(item["qty"] || "0") || 0;
-          const netSales = parseFloat((item["net sales"] || "0").replace(/[$,]/g, "")) || 0;
-          if (!name || qty <= 0) continue;
-          rawItemNames.add(name);
-          rawCategoryNames.add(category);
-          orderItems.push({ name, category, qty, netSales });
-        }
-        parsedOrders.push(orderItems);
-      } catch {
-        // skip unparseable rawData
-      }
-    }
+    response.categoryBreakdown = categoryBreakdown;
 
-    // Resolve all item names and category names through aliases in one batch
-    const aliasMap = await resolveItemNames([...rawItemNames]);
-    const categoryAliasMap = await resolveCategoryNames([...rawCategoryNames]);
+    // Payment type breakdown
+    const paymentBreakdown = db.prepare(`
+      SELECT payment_method, COUNT(*) as count,
+        ROUND(SUM(gross_sales), 2) as subtotal,
+        ROUND(SUM(tax), 2) as tax,
+        ROUND(SUM(tip), 2) as tip,
+        ROUND(SUM(net_sales), 2) as total
+      FROM orders ${where} AND payment_method IS NOT NULL
+      GROUP BY payment_method ORDER BY total DESC
+    `).all(...queryParams) as { payment_method: string; count: number; subtotal: number; tax: number; tip: number; total: number }[];
 
-    // Second pass: aggregate using resolved names
-    const itemMap = new Map<string, { name: string; category: string; qty: number; revenue: number }>();
-    const categoryMap = new Map<string, { category: string; qty: number; revenue: number; itemCount: number }>();
+    response.paymentTypeBreakdown = paymentBreakdown.map((p) => ({
+      type: p.payment_method || "Cash",
+      count: p.count,
+      subtotal: p.subtotal,
+      tax: p.tax,
+      tip: p.tip,
+      total: p.total,
+    }));
 
-    for (const orderItems of parsedOrders) {
-      for (const item of orderItems) {
-        const resolvedName = aliasMap.get(item.name) || item.name;
-        const resolvedCategory = categoryAliasMap.get(item.category) || item.category;
+    // Dining option breakdown
+    const diningBreakdown = db.prepare(`
+      SELECT dining_option, COUNT(*) as count,
+        ROUND(SUM(gross_sales + tax + tip), 2) as revenue
+      FROM orders ${where}
+      GROUP BY dining_option ORDER BY revenue DESC
+    `).all(...queryParams) as { dining_option: string; count: number; revenue: number }[];
 
-        // Item-level aggregation (keyed by resolved name)
-        const existing = itemMap.get(resolvedName);
-        if (existing) {
-          existing.qty += item.qty;
-          existing.revenue += item.netSales;
-        } else {
-          itemMap.set(resolvedName, { name: resolvedName, category: resolvedCategory, qty: item.qty, revenue: item.netSales });
-        }
-
-        // Category-level aggregation (keyed by resolved category)
-        const catExisting = categoryMap.get(resolvedCategory);
-        if (catExisting) {
-          catExisting.qty += item.qty;
-          catExisting.revenue += item.netSales;
-          catExisting.itemCount++;
-        } else {
-          categoryMap.set(resolvedCategory, { category: resolvedCategory, qty: item.qty, revenue: item.netSales, itemCount: 1 });
-        }
-      }
-    }
-
-    response.topItems = [...itemMap.values()]
-      .sort((a, b) => b.qty - a.qty);
-
-    response.categoryBreakdown = [...categoryMap.values()]
-      .sort((a, b) => b.revenue - a.revenue);
+    response.diningOptionBreakdown = diningBreakdown.map((d) => ({
+      option: d.dining_option || "Unknown",
+      count: d.count,
+      revenue: d.revenue,
+    }));
   }
 
   // Delivery platform breakdowns
-  if ((platform === "doordash" || platform === "ubereats") && results[4]) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const channelData = results[4] as any[];
-    response.orderTypeBreakdown = channelData
-      .map((d) => ({
-        type: d.channel || "Unknown",
-        count: d._count,
-        revenue: (d._sum.subtotal || 0) + (d._sum.tax || 0) + (d._sum.tip || 0),
-        netPayout: d._sum.netPayout || 0,
-        fees: (d._sum.commissionFee || 0) + (d._sum.serviceFee || 0) + (d._sum.deliveryFee || 0),
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
-  }
+  if (platform === "doordash" || platform === "ubereats" || platform === "grubhub") {
+    const diningBreakdown = db.prepare(`
+      SELECT dining_option as type, COUNT(*) as count,
+        ROUND(SUM(gross_sales + tax + tip), 2) as revenue,
+        ROUND(SUM(net_sales), 2) as netPayout,
+        ROUND(SUM(fees_total), 2) as fees
+      FROM orders ${where}
+      GROUP BY dining_option ORDER BY revenue DESC
+    `).all(...queryParams) as { type: string; count: number; revenue: number; netPayout: number; fees: number }[];
 
-  if (platform === "grubhub" && results[4]) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fulfillmentData = results[4] as any[];
-    response.orderTypeBreakdown = fulfillmentData
-      .map((d) => ({
-        type: d.fulfillmentType || "Unknown",
-        count: d._count,
-        revenue: (d._sum.subtotal || 0) + (d._sum.tax || 0) + (d._sum.tip || 0),
-        netPayout: d._sum.netPayout || 0,
-        fees: (d._sum.commissionFee || 0) + (d._sum.serviceFee || 0) + (d._sum.deliveryFee || 0),
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
+    response.orderTypeBreakdown = diningBreakdown;
   }
 
   return NextResponse.json(response);

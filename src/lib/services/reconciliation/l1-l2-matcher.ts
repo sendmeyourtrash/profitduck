@@ -406,15 +406,16 @@ async function matchOrdersWithoutPayouts(
         data: { reconciliationStatus: "reconciled" },
       });
 
+      // Mark transactions as reconciled but do NOT link them individually
+      // to the bank transaction. The bank deposit is a batch covering all
+      // orders for the day — linking it to each order is misleading.
       if (rawSourceIds.length > 0) {
         await prisma.transaction.updateMany({
           where: {
             sourcePlatform: platform,
             rawSourceId: { in: rawSourceIds },
-            linkedBankTransactionId: null,
           },
           data: {
-            linkedBankTransactionId: bankTx.id,
             reconciliationStatus: "reconciled",
           },
         });

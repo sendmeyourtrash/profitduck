@@ -1,46 +1,114 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import { v4 as uuidv4 } from "uuid";
 import {
-  ensureCategoriesAndRules,
-  getDefaultCategories,
-} from "@/lib/services/categorization";
+  getAllExpenseCategories,
+  createExpenseCategory,
+  updateExpenseCategory,
+  deleteExpenseCategory,
+  getAllCategorizationRules,
+  getAllVendorAliases,
+  getVendorAliasesDb,
+} from "@/lib/db/config-db";
+import Database from "better-sqlite3";
+import path from "path";
 
 /**
  * GET /api/expense-categories
- * List all expense categories with expense counts.
- * Auto-seeds categories and links expenses on first access.
+ * List all expense categories with expense counts from bank.db.
+ * Categories and rules come from categories.db.
+ * Vendor aliases from vendor-aliases.db map bank transactions to categories.
  */
 export async function GET() {
-  let categories = await prisma.expenseCategory.findMany({
-    include: {
-      _count: { select: { expenses: true, rules: true } },
-      children: true,
-    },
-    orderBy: { name: "asc" },
-  });
+  const categories = getAllExpenseCategories();
+  const rules = getAllCategorizationRules();
+  const aliases = getAllVendorAliases();
 
-  // Seed defaults if no categories exist
-  if (categories.length === 0) {
-    await ensureCategoriesAndRules();
-
-    // Auto-link existing expenses based on raw category strings
-    await autoLinkExpenses();
-
-    categories = await prisma.expenseCategory.findMany({
-      include: {
-        _count: { select: { expenses: true, rules: true } },
-        children: true,
-      },
-      orderBy: { name: "asc" },
-    });
+  // Count rules per category
+  const ruleCountMap = new Map<string, number>();
+  for (const r of rules) {
+    if (r.category_id) {
+      ruleCountMap.set(r.category_id, (ruleCountMap.get(r.category_id) || 0) + 1);
+    }
   }
 
-  return NextResponse.json({ categories });
+  // Build vendor_match rules: display_name → category_id
+  const vendorToCategoryId = new Map<string, string>();
+  for (const rule of rules) {
+    if (rule.type === "vendor_match" && rule.category_id) {
+      vendorToCategoryId.set(rule.pattern.toLowerCase(), rule.category_id);
+    }
+  }
+
+  // Count bank transactions per category by resolving vendor aliases
+  const expenseCountMap = new Map<string, number>();
+  let uncategorizedCount = 0;
+
+  try {
+    const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    const rows = bankDb.prepare(`
+      SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name, COUNT(*) as cnt
+      FROM rocketmoney
+      WHERE 1=1
+      GROUP BY vendor_name
+    `).all() as { vendor_name: string; cnt: number }[];
+
+    for (const row of rows) {
+      // Resolve vendor alias
+      let displayName = row.vendor_name;
+      for (const alias of aliases) {
+        const patLower = alias.pattern.toLowerCase();
+        const nameLower = row.vendor_name.toLowerCase();
+        if (alias.match_type === "exact" && nameLower === patLower) {
+          displayName = alias.display_name;
+          break;
+        } else if (alias.match_type === "starts_with" && nameLower.startsWith(patLower)) {
+          displayName = alias.display_name;
+          break;
+        } else if (alias.match_type === "contains" && nameLower.includes(patLower)) {
+          displayName = alias.display_name;
+          break;
+        }
+      }
+
+      // Find category for this vendor
+      const categoryId = vendorToCategoryId.get(displayName.toLowerCase());
+      if (categoryId) {
+        expenseCountMap.set(categoryId, (expenseCountMap.get(categoryId) || 0) + row.cnt);
+      } else {
+        uncategorizedCount += row.cnt;
+      }
+    }
+
+    bankDb.close();
+  } catch (e) {
+    console.error("Failed to count bank expenses:", e);
+  }
+
+  const result = categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    parentId: c.parent_id,
+    color: c.color,
+    icon: c.icon,
+    createdAt: c.created_at,
+    _count: {
+      expenses: expenseCountMap.get(c.id) || 0,
+      rules: ruleCountMap.get(c.id) || 0,
+    },
+    children: categories.filter((ch) => ch.parent_id === c.id).map((ch) => ({
+      id: ch.id,
+      name: ch.name,
+      parentId: ch.parent_id,
+      color: ch.color,
+      icon: ch.icon,
+    })),
+  })).filter((c) => !c.parentId); // Only return top-level, children are nested
+
+  return NextResponse.json({ categories: result, uncategorizedCount });
 }
 
 /**
  * POST /api/expense-categories
- * Create a new expense category.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -48,22 +116,15 @@ export async function POST(request: NextRequest) {
     const { name, color, icon, parentId } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { error: "Name is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    const category = await prisma.expenseCategory.create({
-      data: {
-        name,
-        color: color || null,
-        icon: icon || null,
-        parentId: parentId || null,
-      },
-    });
+    const id = uuidv4();
+    createExpenseCategory(id, name, color, icon, parentId);
 
-    return NextResponse.json({ category });
+    return NextResponse.json({
+      category: { id, name, color, icon, parentId },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -72,7 +133,6 @@ export async function POST(request: NextRequest) {
 
 /**
  * PATCH /api/expense-categories
- * Update an expense category.
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -83,16 +143,8 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "ID is required" }, { status: 400 });
     }
 
-    const category = await prisma.expenseCategory.update({
-      where: { id },
-      data: {
-        ...(name !== undefined ? { name } : {}),
-        ...(color !== undefined ? { color } : {}),
-        ...(icon !== undefined ? { icon } : {}),
-      },
-    });
-
-    return NextResponse.json({ category });
+    updateExpenseCategory(id, { name, color, icon });
+    return NextResponse.json({ category: { id, name, color, icon } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -100,32 +152,19 @@ export async function PATCH(request: NextRequest) {
 }
 
 /**
- * Auto-link expenses to ExpenseCategory based on their raw category strings.
- * Maps CSV categories like "Shopping", "Groceries" to the structured ExpenseCategory entries.
+ * DELETE /api/expense-categories?id=...
  */
-async function autoLinkExpenses() {
-  const defaults = getDefaultCategories();
-
-  for (const cat of defaults) {
-    if (!cat.rawCategories || cat.rawCategories.length === 0) continue;
-
-    // Find the ExpenseCategory
-    const expCat = await prisma.expenseCategory.findFirst({
-      where: { name: cat.name },
-    });
-    if (!expCat) continue;
-
-    // Link all expenses that have matching raw categories
-    for (const rawCat of cat.rawCategories) {
-      await prisma.expense.updateMany({
-        where: {
-          category: rawCat,
-          expenseCategoryId: null,
-        },
-        data: {
-          expenseCategoryId: expCat.id,
-        },
-      });
+export async function DELETE(request: NextRequest) {
+  try {
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "ID is required" }, { status: 400 });
     }
+
+    deleteExpenseCategory(id); // Also deletes associated rules
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

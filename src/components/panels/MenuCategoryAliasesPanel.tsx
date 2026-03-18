@@ -24,7 +24,8 @@ export default function MenuCategoryAliasesPanel() {
   const [matchedCount, setMatchedCount] = useState(0);
   const [unmatchedCount, setUnmatchedCount] = useState(0);
   const [ignoredCount, setIgnoredCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   // New alias form
@@ -52,7 +53,7 @@ export default function MenuCategoryAliasesPanel() {
   const [ignoredVisible, setIgnoredVisible] = useState(PAGE_SIZE);
 
   const fetchData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    if (!silent) setRefreshing(true);
     const res = await fetch("/api/menu-category-aliases");
     const data = await res.json();
     setAliases(data.aliases || []);
@@ -62,7 +63,8 @@ export default function MenuCategoryAliasesPanel() {
     setMatchedCount(data.matchedCount || 0);
     setUnmatchedCount(data.unmatchedCount || 0);
     setIgnoredCount(data.ignoredCount || 0);
-    setLoading(false);
+    setInitialLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
@@ -164,7 +166,7 @@ export default function MenuCategoryAliasesPanel() {
     return acc;
   }, {});
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -173,9 +175,9 @@ export default function MenuCategoryAliasesPanel() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       <div>
-        <h2 className="text-lg font-semibold text-gray-800">Category Aliases</h2>
+        <h2 className="text-lg font-semibold text-gray-800">Menu Category Aliases</h2>
         <p className="text-sm text-gray-500">
           Merge or rename menu categories so they aggregate in analytics (e.g. &ldquo;Sweet Cr&ecirc;pes&rdquo; + &ldquo;Savory Cr&ecirc;pes&rdquo; &rarr; &ldquo;Cr&ecirc;pes&rdquo;).
         </p>

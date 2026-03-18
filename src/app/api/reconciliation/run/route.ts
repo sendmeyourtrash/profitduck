@@ -7,6 +7,9 @@ import {
   autoMatchL2L3,
   runAlertScan,
   getReconciliationSummary,
+  runCrossSourceDedup,
+  resetDuplicateLinks,
+  normalizeCategories,
 } from "@/lib/services/reconciliation";
 import {
   setProgress,
@@ -14,7 +17,7 @@ import {
   failProgress,
 } from "@/lib/services/progress";
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 8;
 
 /**
  * POST /api/reconciliation/run
@@ -45,7 +48,7 @@ export async function POST() {
 }
 
 async function runReconciliation(operationId: string) {
-  // Step 1: Reset stale links
+  // Step 1: Reset stale links (including duplicate chains)
   setProgress(operationId, {
     phase: "reset",
     current: 1,
@@ -54,51 +57,78 @@ async function runReconciliation(operationId: string) {
     done: false,
   });
   const resetStats = await resetReconciliationLinks();
+  const dupLinksReset = await resetDuplicateLinks();
 
-  // Step 2: L1→L2 matching
+  // Step 2: Cross-source dedup (mark duplicates in DB)
+  setProgress(operationId, {
+    phase: "cross_source_dedup",
+    current: 2,
+    total: TOTAL_STEPS,
+    message: "Marking cross-source duplicates…",
+    done: false,
+  });
+  const dedupResult = await runCrossSourceDedup();
+
+  // Step 3: L1→L2 matching
   setProgress(operationId, {
     phase: "l1l2",
-    current: 2,
+    current: 3,
     total: TOTAL_STEPS,
     message: "Matching orders → payouts (L1→L2)…",
     done: false,
   });
   const l1l2Result = await matchLevel1ToLevel2();
 
-  // Step 3: L2→L3 auto-matching
+  // Step 4: L2→L3 auto-matching
   setProgress(operationId, {
     phase: "l2l3",
-    current: 3,
+    current: 4,
     total: TOTAL_STEPS,
     message: "Auto-matching payouts → bank deposits (L2→L3)…",
     done: false,
   });
   const l2l3AutoMatched = await autoMatchL2L3(0.9);
 
-  // Step 4: L2→L3 suggestions
+  // Step 5: L2→L3 suggestions
   setProgress(operationId, {
     phase: "suggestions",
-    current: 4,
+    current: 5,
     total: TOTAL_STEPS,
     message: "Finding remaining L2→L3 suggestions…",
     done: false,
   });
   const l2l3Suggestions = await findL2L3Suggestions();
 
-  // Step 5: Alert scan
+  // Step 6: Alert scan
   setProgress(operationId, {
     phase: "alerts",
-    current: 5,
+    current: 6,
     total: TOTAL_STEPS,
     message: "Scanning for alerts…",
     done: false,
   });
   const newAlerts = await runAlertScan();
 
-  // Step 6: Summary
+  // Step 7: Vendor & category normalization (using existing rule engine)
+  setProgress(operationId, {
+    phase: "normalize",
+    current: 7,
+    total: TOTAL_STEPS,
+    message: "Normalizing vendors and categories…",
+    done: false,
+  });
+  // Vendor alias resolution
+  const { applyAliasesToVendors } = await import(
+    "@/lib/services/vendor-aliases"
+  );
+  const vendorsUpdated = await applyAliasesToVendors();
+  // Category normalization + auto-categorization
+  const normResult = await normalizeCategories();
+
+  // Step 8: Summary
   setProgress(operationId, {
     phase: "summary",
-    current: 6,
+    current: 8,
     total: TOTAL_STEPS,
     message: "Building summary…",
     done: false,
@@ -108,10 +138,14 @@ async function runReconciliation(operationId: string) {
   // Done — attach result
   completeProgress(operationId, {
     resetStats,
+    dupLinksReset,
+    dedupResult,
     l1l2: l1l2Result,
     l2l3AutoMatched,
     l2l3PendingSuggestions: l2l3Suggestions.length,
     newAlerts,
+    vendorsUpdated,
+    normResult,
     summary,
   });
 }

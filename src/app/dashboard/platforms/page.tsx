@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import StatCard from "@/components/charts/StatCard";
 import BarChartCard from "@/components/charts/BarChartCard";
-import PlatformNav from "@/components/layout/PlatformNav";
+import PlatformFilter from "@/components/layout/PlatformFilter";
 import { formatCurrency } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
@@ -47,21 +47,35 @@ interface PlatformData {
 export default function PlatformsPage() {
   const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<PlatformData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
-    setLoading(true);
+    if (data) setRefreshing(true);
+    else setInitialLoading(true);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     fetch(`/api/dashboard/platforms?${params}`)
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => { setInitialLoading(false); setRefreshing(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
-  if (loading) {
+  const filtered = useMemo(
+    () => {
+      const platforms = data?.platforms || [];
+      return selectedPlatforms.length === 0
+        ? platforms
+        : platforms.filter((p) => selectedPlatforms.includes(p.platform));
+    },
+    [data?.platforms, selectedPlatforms]
+  );
+
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -80,21 +94,21 @@ export default function PlatformsPage() {
       </div>
     );
   }
+  /* PlatformNav is rendered by the shared layout */
 
   // Find best platform by net payout
-  const bestPlatform = [...data.platforms].sort(
+  const bestPlatform = [...filtered].sort(
     (a, b) => b.netPayout - a.netPayout
   )[0];
 
   // Find most efficient (lowest commission rate)
-  const mostEfficient = [...data.platforms].sort(
+  const mostEfficient = [...filtered].sort(
     (a, b) => a.commissionRate - b.commissionRate
   )[0];
 
   return (
-    <div className="space-y-6">
-      {/* Platform Navigation */}
-      <PlatformNav />
+    <div className={`transition-opacity duration-150 ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
+      <PlatformFilter selected={selectedPlatforms} onChange={setSelectedPlatforms} />
 
       {/* Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -114,10 +128,10 @@ export default function PlatformsPage() {
         />
         <StatCard
           title="Total Orders"
-          value={data.platforms
+          value={filtered
             .reduce((s, p) => s + p.orderCount, 0)
             .toLocaleString()}
-          subtitle={`Across ${data.platforms.length} platforms`}
+          subtitle={`Across ${filtered.length} platform${filtered.length !== 1 ? "s" : ""}`}
         />
       </div>
 
@@ -125,7 +139,8 @@ export default function PlatformsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <BarChartCard
           title="Net Payout by Platform"
-          data={data.platforms.map((p) => ({
+          showPercentToggle
+          data={filtered.map((p) => ({
             name: PLATFORM_LABELS[p.platform] || p.platform,
             value: p.netPayout,
             color: PLATFORM_COLORS[p.platform],
@@ -133,7 +148,10 @@ export default function PlatformsPage() {
         />
         <BarChartCard
           title="Commission Fees by Platform"
-          data={data.platforms.map((p) => ({
+          showPercentToggle
+          percentValues={filtered.map((p) => p.commissionRate)}
+          percentLabel="Commission"
+          data={filtered.map((p) => ({
             name: PLATFORM_LABELS[p.platform] || p.platform,
             value: p.totalFees,
             color: PLATFORM_COLORS[p.platform],
@@ -161,7 +179,7 @@ export default function PlatformsPage() {
               </tr>
             </thead>
             <tbody>
-              {data.platforms.map((p) => (
+              {filtered.map((p) => (
                 <tr
                   key={p.platform}
                   className="border-b border-gray-50 cursor-pointer transition-colors hover:bg-gray-50"

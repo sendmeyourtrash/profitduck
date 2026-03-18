@@ -101,6 +101,7 @@ interface HealthReportData {
     periodLabel: string;
     comparisonLabel: string;
     dataThrough: string;
+    restaurantOpenDate: string | null;
   };
 }
 
@@ -131,21 +132,22 @@ function severityBadgeClass(severity: string): string {
 
 export default function HealthReportPage() {
   const [data, setData] = useState<HealthReportData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [seasonalOn, setSeasonalOn] = useState(false);
   const [compareMode, setCompareMode] = useState<"prior" | "yoy">("prior");
   const { startDate, endDate } = useDateRange();
 
   const fetchReport = useCallback(() => {
-    setLoading(true);
+    setRefreshing(true);
     const params = new URLSearchParams();
-    params.set("startDate", startDate);
-    params.set("endDate", endDate);
+    if (startDate) params.set("startDate", startDate);
+    else params.set("period", "all");
+    if (endDate) params.set("endDate", endDate);
     if (compareMode === "yoy") params.set("compare", "yoy");
     fetch(`/api/health-report?${params}`)
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => setRefreshing(false));
   }, [startDate, endDate, compareMode]);
 
   useEffect(() => {
@@ -179,18 +181,10 @@ export default function HealthReportPage() {
     return points;
   }, [data, seasonalOn, forecastDays]);
 
-  if (loading) {
+  if (!data) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="text-center py-12 text-gray-500">
-        Unable to load report data.
       </div>
     );
   }
@@ -199,7 +193,7 @@ export default function HealthReportPage() {
     data;
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity duration-200 ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-400">
@@ -254,6 +248,7 @@ export default function HealthReportPage() {
           subtitle={`Fees: ${formatCurrency(kpis.current.fees)} + Expenses: ${formatCurrency(kpis.current.expenses)}`}
           variant={kpis.current.netProfit >= 0 ? "success" : "danger"}
           trend={{ value: kpis.change.netProfit, label: meta.comparisonLabel }}
+          info={`Based on tracked platform revenue minus fees and recorded expenses${meta.restaurantOpenDate ? ` since ${new Date(meta.restaurantOpenDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : ""}. Does not include COGS, labor, rent, or other costs not imported into the app.`}
         />
         <StatCard
           title="Profit Margin"
@@ -270,6 +265,7 @@ export default function HealthReportPage() {
             value: kpis.change.profitMargin,
             label: `pts ${meta.comparisonLabel}`,
           }}
+          info="Derived from net profit — same data limitations apply."
         />
         <StatCard
           title="Operating Cost Ratio"

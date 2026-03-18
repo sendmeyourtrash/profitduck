@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
     // Validate file type
     const fileName = file.name;
     const ext = fileName.split(".").pop()?.toLowerCase();
-    if (!ext || !["csv", "tsv", "xlsx", "xls"].includes(ext)) {
+    if (!ext || !["csv", "tsv", "xlsx", "xls", "pdf"].includes(ext)) {
       return NextResponse.json(
-        { error: "Unsupported file type. Accepted: CSV, TSV, XLSX, XLS" },
+        { error: "Unsupported file type. Accepted: CSV, TSV, XLSX, XLS, PDF" },
         { status: 400 }
       );
     }

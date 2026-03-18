@@ -225,6 +225,23 @@ export const rocketmoneyParser: PlatformParser = {
               taxDeductible,
               tags,
             });
+
+            // Create a transaction record for all inflows.
+            // Platform payouts get type "payout", transfers get type "income"
+            // with a transfer category, everything else is plain "income".
+            const txType = payoutPlatform ? "payout" : "income";
+            const txCategory = isTransfer
+              ? `transfer:${category.toLowerCase()}`
+              : payoutPlatform || category || "income";
+            result.transactions.push({
+              date,
+              amount: absAmount,
+              type: txType as "income" | "payout",
+              sourcePlatform: "rocketmoney",
+              category: txCategory,
+              description: vendorName,
+              rawData,
+            });
           }
 
           continue;
@@ -257,9 +274,6 @@ export const rocketmoneyParser: PlatformParser = {
         // Check if this is a platform payout deposit (Square, DD, GH, UE)
         const payoutPlatform = isPlatformPayout(category, name, description);
         if (payoutPlatform) {
-          // This is money coming IN from a delivery platform or POS.
-          // Already tracked as revenue via the platform's own parser.
-          // Record as a bank-side transaction for reconciliation purposes.
           result.bankTransactions.push({
             date,
             description: `${category} - ${vendorName}`,
@@ -271,6 +285,15 @@ export const rocketmoneyParser: PlatformParser = {
             institutionName,
             taxDeductible,
             tags,
+          });
+          result.transactions.push({
+            date,
+            amount: absAmount,
+            type: "payout",
+            sourcePlatform: "rocketmoney",
+            category: payoutPlatform,
+            description: vendorName,
+            rawData,
           });
           continue;
         }

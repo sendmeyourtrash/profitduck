@@ -54,12 +54,16 @@ async function main() {
   const csvPath = path.join(
     process.cwd(),
     "Data Exports",
+    "Rocket Money",
     "Rocket Money 2026-03-13T01_00_34.116Z-transactions.csv"
   );
   const csvFileName = "Rocket Money 2026-03-13T01_00_34.116Z-transactions.csv";
 
   console.log(`Re-importing: ${csvFileName}`);
-  const result = await ingestFile(csvPath, csvFileName, "rocketmoney");
+  const result = await ingestFile(csvPath, csvFileName, "rocketmoney", {
+    skipFileDedup: true,
+    skipRowDedup: true,
+  });
 
   console.log("\n=== Import Results ===");
   console.log(`  Rows processed: ${result.summary.rowsProcessed}`);

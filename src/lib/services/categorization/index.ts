@@ -8,19 +8,47 @@ import { prisma } from "../../db/prisma";
 export async function autoCategorize(
   vendorName: string,
   description?: string | null,
-  category?: string | null
-): Promise<string | null> {
-  const rules = await prisma.categorizationRule.findMany({
+  category?: string | null,
+  vendorDisplayName?: string | null
+): Promise<{ categoryId: string; ruleId: string } | null> {
+  const rawRules = await prisma.categorizationRule.findMany({
     orderBy: { priority: "desc" },
     include: { category: true },
   });
+
+  // Within the same priority, vendor_match > keyword_match > description_match > category_match
+  const typeOrder: Record<string, number> = {
+    vendor_match: 0,
+    keyword_match: 1,
+    description_match: 2,
+    category_match: 3,
+  };
+  const rules = rawRules.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
+  });
+
+  // Match against both raw vendor name and display name
+  const namesToCheck = [vendorName];
+  if (vendorDisplayName && vendorDisplayName.toLowerCase() !== vendorName.toLowerCase()) {
+    namesToCheck.push(vendorDisplayName);
+  }
 
   for (const rule of rules) {
     let matched = false;
 
     switch (rule.type) {
       case "vendor_match":
-        matched = vendorName.toLowerCase() === rule.pattern.toLowerCase();
+        for (const name of namesToCheck) {
+          if (rule.pattern.includes("*")) {
+            const escaped = rule.pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+            const regexStr = "^" + escaped.replace(/\*/g, ".*") + "$";
+            matched = new RegExp(regexStr, "i").test(name);
+          } else {
+            matched = name.toLowerCase() === rule.pattern.toLowerCase();
+          }
+          if (matched) break;
+        }
         break;
       case "keyword_match":
         try {
@@ -42,20 +70,12 @@ export async function autoCategorize(
         }
         break;
       case "category_match":
-        // Match against the raw category string from source CSV
-        matched = category
-          ? category.toLowerCase() === rule.pattern.toLowerCase()
-          : false;
+        // Skip — CSV categories are only used for initial import, not ongoing categorization
         break;
     }
 
     if (matched) {
-      // Increment hit count
-      await prisma.categorizationRule.update({
-        where: { id: rule.id },
-        data: { hitCount: { increment: 1 } },
-      });
-      return rule.categoryId;
+      return { categoryId: rule.categoryId, ruleId: rule.id };
     }
   }
 
@@ -103,25 +123,44 @@ export async function learnFromCategorization(
  * First tries rule-based matching, then falls back to raw category string matching.
  * Returns the number of expenses categorized.
  */
-export async function runAutoCategorization(): Promise<number> {
+export async function runAutoCategorization(
+  rerunAll = false
+): Promise<number> {
+  // Reset hit counts when re-running all so they reflect actual current matches
+  if (rerunAll) {
+    await prisma.categorizationRule.updateMany({
+      data: { hitCount: 0 },
+    });
+  }
+
   const uncategorized = await prisma.expense.findMany({
-    where: { expenseCategoryId: null },
+    where: rerunAll ? {} : { expenseCategoryId: null },
     include: { vendor: true },
   });
 
+  // Pre-fetch all category names for syncing to transactions
+  const allCategories = await prisma.expenseCategory.findMany({
+    select: { id: true, name: true },
+  });
+  const catNameMap = new Map(allCategories.map((c) => [c.id, c.name]));
+
   let categorized = 0;
+  const hitCounts = new Map<string, number>();
+  // Track expense→category assignments for syncing to transactions
+  const expenseCategoryUpdates: { date: Date; amount: number; categoryName: string | null }[] = [];
 
   for (const expense of uncategorized) {
     // Try rule-based categorization first
-    let categoryId = await autoCategorize(
+    const match = await autoCategorize(
       expense.vendor?.name || "",
       expense.notes,
-      expense.category
+      expense.category,
+      expense.vendor?.displayName
     );
 
-    // If no rule matched, try matching by raw category string
-    if (!categoryId && expense.category) {
-      categoryId = await matchByRawCategory(expense.category);
+    const categoryId = match?.categoryId ?? null;
+    if (match?.ruleId) {
+      hitCounts.set(match.ruleId, (hitCounts.get(match.ruleId) || 0) + 1);
     }
 
     if (categoryId) {
@@ -130,6 +169,40 @@ export async function runAutoCategorization(): Promise<number> {
         data: { expenseCategoryId: categoryId },
       });
       categorized++;
+      expenseCategoryUpdates.push({
+        date: expense.date,
+        amount: expense.amount,
+        categoryName: catNameMap.get(categoryId) || null,
+      });
+    } else if (rerunAll && expense.expenseCategoryId) {
+      // Clear category for expenses that no longer match any rule
+      await prisma.expense.update({
+        where: { id: expense.id },
+        data: { expenseCategoryId: null },
+      });
+    }
+  }
+
+  // Batch update hit counts
+  for (const [ruleId, count] of hitCounts) {
+    await prisma.categorizationRule.update({
+      where: { id: ruleId },
+      data: { hitCount: { increment: count } },
+    });
+  }
+
+  // Sync resolved category names back to matching transactions
+  // so the transactions view shows the correct category
+  for (const update of expenseCategoryUpdates) {
+    if (update.categoryName) {
+      await prisma.transaction.updateMany({
+        where: {
+          date: update.date,
+          amount: update.amount,
+          sourcePlatform: "rocketmoney",
+        },
+        data: { category: update.categoryName },
+      });
     }
   }
 

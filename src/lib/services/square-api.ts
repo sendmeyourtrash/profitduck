@@ -1,8 +1,10 @@
 /**
- * Square API client for fetching payment data (processing fees).
+ * Square API client for fetching payment and payout data.
  * Uses native fetch() with Bearer token auth and cursor-based pagination.
  *
- * Docs: https://developer.squareup.com/reference/square/payments-api/list-payments
+ * Docs:
+ *  - https://developer.squareup.com/reference/square/payments-api/list-payments
+ *  - https://developer.squareup.com/reference/square/payouts-api/list-payouts
  */
 
 import {
@@ -398,4 +400,172 @@ export async function batchRetrieveOrders(
 export function isSquareConfigured(): boolean {
   const token = getRuntimeToken() || process.env.SQUARE_ACCESS_TOKEN;
   return !!token && token.trim().length > 0;
+}
+
+// ── Payouts API ──────────────────────────────────────────────────────────
+
+export interface SquarePayout {
+  id: string;
+  status: string; // SENT, PENDING, FAILED
+  amount_money?: { amount: number; currency: string };
+  arrival_date?: string; // ISO 8601 date (when deposited)
+  created_at: string;
+  updated_at?: string;
+  location_id?: string;
+}
+
+export interface SquarePayoutEntry {
+  id: string;
+  payout_id: string;
+  effective_at?: string;
+  type: string; // CHARGE, REFUND, ADJUSTMENT, FEE, etc.
+  gross_amount_money?: { amount: number; currency: string };
+  fee_amount_money?: { amount: number; currency: string };
+  net_amount_money?: { amount: number; currency: string };
+  type_charge_details?: { payment_id: string };
+  type_refund_details?: { payment_id: string; refund_id: string };
+}
+
+interface ListPayoutsResponse {
+  payouts?: SquarePayout[];
+  cursor?: string;
+  errors?: Array<{ code: string; detail: string; category?: string }>;
+}
+
+interface ListPayoutEntriesResponse {
+  payout_entries?: SquarePayoutEntry[];
+  cursor?: string;
+  errors?: Array<{ code: string; detail: string; category?: string }>;
+}
+
+/**
+ * Fetch all payouts from the Square Payouts API with cursor-based pagination.
+ * Only returns SENT (deposited) payouts by default.
+ * All amounts are in CENTS.
+ */
+export async function fetchAllPayouts(
+  startDate?: string,
+  endDate?: string,
+  onProgress?: ProgressCallback
+): Promise<SquarePayout[]> {
+  const token = getToken();
+  const allPayouts: SquarePayout[] = [];
+  let cursor: string | undefined;
+  let pageCount = 0;
+
+  do {
+    const params = new URLSearchParams();
+    if (startDate) params.set("begin_time", startDate);
+    if (endDate) params.set("end_time", endDate);
+    if (cursor) params.set("cursor", cursor);
+    params.set("limit", "100");
+    params.set("sort_order", "DESC");
+
+    const url = `${SQUARE_BASE_URL}/payouts?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Square-Version": "2025-01-23",
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw parseSquareError(response.status, body);
+    }
+
+    const data: ListPayoutsResponse = await response.json();
+
+    if (data.errors && data.errors.length > 0) {
+      throw new SquareApiError(
+        data.errors.map((e) => e.detail).join(", "),
+        data.errors[0].code
+      );
+    }
+
+    if (data.payouts) {
+      // Only keep SENT (deposited) payouts
+      const sent = data.payouts.filter((p) => p.status === "SENT");
+      allPayouts.push(...sent);
+    }
+
+    cursor = data.cursor;
+    pageCount++;
+
+    onProgress?.({
+      phase: "fetching",
+      current: allPayouts.length,
+      total: 0,
+      message: `Fetching payouts from Square API... ${allPayouts.length.toLocaleString()} so far (page ${pageCount})`,
+    });
+
+    if (cursor) {
+      await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+    }
+  } while (cursor);
+
+  console.log(
+    `[Square API] Fetched ${allPayouts.length} sent payouts across ${pageCount} page(s)`
+  );
+
+  return allPayouts;
+}
+
+/**
+ * Fetch all entries for a specific payout (the individual payments/refunds
+ * that make up a batch deposit). Cursor-paginated.
+ * All amounts are in CENTS.
+ */
+export async function fetchPayoutEntries(
+  payoutId: string
+): Promise<SquarePayoutEntry[]> {
+  const token = getToken();
+  const allEntries: SquarePayoutEntry[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    params.set("limit", "100");
+
+    const url = `${SQUARE_BASE_URL}/payouts/${payoutId}/payout-entries?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Square-Version": "2025-01-23",
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw parseSquareError(response.status, body);
+    }
+
+    const data: ListPayoutEntriesResponse = await response.json();
+
+    if (data.errors && data.errors.length > 0) {
+      throw new SquareApiError(
+        data.errors.map((e) => e.detail).join(", "),
+        data.errors[0].code
+      );
+    }
+
+    if (data.payout_entries) {
+      allEntries.push(...data.payout_entries);
+    }
+
+    cursor = data.cursor;
+
+    if (cursor) {
+      await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+    }
+  } while (cursor);
+
+  return allEntries;
 }

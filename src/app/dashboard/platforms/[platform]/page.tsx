@@ -3,7 +3,6 @@
 import { useEffect, useState, useMemo, useCallback, use } from "react";
 import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
-import PlatformNav from "@/components/layout/PlatformNav";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
@@ -101,7 +100,8 @@ export default function PlatformDetailPage({
   const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<PlatformDetailData | null>(null);
   const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [itemsVisible, setItemsVisible] = useState(10);
 
   // Sort states for each table
@@ -122,28 +122,40 @@ export default function PlatformDetailPage({
 
   // Memoized sorted data
   const sortedTopItems = useMemo(
-    () => sortData(data?.topItems || [], topItemsSort),
+    () => sortData(
+      (data?.topItems || []).map(i => ({ ...i, avgPrice: i.qty > 0 ? i.revenue / i.qty : 0 })),
+      topItemsSort
+    ),
     [data?.topItems, topItemsSort]
   );
-  const sortedCategories = useMemo(
-    () => sortData(data?.categoryBreakdown || [], categorySort),
-    [data?.categoryBreakdown, categorySort]
-  );
+  const sortedCategories = useMemo(() => {
+    const items = data?.categoryBreakdown || [];
+    const totalRev = items.reduce((s, c) => s + c.revenue, 0);
+    return sortData(
+      items.map(c => ({ ...c, pct: totalRev > 0 ? (c.revenue / totalRev) * 100 : 0 })),
+      categorySort
+    );
+  }, [data?.categoryBreakdown, categorySort]);
   const sortedPayments = useMemo(
     () => sortData(data?.paymentTypeBreakdown || [], paymentSort),
     [data?.paymentTypeBreakdown, paymentSort]
   );
-  const sortedOrderTypes = useMemo(
-    () => sortData(data?.orderTypeBreakdown || [], orderTypeSort),
-    [data?.orderTypeBreakdown, orderTypeSort]
-  );
+  const sortedOrderTypes = useMemo(() => {
+    const items = data?.orderTypeBreakdown || [];
+    const totalRev = items.reduce((s, o) => s + o.revenue, 0);
+    return sortData(
+      items.map(o => ({ ...o, pct: totalRev > 0 ? (o.revenue / totalRev) * 100 : 0 })),
+      orderTypeSort
+    );
+  }, [data?.orderTypeBreakdown, orderTypeSort]);
   const sortedOrders = useMemo(
     () => sortData(data?.orders || [], ordersSort),
     [data?.orders, ordersSort]
   );
 
   useEffect(() => {
-    setLoading(true);
+    if (data) setRefreshing(true);
+    else setInitialLoading(true);
     setPage(0);
     setItemsVisible(10);
     const params = new URLSearchParams();
@@ -154,7 +166,7 @@ export default function PlatformDetailPage({
     fetch(`/api/dashboard/platforms/${platform}?${params}`)
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => { setInitialLoading(false); setRefreshing(false); });
   }, [platform, startDate, endDate]);
 
   const changePage = (newPage: number) => {
@@ -169,7 +181,7 @@ export default function PlatformDetailPage({
       .then(setData);
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -179,12 +191,9 @@ export default function PlatformDetailPage({
 
   if (!data || data.orderCount === 0) {
     return (
-      <div className="space-y-6">
-        <PlatformNav />
-        <div className="text-center py-12 text-gray-500">
-          <p className="text-lg">No data for {label}</p>
-          <p className="mt-2">Try selecting a different date range.</p>
-        </div>
+      <div className="text-center py-12 text-gray-500">
+        <p className="text-lg">No data for {label}</p>
+        <p className="mt-2">Try selecting a different date range.</p>
       </div>
     );
   }
@@ -193,10 +202,7 @@ export default function PlatformDetailPage({
   const isSquare = platform === "square";
 
   return (
-    <div className="space-y-6">
-      {/* Platform Navigation */}
-      <PlatformNav />
-
+    <div className={`space-y-6 transition-opacity duration-150 ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard
@@ -345,6 +351,7 @@ export default function PlatformDetailPage({
                   { key: "revenue", label: "Revenue", right: true },
                   { key: "fees", label: "Fees", right: true },
                   { key: "netPayout", label: "Net Payout", right: true },
+                  { key: "pct", label: "%", right: true },
                 ].map((col) => (
                   <th
                     key={col.key}
@@ -355,7 +362,6 @@ export default function PlatformDetailPage({
                     <SortIcon active={orderTypeSort?.key === col.key} dir={orderTypeSort?.dir || "asc"} />
                   </th>
                 ))}
-                <th className="pb-2 font-medium text-right">%</th>
               </tr>
             </thead>
             <tbody>
@@ -371,7 +377,7 @@ export default function PlatformDetailPage({
                         <td className="py-2 text-right text-red-600">{formatCurrency(o.fees)}</td>
                         <td className="py-2 text-right font-medium text-emerald-600">{formatCurrency(o.netPayout)}</td>
                         <td className="py-2 text-right text-gray-600">
-                          {totalRev > 0 ? ((o.revenue / totalRev) * 100).toFixed(1) : "0"}%
+                          {o.pct.toFixed(1)}%
                         </td>
                       </tr>
                     ))}
@@ -430,6 +436,7 @@ export default function PlatformDetailPage({
                   { key: "category", label: "Category" },
                   { key: "qty", label: "Items Sold", right: true },
                   { key: "revenue", label: "Revenue", right: true },
+                  { key: "pct", label: "%", right: true },
                 ].map((col) => (
                   <th
                     key={col.key}
@@ -440,7 +447,6 @@ export default function PlatformDetailPage({
                     <SortIcon active={categorySort?.key === col.key} dir={categorySort?.dir || "asc"} />
                   </th>
                 ))}
-                <th className="pb-2 font-medium text-right">%</th>
               </tr>
             </thead>
             <tbody>
@@ -455,7 +461,7 @@ export default function PlatformDetailPage({
                         <td className="py-2 text-right text-gray-600">{c.qty}</td>
                         <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.revenue)}</td>
                         <td className="py-2 text-right text-gray-600">
-                          {totalRev > 0 ? ((c.revenue / totalRev) * 100).toFixed(1) : "0"}%
+                          {c.pct.toFixed(1)}%
                         </td>
                       </tr>
                     ))}
@@ -487,6 +493,7 @@ export default function PlatformDetailPage({
                   { key: "category", label: "Category" },
                   { key: "qty", label: "Qty Sold", right: true },
                   { key: "revenue", label: "Revenue", right: true },
+                  { key: "avgPrice", label: "Avg Price", right: true },
                 ].map((col) => (
                   <th
                     key={col.key}
@@ -497,7 +504,6 @@ export default function PlatformDetailPage({
                     <SortIcon active={topItemsSort?.key === col.key} dir={topItemsSort?.dir || "asc"} />
                   </th>
                 ))}
-                <th className="pb-2 font-medium text-right">Avg Price</th>
               </tr>
             </thead>
             <tbody>
@@ -512,7 +518,7 @@ export default function PlatformDetailPage({
                   <td className="py-2 text-right text-gray-600">{item.qty}</td>
                   <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(item.revenue)}</td>
                   <td className="py-2 text-right text-gray-600">
-                    {formatCurrency(item.qty > 0 ? item.revenue / item.qty : 0)}
+                    {formatCurrency(item.avgPrice)}
                   </td>
                 </tr>
               ))}

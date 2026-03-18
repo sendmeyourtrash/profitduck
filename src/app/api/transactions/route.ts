@@ -1,225 +1,117 @@
+/**
+ * Transactions API — Primary data source for the Sales page.
+ *
+ * Reads from sales.db unified `orders` table.
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
-import { resolveItemNames } from "@/lib/services/menu-item-aliases";
-import { resolveCategoryNames } from "@/lib/services/menu-category-aliases";
+import { querySales, queryPlatformBreakdown } from "@/lib/db/sales-db";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
-  // Single value filters (backward compat)
-  const type = searchParams.get("type");
-  const platform = searchParams.get("platform");
-  const category = searchParams.get("category");
-
-  // Multi-value filters
-  const types = searchParams.getAll("types");
   const platforms = searchParams.getAll("platforms");
+  const platform = searchParams.get("platform");
+  const types = searchParams.getAll("types");
+  const statuses = searchParams.getAll("statuses");
   const categories = searchParams.getAll("categories");
-
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   const search = searchParams.get("search");
+  const sortBy = searchParams.get("sortBy");
+  const sortDir = (searchParams.get("sortDir") || "desc") as "asc" | "desc";
   const limit = parseInt(searchParams.get("limit") || "100");
   const offset = parseInt(searchParams.get("offset") || "0");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const where: any = {};
+  const allPlatforms = platforms.length > 0 ? platforms : platform ? [platform] : [];
 
-  // Type filter (single or multi)
-  if (types.length > 0) {
-    where.type = { in: types };
-  } else if (type) {
-    where.type = type;
-  }
-
-  // Platform filter (single or multi)
-  if (platforms.length > 0) {
-    where.sourcePlatform = { in: platforms };
-  } else if (platform) {
-    where.sourcePlatform = platform;
-  }
-
-  // Category filter (single or multi)
-  if (categories.length > 0) {
-    where.category = { in: categories };
-  } else if (category) {
-    where.category = category;
-  }
-
-  // Date range
-  if (startDate || endDate) {
-    where.date = {};
-    if (startDate) where.date.gte = new Date(startDate + "T00:00:00.000Z");
-    if (endDate) {
-      // End date is inclusive — set to end of day (UTC)
-      where.date.lte = new Date(endDate + "T23:59:59.999Z");
-    }
-  }
-
-  // Description search
-  if (search) {
-    where.description = { contains: search };
-  }
-
-  const [transactions, total] = await Promise.all([
-    prisma.transaction.findMany({
-      where,
-      include: {
-        import: {
-          select: { source: true, fileName: true, importedAt: true },
-        },
-        linkedPayout: {
-          select: {
-            id: true,
-            platform: true,
-            payoutDate: true,
-            grossAmount: true,
-            fees: true,
-            netAmount: true,
-            reconciliationStatus: true,
-          },
-        },
-        linkedBankTransaction: {
-          select: {
-            id: true,
-            date: true,
-            description: true,
-            amount: true,
-            category: true,
-            accountName: true,
-            institutionName: true,
-            reconciliationStatus: true,
-          },
-        },
-        auditLogs: {
-          select: {
-            id: true,
-            field: true,
-            oldValue: true,
-            newValue: true,
-            reason: true,
-            actor: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-          take: 10,
-        },
-      },
-      orderBy: { date: "desc" },
-      take: limit,
-      skip: offset,
-    }),
-    prisma.transaction.count({ where }),
-  ]);
-
-  // Enrich platform transactions with order details (payment method, dining option, items)
-  const platformTxs = transactions.filter(
-    (t) => t.rawSourceId && ["square", "doordash", "ubereats", "grubhub"].includes(t.sourcePlatform)
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const orderDetailsMap = new Map<string, any>();
-
-  if (platformTxs.length > 0) {
-    // Build OR conditions for each (orderId, platform) pair
-    const orConditions = platformTxs.map((t) => ({
-      orderId: t.rawSourceId!,
-      platform: t.sourcePlatform,
-    }));
-
-    const platformOrders = await prisma.platformOrder.findMany({
-      where: { OR: orConditions },
-      select: {
-        orderId: true,
-        platform: true,
-        cardBrand: true,
-        diningOption: true,
-        channel: true,
-        fulfillmentType: true,
-        subtotal: true,
-        tax: true,
-        tip: true,
-        commissionFee: true,
-        serviceFee: true,
-        deliveryFee: true,
-        netPayout: true,
-        rawData: true,
-      },
+  try {
+    const { records, total, summary } = querySales({
+      platforms: allPlatforms,
+      types: types.length > 0 ? types : undefined,
+      statuses: statuses.length > 0 ? statuses : undefined,
+      categories: categories.length > 0 ? categories : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      search: search || undefined,
+      sortBy: sortBy || undefined,
+      sortDir,
+      limit,
+      offset,
     });
 
-    // Collect all raw item and category names across all Square orders for batch alias resolution
-    const allRawItemNames = new Set<string>();
-    const allRawCategoryNames = new Set<string>();
-    const parsedItemsByKey = new Map<string, { name: string; category: string; qty: number; price: number }[]>();
+    // Transform records to match the frontend shape
+    const transactions = records.map((r) => ({
+      id: `${r.platform}-${r.order_id || r.id}`,
+      date: r.date,
+      time: r.time,
+      platform: r.platform,
+      order_id: r.order_id,
+      order_status: r.order_status,
+      gross_sales: r.gross_sales,
+      tax: r.tax,
+      tip: r.tip,
+      net_sales: r.net_sales,
+      // Items & detail
+      items: r.items,
+      item_count: r.item_count,
+      modifiers: r.modifiers,
+      discounts: r.discounts,
+      dining_option: r.dining_option,
+      customer_name: r.customer_name,
+      payment_method: r.payment_method,
+      // Raw fee breakdown
+      commission_fee: r.commission_fee,
+      processing_fee: r.processing_fee,
+      delivery_fee: r.delivery_fee,
+      marketing_fee: r.marketing_fee,
+      // Summary rollups
+      fees_total: r.fees_total,
+      marketing_total: r.marketing_total,
+      refunds_total: r.refunds_total,
+      adjustments_total: r.adjustments_total,
+      other_total: r.other_total,
+    }));
 
-    for (const po of platformOrders) {
-      const key = `${po.orderId}|${po.platform}`;
+    // Platform summary
+    const platformSummary = {
+      orderCount: summary.order_count,
+      grossSales: summary.gross_sales,
+      tax: summary.tax,
+      tip: summary.tip,
+      netSales: summary.net_sales,
+      // Raw fee breakdown
+      commissionFee: summary.commission_fee,
+      processingFee: summary.processing_fee,
+      deliveryFee: summary.delivery_fee,
+      marketingFee: summary.marketing_fee,
+      // Summary rollups
+      feesTotal: summary.fees_total,
+      marketingTotal: summary.marketing_total,
+      refundsTotal: summary.refunds_total,
+      adjustmentsTotal: summary.adjustments_total,
+      otherTotal: summary.other_total,
+      discounts: summary.discounts,
+    };
 
-      let items: { name: string; category: string; qty: number; price: number }[] | null = null;
-      if (po.platform === "square" && po.rawData) {
-        try {
-          const parsed = JSON.parse(po.rawData) as Record<string, string>[];
-          items = parsed
-            .filter((row) => (row["item"] || "").trim() && parseFloat(row["qty"] || "0") > 0)
-            .map((row) => {
-              const name = (row["item"] || "").trim();
-              const category = (row["category"] || "").trim();
-              allRawItemNames.add(name);
-              if (category) allRawCategoryNames.add(category);
-              return {
-                name,
-                category,
-                qty: parseFloat(row["qty"] || "0"),
-                price: parseFloat((row["net sales"] || "0").replace(/[$,]/g, "")) || 0,
-              };
-            });
-          parsedItemsByKey.set(key, items);
-        } catch {
-          // skip
-        }
-      }
+    // Platform breakdown
+    const breakdown = queryPlatformBreakdown({
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    });
 
-      orderDetailsMap.set(key, {
-        cardBrand: po.cardBrand || null,
-        diningOption: po.diningOption || null,
-        channel: po.channel || null,
-        fulfillmentType: po.fulfillmentType || null,
-        subtotal: po.subtotal,
-        tax: po.tax,
-        tip: po.tip,
-        fees: po.commissionFee + po.serviceFee + po.deliveryFee,
-        netPayout: po.netPayout,
-        items: null, // populated below after alias resolution
-      });
-    }
-
-    // Resolve item and category aliases in one batch
-    const itemAliasMap = allRawItemNames.size > 0
-      ? await resolveItemNames([...allRawItemNames])
-      : new Map<string, string>();
-    const categoryAliasMap = allRawCategoryNames.size > 0
-      ? await resolveCategoryNames([...allRawCategoryNames])
-      : new Map<string, string>();
-
-    // Apply resolved names to items
-    for (const [key, items] of parsedItemsByKey) {
-      const detail = orderDetailsMap.get(key);
-      if (detail) {
-        detail.items = items.map((item) => ({
-          ...item,
-          name: itemAliasMap.get(item.name) || item.name,
-          category: categoryAliasMap.get(item.category) || item.category,
-        }));
-      }
-    }
+    return NextResponse.json({
+      transactions,
+      total,
+      limit,
+      offset,
+      platformSummary,
+      platformBreakdown: breakdown,
+    });
+  } catch (error) {
+    console.error("Sales query error:", error);
+    return NextResponse.json(
+      { error: "Failed to query sales data", detail: String(error) },
+      { status: 500 },
+    );
   }
-
-  // Merge order details into transactions
-  const enriched = transactions.map((t) => {
-    const key = `${t.rawSourceId}|${t.sourcePlatform}`;
-    const orderDetail = orderDetailsMap.get(key) || null;
-    return { ...t, orderDetail };
-  });
-
-  return NextResponse.json({ transactions: enriched, total, limit, offset });
 }

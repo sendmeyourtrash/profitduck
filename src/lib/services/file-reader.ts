@@ -1,5 +1,8 @@
 import * as fs from "fs";
 import * as XLSX from "xlsx";
+import pdfParse from "pdf-parse";
+import { PDFExtract } from "pdf.js-extract";
+import type { PdfData } from "../parsers/chase-pdf";
 
 /**
  * Read a CSV or XLSX file and return rows as an array of key-value objects.
@@ -16,8 +19,27 @@ export function readFile(filePath: string): {
   } else if (ext === "xlsx" || ext === "xls") {
     return readXLSX(filePath);
   } else {
-    throw new Error(`Unsupported file type: .${ext}. Supported: csv, tsv, xlsx, xls`);
+    throw new Error(`Unsupported file type: .${ext}. Supported: csv, tsv, xlsx, xls, pdf`);
   }
+}
+
+/**
+ * Read a PDF file and return extracted text + layout data.
+ * Uses pdf-parse for text extraction and pdf.js-extract for layout-aware data.
+ */
+export async function readPdfFile(filePath: string): Promise<{
+  text: string;
+  pdfData: PdfData;
+}> {
+  const buffer = fs.readFileSync(filePath);
+  const [pdf, pdfData] = await Promise.all([
+    pdfParse(buffer),
+    new PDFExtract().extract(filePath),
+  ]);
+  return {
+    text: pdf.text,
+    pdfData: pdfData as unknown as PdfData,
+  };
 }
 
 function readCSV(

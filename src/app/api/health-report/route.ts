@@ -17,6 +17,7 @@ import {
   getDate,
 } from "date-fns";
 import { formatCurrency } from "@/lib/utils/format";
+import { getSetting, SETTING_KEYS } from "@/lib/services/settings";
 
 // ---------- Period configuration ----------
 
@@ -228,14 +229,30 @@ export async function GET(request: NextRequest) {
   const rawStart = searchParams.get("startDate");
   const rawEnd = searchParams.get("endDate");
 
-  if (rawStart !== null || rawEnd !== null) {
+  if (rawStart || rawEnd) {
     dates = resolveCustomDates(rawStart || "", rawEnd || "", now, compare);
   } else {
     const rawPeriod = searchParams.get("period") ?? "1m";
-    const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
-      ? (rawPeriod as Period)
-      : "1m";
-    dates = resolvePeriodDates(period, now, compare);
+    if (rawPeriod === "all") {
+      // "All" mode: find earliest data, use full range
+      const earliest = await prisma.transaction.findFirst({
+        where: { type: "income" },
+        orderBy: { date: "asc" },
+        select: { date: true },
+      });
+      const allStart = earliest ? startOfDay(earliest.date) : startOfDay(subDays(now, 365));
+      dates = resolveCustomDates(
+        allStart.toISOString().split("T")[0],
+        now.toISOString().split("T")[0],
+        now,
+        compare
+      );
+    } else {
+      const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
+        ? (rawPeriod as Period)
+        : "1m";
+      dates = resolvePeriodDates(period, now, compare);
+    }
   }
 
   // ---------- Parallel query groups ----------
@@ -343,6 +360,9 @@ export async function GET(request: NextRequest) {
        GROUP BY strftime('%Y-%m', date)`
     ),
   ]);
+
+  // Fetch restaurant open date setting
+  const restaurantOpenDate = await getSetting(SETTING_KEYS.RESTAURANT_OPEN_DATE);
 
   // ---------- Compute derived values ----------
 
@@ -601,6 +621,7 @@ export async function GET(request: NextRequest) {
       periodLabel: dates.periodLabel,
       comparisonLabel: dates.comparisonLabel,
       dataThrough,
+      restaurantOpenDate,
     },
   });
 }

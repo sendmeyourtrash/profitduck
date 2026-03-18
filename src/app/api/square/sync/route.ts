@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { syncSquareFees, getLastSyncStatus } from "@/lib/services/square-sync";
+import { syncSquareFees, getLastSyncDate } from "@/lib/services/square-sync";
 import {
   createProgressCallback,
   completeProgress,
@@ -10,9 +10,8 @@ import {
 
 /**
  * POST /api/square/sync
- * Trigger a Square API sync to enrich PlatformOrders with processing fees.
+ * Sync Square payments into sales.db with full item details.
  * Returns { operationId } immediately; progress streamed via /api/progress/:id.
- * Optional body: { startDate?: string, endDate?: string }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +24,14 @@ export async function POST(request: NextRequest) {
       endDate = body.endDate;
     } catch {
       // No body — full sync
+    }
+
+    // Default: sync from last known date
+    if (!startDate) {
+      const lastDate = getLastSyncDate();
+      if (lastDate) {
+        startDate = lastDate + "T00:00:00Z";
+      }
     }
 
     const operationId = randomUUID();
@@ -59,9 +66,9 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/square/sync
- * Get the last sync status.
+ * Get the last sync date.
  */
 export async function GET() {
-  const lastSync = await getLastSyncStatus();
-  return NextResponse.json({ lastSync });
+  const lastDate = getLastSyncDate();
+  return NextResponse.json({ lastSyncDate: lastDate });
 }

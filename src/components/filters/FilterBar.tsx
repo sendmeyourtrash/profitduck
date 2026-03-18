@@ -8,6 +8,7 @@ export interface FilterState {
   platforms: string[];
   types: string[];
   categories: string[];
+  statuses: string[];
   search: string;
 }
 
@@ -23,17 +24,32 @@ interface FilterBarProps {
   onChange: (filters: FilterState) => void;
   showDateRange?: boolean;
   showTypes?: boolean;
+  showStatuses?: boolean;
   showCategories?: boolean;
   showSearch?: boolean;
   extraContent?: React.ReactNode;
+  /** When set, only these platforms appear in the filter chips */
+  allowedPlatforms?: string[];
 }
 
 const TYPE_OPTIONS = [
-  { value: "income", label: "Income", color: "bg-emerald-100 text-emerald-700" },
-  { value: "expense", label: "Expense", color: "bg-red-100 text-red-700" },
-  { value: "fee", label: "Fee", color: "bg-amber-100 text-amber-700" },
-  { value: "payout", label: "Payout", color: "bg-blue-100 text-blue-700" },
+  { value: "completed", label: "Completed", color: "bg-emerald-100 text-emerald-700" },
+  { value: "fees_total", label: "Fees", color: "bg-red-100 text-red-700" },
+  { value: "marketing_total", label: "Marketing", color: "bg-amber-100 text-amber-700" },
+  { value: "refunds_total", label: "Refunds", color: "bg-orange-100 text-orange-700" },
+  { value: "cancelled", label: "Cancelled", color: "bg-rose-100 text-rose-700" },
+  { value: "unfulfilled", label: "Unfulfilled", color: "bg-slate-100 text-slate-700" },
+  { value: "adjustments_total", label: "Adjustments", color: "bg-purple-100 text-purple-700" },
+  { value: "other_total", label: "Other", color: "bg-gray-100 text-gray-700" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "completed", label: "Completed", color: "bg-emerald-100 text-emerald-700" },
+  { value: "refund", label: "Refund", color: "bg-orange-100 text-orange-700" },
+  { value: "cancelled", label: "Cancelled", color: "bg-red-100 text-red-700" },
   { value: "adjustment", label: "Adjustment", color: "bg-purple-100 text-purple-700" },
+  { value: "credit", label: "Credit", color: "bg-blue-100 text-blue-700" },
+  { value: "other", label: "Other", color: "bg-gray-100 text-gray-700" },
 ];
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -52,6 +68,7 @@ export const emptyFilters: FilterState = {
   platforms: [],
   types: [],
   categories: [],
+  statuses: [],
   search: "",
 };
 
@@ -60,22 +77,32 @@ export default function FilterBar({
   onChange,
   showDateRange = true,
   showTypes = true,
+  showStatuses = false,
   showCategories = true,
   showSearch = true,
   extraContent,
+  allowedPlatforms,
 }: FilterBarProps) {
   const [dataRange, setDataRange] = useState<DataRangeInfo | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetch("/api/data-range")
+    // Scope categories to allowedPlatforms so only relevant categories appear
+    const params = new URLSearchParams();
+    if (allowedPlatforms) {
+      for (const p of allowedPlatforms) {
+        params.append("platforms", p);
+      }
+    }
+    const qs = params.toString();
+    fetch(`/api/data-range${qs ? `?${qs}` : ""}`)
       .then((r) => r.json())
       .then(setDataRange)
       .catch(() => {});
-  }, []);
+  }, [allowedPlatforms]);
 
   const toggleArrayFilter = useCallback(
-    (key: "platforms" | "types" | "categories", value: string) => {
+    (key: "platforms" | "types" | "categories" | "statuses", value: string) => {
       const current = filters[key];
       const next = current.includes(value)
         ? current.filter((v) => v !== value)
@@ -89,6 +116,7 @@ export default function FilterBar({
     (showDateRange && (filters.startDate || filters.endDate)) ||
     filters.platforms.length > 0 ||
     filters.types.length > 0 ||
+    filters.statuses.length > 0 ||
     filters.categories.length > 0 ||
     filters.search;
 
@@ -209,34 +237,32 @@ export default function FilterBar({
         {extraContent}
       </div>
 
-      {/* Expanded: platform + type + category chips */}
+      {/* Platform chips — always visible (hidden when allowedPlatforms is empty) */}
+      {(dataRange?.platforms || []).length > 0 && (!allowedPlatforms || allowedPlatforms.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-xs text-gray-500 mr-1">Platforms:</span>
+          {(dataRange?.platforms || []).filter((p) => !allowedPlatforms || allowedPlatforms.includes(p)).map((p) => {
+            const active = filters.platforms.includes(p);
+            return (
+              <button
+                key={p}
+                onClick={() => toggleArrayFilter("platforms", p)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  active
+                    ? "bg-indigo-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {PLATFORM_LABELS[p] || p}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Expanded: type + category chips */}
       {expanded && (
         <div className="space-y-3 pt-2 border-t border-gray-100">
-          {/* Platform chips */}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1.5">
-              Platforms
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {(dataRange?.platforms || []).map((p) => {
-                const active = filters.platforms.includes(p);
-                return (
-                  <button
-                    key={p}
-                    onClick={() => toggleArrayFilter("platforms", p)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                      active
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {PLATFORM_LABELS[p] || p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Type chips */}
           {showTypes && (
             <div>
@@ -257,6 +283,33 @@ export default function FilterBar({
                       }`}
                     >
                       {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Status chips */}
+          {showStatuses && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1.5">
+                Status
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {STATUS_OPTIONS.map((s) => {
+                  const active = filters.statuses.includes(s.value);
+                  return (
+                    <button
+                      key={s.value}
+                      onClick={() => toggleArrayFilter("statuses", s.value)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                        active
+                          ? "bg-indigo-600 text-white"
+                          : `${s.color} hover:opacity-80`
+                      }`}
+                    >
+                      {s.label}
                     </button>
                   );
                 })}
@@ -324,6 +377,23 @@ export default function FilterBar({
               </button>
             </span>
           ))}
+          {filters.statuses.map((s) => {
+            const opt = STATUS_OPTIONS.find((o) => o.value === s);
+            return (
+              <span
+                key={s}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700"
+              >
+                {opt?.label || s}
+                <button
+                  onClick={() => toggleArrayFilter("statuses", s)}
+                  className="hover:text-emerald-900"
+                >
+                  x
+                </button>
+              </span>
+            );
+          })}
           {filters.categories.map((c) => (
             <span
               key={c}

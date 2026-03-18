@@ -37,10 +37,12 @@ export default function VendorDetailPage({
   const { startDate, endDate } = useDateRange();
   const [data, setData] = useState<VendorData | null>(null);
   const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    if (data) setRefreshing(true);
+    else setInitialLoading(true);
     setPage(0);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
@@ -52,13 +54,14 @@ export default function VendorDetailPage({
     )
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => { setInitialLoading(false); setRefreshing(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate, decodedVendor]);
 
   // Separate effect for pagination (doesn't reset page)
   useEffect(() => {
     if (page === 0) return; // Already fetched on date change
-    setLoading(true);
+    setRefreshing(true);
     const params = new URLSearchParams();
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
@@ -69,10 +72,10 @@ export default function VendorDetailPage({
     )
       .then((r) => r.json())
       .then(setData)
-      .finally(() => setLoading(false));
+      .finally(() => setRefreshing(false));
   }, [page, startDate, endDate, decodedVendor]);
 
-  if (loading && !data) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -83,7 +86,7 @@ export default function VendorDetailPage({
   if (!data) return null;
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Back link + Title */}
       <div>
         <Link

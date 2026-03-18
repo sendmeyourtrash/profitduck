@@ -16,6 +16,8 @@ export const SETTING_KEYS = {
   PLAID_INSTITUTION_NAME: "plaid_institution_name",
   PLAID_ACCOUNT_NAME: "plaid_account_name",
   PLAID_LAST_SYNC_AT: "plaid_last_sync_at",
+  // Business
+  RESTAURANT_OPEN_DATE: "restaurant_open_date",
 } as const;
 
 // Sensitive keys whose values should be masked when returned to the client

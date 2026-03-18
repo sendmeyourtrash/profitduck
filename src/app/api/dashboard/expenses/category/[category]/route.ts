@@ -27,8 +27,11 @@ export async function GET(
     startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
   } else {
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30);
+    const earliest = await prisma.expense.findFirst({
+      orderBy: { date: "asc" },
+      select: { date: true },
+    });
+    startDate = earliest ? earliest.date : new Date(new Date().setDate(new Date().getDate() - 365));
   }
 
   const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };

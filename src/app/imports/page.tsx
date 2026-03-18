@@ -15,16 +15,16 @@ interface ImportRecord {
 
 export default function ImportsPage() {
   const [imports, setImports] = useState<ImportRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/imports")
       .then((r) => r.json())
       .then((data) => setImports(data.imports))
-      .finally(() => setLoading(false));
+      .finally(() => setInitialLoading(false));
   }, []);
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />

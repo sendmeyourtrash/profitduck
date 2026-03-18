@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { syncSquareFees, getLastSyncStatus } from "@/lib/services/square-sync";
+import { syncSquareFees, getLastSyncDate } from "@/lib/services/square-sync";
 import { isSquareConfigured, initializeTokenFromDb } from "@/lib/services/square-api";
 import {
   createProgressCallback,
@@ -18,7 +18,7 @@ export async function GET() {
   await initializeTokenFromDb();
 
   const [lastSync, autoSync, lastSyncAt] = await Promise.all([
-    getLastSyncStatus(),
+    getLastSyncDate(),
     isAutoSyncEnabled(),
     getLastSyncAt(),
   ]);

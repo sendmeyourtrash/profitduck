@@ -9,7 +9,8 @@ const pageTitles: Record<string, string> = {
   "/dashboard/expenses": "Expense Analytics",
   "/dashboard/platforms": "Platform Performance",
   "/health-report": "Business Health Report",
-  "/transactions": "All Transactions",
+  "/sales": "Sales",
+  "/bank": "Bank Activity",
   "/settings": "Import & Settings",
 };
 
@@ -20,6 +21,8 @@ const DATE_PICKER_PATHS = new Set([
   "/dashboard/platforms",
   "/analytics",
   "/health-report",
+  "/sales",
+  "/bank",
 ]);
 
 export default function Header() {
