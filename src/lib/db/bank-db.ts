@@ -60,7 +60,7 @@ function resolveVendorAlias(description: string): string | null {
 }
 
 /** Resolve vendor alias, trying multiple fields */
-function resolveVendorFromRecord(name: string, customName: string, description: string): string {
+export function resolveVendorFromRecord(name: string, customName: string, description: string): string {
   // Try custom_name first (user override), then name, then description
   const fields = [customName, name, description].filter(Boolean);
   for (const field of fields) {
@@ -74,6 +74,25 @@ function resolveVendorFromRecord(name: string, customName: string, description: 
 /** Clear cached aliases (call when aliases are updated in Settings) */
 export function clearVendorAliasCache() {
   cachedAliases = null;
+}
+
+/** Resolve a vendor display name to its expense category name (or null if uncategorized) */
+export function resolveVendorCategory(displayName: string): string | null {
+  try {
+    const { getAllCategorizationRules, getAllExpenseCategories } = require("@/lib/db/config-db");
+    const rules = getAllCategorizationRules() as { type: string; pattern: string; category_id: string }[];
+    const cats = getAllExpenseCategories() as { id: string; name: string }[];
+
+    const catMap = new Map(cats.map((c) => [c.id, c.name]));
+    for (const rule of rules) {
+      if (rule.type === "vendor_match" && rule.pattern.toLowerCase() === displayName.toLowerCase()) {
+        return catMap.get(rule.category_id) || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Account label mapping ──
@@ -157,52 +176,77 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
 
   // Category filter — resolve through vendor alias → categorization rule pipeline
   if (p.categories && p.categories.length > 0) {
+    const wantsUncategorized = p.categories.includes("Uncategorized");
+    const namedCategories = p.categories.filter((c) => c !== "Uncategorized");
+
     try {
       const { getAllCategorizationRules, getAllExpenseCategories } = require("@/lib/db/config-db");
       const rules = getAllCategorizationRules() as { type: string; pattern: string; category_id: string }[];
       const expCats = getAllExpenseCategories() as { id: string; name: string }[];
+      const aliases = getVendorAliases();
 
-      // Find category IDs for selected category names
-      const selectedCatIds = new Set(
-        expCats.filter((c) => p.categories!.includes(c.name)).map((c) => c.id)
-      );
-
-      // Find vendor display names that map to those categories
-      const matchingVendors = rules
-        .filter((r) => r.type === "vendor_match" && selectedCatIds.has(r.category_id))
+      // Build SQL conditions for ALL categorized vendors (used for Uncategorized exclusion)
+      const allCategorizedVendors = rules
+        .filter((r) => r.type === "vendor_match")
         .map((r) => r.pattern);
 
-      if (matchingVendors.length > 0) {
-        // Get all aliases for these vendors, build SQL conditions
-        const aliases = getVendorAliases();
-        const vendorConds: string[] = [];
-        for (const vendorName of matchingVendors) {
-          // Find alias patterns that map TO this vendor display name
+      const buildVendorConds = (vendorNames: string[]) => {
+        const conds: string[] = [];
+        for (const vendorName of vendorNames) {
           const matchingAliases = aliases.filter((a) => a.display_name.toLowerCase() === vendorName.toLowerCase());
           if (matchingAliases.length > 0) {
             for (const alias of matchingAliases) {
               if (alias.match_type === "exact") {
-                vendorConds.push("(name = ? OR custom_name = ?)");
+                conds.push("(name = ? OR custom_name = ?)");
                 params.push(alias.pattern, alias.pattern);
               } else if (alias.match_type === "starts_with") {
-                vendorConds.push("(name LIKE ? OR custom_name LIKE ?)");
+                conds.push("(name LIKE ? OR custom_name LIKE ?)");
                 params.push(`${alias.pattern}%`, `${alias.pattern}%`);
               } else if (alias.match_type === "contains") {
-                vendorConds.push("(name LIKE ? OR custom_name LIKE ?)");
+                conds.push("(name LIKE ? OR custom_name LIKE ?)");
                 params.push(`%${alias.pattern}%`, `%${alias.pattern}%`);
               }
             }
           } else {
-            // No alias — match raw vendor name directly
-            vendorConds.push("(name = ? OR custom_name = ?)");
+            conds.push("(name = ? OR custom_name = ?)");
             params.push(vendorName, vendorName);
           }
         }
-        if (vendorConds.length > 0) {
-          conditions.push(`(${vendorConds.join(" OR ")})`);
+        return conds;
+      };
+
+      const orParts: string[] = [];
+
+      // Named categories
+      if (namedCategories.length > 0) {
+        const selectedCatIds = new Set(
+          expCats.filter((c) => namedCategories.includes(c.name)).map((c) => c.id)
+        );
+        const matchingVendors = rules
+          .filter((r) => r.type === "vendor_match" && selectedCatIds.has(r.category_id))
+          .map((r) => r.pattern);
+
+        if (matchingVendors.length > 0) {
+          const vendorConds = buildVendorConds(matchingVendors);
+          if (vendorConds.length > 0) {
+            orParts.push(`(${vendorConds.join(" OR ")})`);
+          }
         }
-      } else {
-        // No matching vendors → return nothing
+      }
+
+      // Uncategorized — exclude all categorized vendors
+      if (wantsUncategorized && allCategorizedVendors.length > 0) {
+        const excludeConds = buildVendorConds(allCategorizedVendors);
+        if (excludeConds.length > 0) {
+          orParts.push(`NOT (${excludeConds.join(" OR ")})`);
+        }
+      } else if (wantsUncategorized) {
+        orParts.push("1=1"); // No categorized vendors → everything is uncategorized
+      }
+
+      if (orParts.length > 0) {
+        conditions.push(`(${orParts.join(" OR ")})`);
+      } else if (!wantsUncategorized) {
         conditions.push("1=0");
       }
     } catch {
@@ -249,6 +293,10 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
     const searchTerm = `%${p.search}%`;
     params.push(searchTerm, searchTerm, searchTerm);
   }
+
+  // NOTE: Ignored categories are no longer excluded from queries.
+  // Instead, the API tags each transaction with `ignored: true` and excludes
+  // them from summary totals. This lets the frontend show them greyed out.
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -328,11 +376,17 @@ export function queryBank(p: QueryParams) {
 
 export function queryBankCategories() {
   // Return expense categories from categories.db (Settings → Categories tab)
-  // instead of raw RM categories
+  // Exclude ignored categories
   try {
-    const { getAllExpenseCategories } = require("@/lib/db/config-db");
+    const { getAllExpenseCategories, getAllCategoryIgnores } = require("@/lib/db/config-db");
     const categories = getAllExpenseCategories() as { id: string; name: string }[];
-    return categories.map((c) => c.name).sort();
+    const ignored = getAllCategoryIgnores() as { category_name: string }[];
+    const ignoredNames = new Set(ignored.map((i) => i.category_name.toLowerCase()));
+    const result = categories
+      .map((c) => ({ name: c.name, ignored: ignoredNames.has(c.name.toLowerCase()) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    result.push({ name: "Uncategorized", ignored: false });
+    return result;
   } catch {
     // Fallback to raw RM categories if categories.db is unavailable
     const db = getDb();
@@ -427,6 +481,25 @@ export function queryBankDateRange() {
   try {
     const row = db.prepare("SELECT MIN(date) as min_date, MAX(date) as max_date FROM rocketmoney").get() as { min_date: string; max_date: string };
     return { min: row.min_date, max: row.max_date };
+  } finally {
+    db.close();
+  }
+}
+
+export function updateTransactionCustomName(id: number, customName: string) {
+  const db = getDb();
+  try {
+    db.prepare("UPDATE rocketmoney SET custom_name = ? WHERE id = ?").run(customName, id);
+  } finally {
+    db.close();
+  }
+}
+
+export function bulkUpdateTransactionCustomName(ids: number[], customName: string) {
+  const db = getDb();
+  try {
+    const placeholders = ids.map(() => "?").join(",");
+    db.prepare(`UPDATE rocketmoney SET custom_name = ? WHERE id IN (${placeholders})`).run(customName, ...ids);
   } finally {
     db.close();
   }

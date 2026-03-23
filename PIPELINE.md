@@ -9,7 +9,7 @@ All data flows through a 3-step pipeline before reaching the website. Every sour
         Source → Vendor DB        Vendor DB → Unified DB         Apply Aliases
         (raw + cleanup)           (normalize)                    (categories.db → sales.db)
 
-CSV/API ──→ squareup.db     ──→ sales.db (orders + order_items) ──→ order_items.display_name
+API     ──→ squareup.db     ──→ sales.db (orders + order_items) ──→ order_items.display_name
 CSV     ──→ grubhub.db      ──→ sales.db (orders + order_items)     order_items.display_category
 CSV     ──→ doordash.db     ──→ sales.db (orders + order_items)
 CSV     ──→ ubereats.db     ──→ sales.db (orders + order_items)
@@ -29,8 +29,8 @@ CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 **Purpose:** Store raw data with basic cleanup. Each data source gets its own SQLite database that preserves all original columns from the CSV or API.
 
 **Files:**
-- `src/lib/services/pipeline-step1-ingest.ts` — CSV ingest for all platforms
-- `src/lib/services/square-sync.ts` — Square API sync (follows same pipeline: API → squareup.db → sales.db)
+- `src/lib/services/pipeline-step1-ingest.ts` — CSV ingest for GrubHub, DoorDash, Uber Eats, Rocket Money
+- `src/lib/services/square-sync.ts` — Square API sync (API → squareup.db → sales.db)
 
 ### Cleanup operations:
 
@@ -40,13 +40,13 @@ CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 | **Date normalization** | All dates converted to YYYY-MM-DD (Uber Eats M/D/YYYY, ISO datetimes, etc.) |
 | **Amount normalization** | Handle $, commas, parentheses for negatives, string→number |
 | **Status filtering** | Flag cancelled/unfulfilled orders vs completed |
-| **Fill missing data** | Square API orders automatically fetch item-level detail (names, modifiers, quantities) |
+| **Fill missing data** | Square API orders include item-level detail (names, modifiers, quantities, payment method) |
 
 ### Vendor databases:
 
 | Database | Table | Records | Source | Dedup Key |
 |----------|-------|---------|--------|-----------|
-| `squareup.db` | `items` | 23,813 | CSV + API | transaction_id + item + qty + date |
+| `squareup.db` | `items` | 23,726 | API | transaction_id (payment_id) |
 | `squareup.db` | `payouts` | 786 | API | payout_id |
 | `squareup.db` | `payout_entries` | 13,749 | API | entry_id |
 | `grubhub.db` | `orders` | 390 | CSV | transaction_id |
@@ -59,22 +59,31 @@ CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 
 | Trigger | Route | Step 1 Target |
 |---------|-------|---------------|
-| CSV Upload (Settings page) | `POST /api/upload` → parser → `step1Ingest()` | vendor DB for detected platform |
+| CSV Upload (Settings page) | `POST /api/upload` → parser → `step1Ingest()` | vendor DB for detected platform (not Square) |
 | Square API Sync (Settings page) | `POST /api/square/sync` → `syncSquareFees()` | squareup.db |
 | Manual script | `npx tsx scripts/reimport-rocketmoney.ts` | rocketmoney.db |
+| Pipeline rebuild | `npx tsx scripts/rebuild-pipeline.ts` | Rebuild sales.db + bank.db from all vendor DBs |
 
 ### Square API sync detail:
 
-The Square API sync follows the full pipeline internally:
+All Square data comes exclusively from the API (no CSV imports). The sync follows the full 3-step pipeline:
 
 ```
 1. Fetch payments from Square API (cursor-paginated)
 2. For each payment, resolve real order_id
 3. Batch-retrieve order details (line items, modifiers, tax, dining option)
-4. STEP 1: Dedup against squareup.db, write items to squareup.db
-5. STEP 2: Read new items from squareup.db, aggregate by transaction_id,
-           write normalized orders to sales.db
+4. STEP 1: Dedup against squareup.db by payment_id, write items to squareup.db
+5. STEP 2: Call shared unifySquare() — aggregate items by transaction_id,
+           write to sales.db orders + order_items
+6. STEP 3: Call shared step3ApplyAliases() — apply menu/category aliases
 ```
+
+Payment method is determined from the API `source_type` field:
+- `CASH` → "Cash"
+- `WALLET` → "Digital Wallet"
+- `CARD` → Card brand (Visa, MasterCard, American Express, etc.)
+- `EXTERNAL` → "External"
+- Multi-tender transactions → "Split Payment"
 
 The `getLastSyncDate()` function reads from `squareup.db` (Step 1 source of truth), not from `sales.db`.
 
@@ -101,10 +110,7 @@ The `getLastSyncDate()` function reads from `squareup.db` (Step 1 source of trut
 | Database | Table | Purpose | Powers |
 |----------|-------|---------|--------|
 | `sales.db` | `orders` | All platform orders, normalized | Sales page |
-| `sales.db` | `square_items` | Square item-level detail (raw) | Item drilldown |
-| `sales.db` | `grubhub_orders` | GrubHub raw (preserved) | Raw data access |
-| `sales.db` | `doordash_orders` | DoorDash raw (preserved) | Raw data access |
-| `sales.db` | `ubereats_orders` | Uber Eats raw (preserved) | Raw data access |
+| `sales.db` | `order_items` | Individual items, all platforms | Item analytics, drilldowns |
 | `bank.db` | `rocketmoney` | All bank transactions | Bank Activity page |
 | `bank.db` | `chase_statements` | Chase PDF imports | Bank Activity page |
 
@@ -289,14 +295,15 @@ display_category  TEXT     After menu category alias applied
 ```
 1. User clicks "Sync" on Settings page
 2. POST /api/square/sync → square-sync.ts
-3. square-sync.ts (follows full pipeline internally):
+3. square-sync.ts (follows full 3-step pipeline):
    a. Fetch payments from Square API (cursor-paginated)
    b. For each payment, resolve real order_id
    c. Batch-retrieve order details (line items, modifiers, tax, dining option)
-   d. Step 1: Dedup against squareup.db → write new items with full detail
-   e. Step 2: Read new items from squareup.db → aggregate by transaction_id
-              → write normalized orders to sales.db
-4. Sales page shows new orders with full item names and modifiers
+   d. Step 1: Dedup by payment_id → write new items to squareup.db
+   e. Step 2: Call shared unifySquare() → aggregate items by transaction_id
+              → write to sales.db orders + order_items
+   f. Step 3: Call shared step3ApplyAliases() → apply menu/category aliases
+4. Sales page shows new orders with full item names, modifiers, and payment method
 ```
 
 ### Rebuilding unified DBs (after changing cleanup rules):
@@ -331,8 +338,8 @@ display_category  TEXT     After menu category alias applied
 │
 │  ── Source databases (Step 1) ──
 │
-├── squareup.db        (14.4MB)  Source: Square POS
-│   ├── items          (23,813)  Item-level sales (CSV + API)
+├── squareup.db        (14.4MB)  Source: Square POS (API only)
+│   ├── items          (23,726)  Item-level sales (API)
 │   ├── payouts          (786)  Deposit records (API)
 │   └── payout_entries (13,749)  Order→deposit links (API)
 │
@@ -352,12 +359,8 @@ display_category  TEXT     After menu category alias applied
 │  ── Unified databases (Step 2) ──
 │
 ├── sales.db           (17MB)    Unified: Sales page
-│   ├── orders        (14,994)  All platforms, normalized (financials)
-│   ├── order_items   (24,402)  Individual items, all platforms (analytics)
-│   ├── square_items  (23,813)  Raw Square detail (preserved)
-│   ├── grubhub_orders  (390)  Raw GrubHub (preserved)
-│   ├── doordash_orders   (86)  Raw DoorDash (preserved)
-│   └── ubereats_orders  (113)  Raw Uber Eats (preserved)
+│   ├── orders        (14,949)  All platforms, normalized (financials)
+│   └── order_items   (24,314)  Individual items, all platforms (analytics)
 │
 ├── bank.db             (692KB)  Unified: Bank Activity page
 │   ├── rocketmoney    (2,111)  All bank transactions
@@ -383,14 +386,6 @@ display_category  TEXT     After menu category alias applied
 /old-databases/                  Backups (not used by app)
 └── dev-20260317-153514.db (103MB)  Pre-rebuild backup
 ```
-    ├── imports            (4)  Import history/tracking
-    ├── platform_orders  (390)  Prisma-side orders (legacy)
-    ├── transactions     (333)  Prisma-side transactions (legacy)
-    ├── settings           (0)  App settings
-    ├── vendor_aliases     (0)  Vendor name mappings
-    ├── menu_item_aliases  (0)  Menu item name mappings
-    └── ... (19 tables total, mostly empty — being phased out)
-```
 
 ---
 
@@ -398,10 +393,12 @@ display_category  TEXT     After menu category alias applied
 
 | File | Purpose | Pipeline Role |
 |------|---------|---------------|
-| `src/lib/services/ingestion.ts` | CSV upload orchestrator | Calls Step 1 → Step 2 sequentially |
+| `src/lib/services/ingestion.ts` | CSV upload orchestrator | Calls Step 1 → Step 2 → Step 3 sequentially |
 | `src/lib/services/pipeline-step1-ingest.ts` | Step 1: CSV rows → Vendor DB | Dedup, date/amount normalization |
-| `src/lib/services/pipeline-step2-unify.ts` | Step 2: Vendor DB → Unified DB | Schema mapping, fee rollups, sign normalization |
+| `src/lib/services/pipeline-step2-unify.ts` | Step 2: Vendor DB → Unified DB | Schema mapping, fee rollups, order_items |
+| `src/lib/services/pipeline-step3-aliases.ts` | Step 3: Apply aliases | menu/category aliases → order_items |
 | `src/lib/services/square-sync.ts` | Square API sync | Full pipeline: API → squareup.db → sales.db |
+| `scripts/rebuild-pipeline.ts` | Full pipeline rebuild | Step 2 + Step 3 from scratch |
 | `src/lib/services/square-api.ts` | Square API client | Fetch payments, batch retrieve orders |
 | `src/lib/parsers/*.ts` | Platform-specific CSV parsers | Detect file type + parse headers |
 | `src/lib/services/dedup.ts` | Deduplication utilities | File hash + row-level dedup |
@@ -421,7 +418,7 @@ display_category  TEXT     After menu category alias applied
 
 | Platform | Date Range | Orders | Source |
 |----------|-----------|--------|--------|
-| Square | Aug 2023 → present | 14,405 | CSV (to Mar 12) + API (Mar 13+) |
+| Square | Aug 2023 → present | 14,361 | API (full history) |
 | GrubHub | Oct 2023 → Mar 2026 | 390 | CSV (3 exports) |
 | DoorDash | Dec 2025 → Mar 2026 | 86 | CSV (1 export) |
 | Uber Eats | May 2025 → Mar 2026 | 113 | CSV (1 export) |

@@ -1,67 +1,33 @@
-// Barrel re-exports for the reconciliation module
-export type {
-  ReconciliationStatus,
-  AlertType,
-  AlertSeverity,
-  ReconciliationChain,
-  ReconciliationSummary,
-  ReconciliationSuggestion,
-} from "./types";
+/**
+ * Reconciliation module — L1 (sales.db orders) → L3 (bank.db deposits)
+ *
+ * Simplified two-layer reconciliation that matches platform sales
+ * directly to bank deposits, without requiring an intermediate payout layer.
+ */
+
+export { runReconciliation } from "./matcher";
+export type { MatchResult } from "./matcher";
 
 export {
-  findL2L3Suggestions,
-  confirmL2L3Match,
-  undoL2L3Match,
-  autoMatchL2L3,
-} from "./l2-l3-matcher";
+  getReconMatches,
+  getReconAlerts,
+  getReconSummary,
+  resolveReconAlert,
+  updateReconMatch,
+  unmatchReconMatch,
+  clearReconMatches,
+} from "@/lib/db/config-db";
 
-export { matchLevel1ToLevel2, resetReconciliationLinks } from "./l1-l2-matcher";
-
-export {
-  buildReconciliationChains,
-  getReconciliationSummary,
-} from "./chain-builder";
-
-export {
-  runAlertScan,
-  getActiveAlerts,
-  resolveAlert,
-} from "./alert-engine";
-
-export {
-  runCrossSourceDedup,
-  resetDuplicateLinks,
-} from "./cross-source-dedup";
-
-export { normalizeCategories } from "./normalize-categories";
-
-// Backward-compatible wrappers matching original reconciliation.ts API
-import { findL2L3Suggestions, confirmL2L3Match, undoL2L3Match } from "./l2-l3-matcher";
-import { prisma } from "../../db/prisma";
-
-export const findReconciliationSuggestions = findL2L3Suggestions;
-export const reconcileMatch = confirmL2L3Match;
-export const unreconcileMatch = undoL2L3Match;
-
-export async function getReconciliationStats() {
-  const [totalPayouts, reconciledPayouts, totalBankTx, reconciledBankTx] =
-    await Promise.all([
-      prisma.payout.count(),
-      prisma.payout.count({ where: { bankTransactionId: { not: null } } }),
-      prisma.bankTransaction.count({ where: { amount: { gt: 0 } } }),
-      prisma.bankTransaction.count({ where: { reconciled: true } }),
-    ]);
-
+// Backward-compatible stats wrapper for health-report
+export function getReconciliationStats() {
+  const summary = require("@/lib/db/config-db").getReconSummary();
   return {
-    totalPayouts,
-    reconciledPayouts,
-    unreconciledPayouts: totalPayouts - reconciledPayouts,
-    totalBankDeposits: totalBankTx,
-    reconciledBankDeposits: reconciledBankTx,
-    unreconciledBankDeposits: totalBankTx - reconciledBankTx,
-    reconciliationRate:
-      totalPayouts > 0
-        ? Math.round((reconciledPayouts / totalPayouts) * 100)
-        : 0,
+    totalPayouts: summary.total,
+    reconciledPayouts: summary.matched,
+    unreconciledPayouts: summary.unmatched,
+    totalBankDeposits: 0,
+    reconciledBankDeposits: 0,
+    unreconciledBankDeposits: 0,
+    reconciliationRate: summary.rate,
   };
 }

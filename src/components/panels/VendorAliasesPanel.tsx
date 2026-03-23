@@ -9,6 +9,7 @@ interface VendorAlias {
   matchType: string;
   displayName: string;
   autoCreated: boolean;
+  matchCount?: number;
 }
 
 interface UnmatchedVendor {
@@ -16,6 +17,17 @@ interface UnmatchedVendor {
   name: string;
   expenseCount: number;
   totalSpent: number;
+}
+
+interface AliasWarning {
+  type: "conflict";
+  severity: "error";
+  aliasId: string;
+  aliasPattern: string;
+  aliasMatchType: string;
+  aliasDisplayName: string;
+  message: string;
+  affectedItems: string[];
 }
 
 interface GroupSuggestion {
@@ -27,7 +39,6 @@ interface GroupSuggestion {
   members: { name: string; count: number; totalAmount: number }[];
   totalCount: number;
   totalAmount: number;
-  // Local UI state
   editedName?: string;
   editedMatchType?: string;
   editedPattern?: string;
@@ -35,12 +46,14 @@ interface GroupSuggestion {
 }
 
 export default function VendorAliasesPanel() {
+  const [tab, setTab] = useState<"aliases" | "review" | "ignored">("aliases");
   const [aliases, setAliases] = useState<VendorAlias[]>([]);
   const [unmatched, setUnmatched] = useState<UnmatchedVendor[]>([]);
   const [ignored, setIgnored] = useState<UnmatchedVendor[]>([]);
   const [matchedCount, setMatchedCount] = useState(0);
   const [unmatchedCount, setUnmatchedCount] = useState(0);
   const [ignoredCount, setIgnoredCount] = useState(0);
+  const [warnings, setWarnings] = useState<AliasWarning[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,10 +69,6 @@ export default function VendorAliasesPanel() {
   const [editMatchType, setEditMatchType] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
 
-  // Quick-add from unmatched
-  const [quickAddVendor, setQuickAddVendor] = useState<string | null>(null);
-  const [quickDisplayName, setQuickDisplayName] = useState("");
-
   // Smart suggestions
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
   const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
@@ -67,14 +76,12 @@ export default function VendorAliasesPanel() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Section toggles
-  const [showAliases, setShowAliases] = useState(false);
-  const [showIgnored, setShowIgnored] = useState(false);
-
   // Pagination
   const PAGE_SIZE = 25;
-  const [unmatchedVisible, setUnmatchedVisible] = useState(PAGE_SIZE);
   const [ignoredVisible, setIgnoredVisible] = useState(PAGE_SIZE);
+
+  // Expanded suggestion rows
+  const [expandedSuggestion, setExpandedSuggestion] = useState<number | null>(null);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -86,6 +93,7 @@ export default function VendorAliasesPanel() {
     setMatchedCount(data.matchedCount || 0);
     setUnmatchedCount(data.unmatchedCount || 0);
     setIgnoredCount(data.ignoredCount || 0);
+    setWarnings(data.warnings || []);
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
@@ -157,24 +165,6 @@ export default function VendorAliasesPanel() {
     fetchData(true);
   };
 
-  const quickAdd = async (vendorName: string) => {
-    if (!quickDisplayName.trim()) return;
-    setMessage("Creating alias...");
-    await fetch("/api/vendor-aliases", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pattern: vendorName,
-        matchType: "exact",
-        displayName: quickDisplayName,
-      }),
-    });
-    setQuickAddVendor(null);
-    setQuickDisplayName("");
-    setMessage("Alias created and applied.");
-    fetchData(true);
-  };
-
   const deleteAlias = async (id: string) => {
     await fetch(`/api/vendor-aliases?id=${id}`, { method: "DELETE" });
     setMessage("Alias deleted.");
@@ -230,33 +220,36 @@ export default function VendorAliasesPanel() {
 
   const applyAll = async () => {
     setMessage("Applying aliases to all vendors...");
-    const res = await fetch("/api/vendor-aliases", {
+    await fetch("/api/vendor-aliases", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "apply" }),
     });
-    const data = await res.json();
-    setMessage(`Updated ${data.updated} of ${data.total} vendors.`);
+    setMessage("All aliases re-applied.");
     fetchData(true);
   };
 
-  // Filter by search query across all sections
+  // Filter by search query
   const sq = searchQuery.toLowerCase().trim();
   const filteredAliases = sq
     ? aliases.filter((a) => a.pattern.toLowerCase().includes(sq) || a.displayName.toLowerCase().includes(sq))
     : aliases;
-  const filteredUnmatched = sq
-    ? unmatched.filter((u) => u.name.toLowerCase().includes(sq))
-    : unmatched;
   const filteredIgnored = sq
     ? ignored.filter((i) => i.name.toLowerCase().includes(sq))
     : ignored;
+  const filteredSuggestions = sq
+    ? suggestions.filter((s) =>
+        s.groupName.toLowerCase().includes(sq) ||
+        s.members.some((m) => m.name.toLowerCase().includes(sq))
+      )
+    : suggestions;
 
-  // Group aliases by displayName for cleaner display
+  // Group aliases by displayName
   const aliasGroups = filteredAliases.reduce<Record<string, VendorAlias[]>>((acc, a) => {
     (acc[a.displayName] = acc[a.displayName] || []).push(a);
     return acc;
   }, {});
+  const sortedGroups = Object.entries(aliasGroups).sort(([a], [b]) => a.localeCompare(b));
 
   if (initialLoading) {
     return (
@@ -267,19 +260,20 @@ export default function VendorAliasesPanel() {
   }
 
   return (
-    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
+    <div className={`space-y-4 max-w-4xl mx-auto transition-opacity ${refreshing ? "opacity-50 pointer-events-none" : ""}`}>
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-800">Vendor Aliases</h2>
-          <p className="text-sm text-gray-500">
-            Map messy bank transaction names to clean vendor names for reporting.
+          <p className="text-xs text-gray-500 mt-0.5">
+            {aliases.length} rules &middot; {matchedCount} matched &middot; {unmatchedCount} unmatched
           </p>
         </div>
         <button
           onClick={applyAll}
           className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
         >
-          Re-apply All Aliases
+          Re-apply All
         </button>
       </div>
 
@@ -287,10 +281,10 @@ export default function VendorAliasesPanel() {
       <div className="relative">
         <input
           type="text"
-          placeholder="Search vendors across all sections..."
+          placeholder="Search vendors..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2.5 pl-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          className="w-full px-4 py-2 pl-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
         />
         <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -303,11 +297,6 @@ export default function VendorAliasesPanel() {
             Clear
           </button>
         )}
-        {sq && (
-          <p className="text-xs text-gray-400 mt-1">
-            Found: {Object.keys(aliasGroups).length} aliases, {filteredUnmatched.length} unmatched, {filteredIgnored.length} ignored
-          </p>
-        )}
       </div>
 
       {message && (
@@ -316,413 +305,491 @@ export default function VendorAliasesPanel() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Alias Rules</p>
-          <p className="text-2xl font-bold text-gray-800">{aliases.length}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Vendors Matched</p>
-          <p className="text-2xl font-bold text-emerald-600">{matchedCount}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Unmatched</p>
-          <p className="text-2xl font-bold text-amber-600">{unmatchedCount}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Ignored</p>
-          <p className="text-2xl font-bold text-gray-400">{ignoredCount}</p>
-        </div>
-      </div>
-
-      {/* Add New Alias */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Add Alias Rule</h3>
-        <div className="flex gap-3 items-end flex-wrap">
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs text-gray-500 mb-1">Pattern</label>
-            <input
-              type="text"
-              value={newPattern}
-              onChange={(e) => setNewPattern(e.target.value)}
-              placeholder="e.g. ORIG CO NAME:CON ED"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
+      {/* Warnings */}
+      {warnings.length > 0 && (
+        <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
+          <div className="px-4 py-2.5 bg-red-50 border-b border-red-200">
+            <h3 className="text-sm font-medium text-red-800">
+              Overlapping Groups ({warnings.length})
+            </h3>
+            <p className="text-xs text-red-600 mt-0.5">
+              Vendors matching multiple rules with different groups.
+            </p>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Match Type</label>
-            <select
-              value={newMatchType}
-              onChange={(e) => setNewMatchType(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="starts_with">Starts With</option>
-              <option value="contains">Contains</option>
-              <option value="exact">Exact Match</option>
-            </select>
-          </div>
-          <div className="flex-1 min-w-[150px]">
-            <label className="block text-xs text-gray-500 mb-1">Display Name</label>
-            <input
-              type="text"
-              value={newDisplayName}
-              onChange={(e) => setNewDisplayName(e.target.value)}
-              placeholder="e.g. Con Edison"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            onClick={addAlias}
-            disabled={!newPattern.trim() || !newDisplayName.trim()}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm"
-          >
-            Add
-          </button>
-        </div>
-      </div>
-
-      {/* Active Aliases — grouped by displayName, collapsible */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <button
-          onClick={() => setShowAliases(!showAliases)}
-          className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between hover:bg-gray-100 transition-colors"
-        >
-          <h3 className="text-sm font-medium text-gray-700">
-            Active Aliases ({Object.keys(aliasGroups).length} groups, {aliases.length} rules)
-          </h3>
-          <svg
-            className={`w-4 h-4 text-gray-400 transition-transform ${showAliases ? "rotate-180" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        {showAliases && <div className="divide-y divide-gray-100">
-          {Object.entries(aliasGroups)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([displayName, group]) => (
-              <div key={displayName} className="px-4 py-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-medium text-gray-800 text-sm">{displayName}</span>
-                  <span className="text-xs text-gray-400">
-                    {group.length} rule{group.length > 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {group.map((alias) =>
-                    editId === alias.id ? (
-                      <div key={alias.id} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg p-2">
-                        <input
-                          type="text"
-                          value={editPattern}
-                          onChange={(e) => setEditPattern(e.target.value)}
-                          className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs font-mono"
-                        />
-                        <select
-                          value={editMatchType}
-                          onChange={(e) => setEditMatchType(e.target.value)}
-                          className="border border-gray-300 rounded px-2 py-1 text-xs"
-                        >
-                          <option value="starts_with">Starts With</option>
-                          <option value="contains">Contains</option>
-                          <option value="exact">Exact Match</option>
-                        </select>
-                        <input
-                          type="text"
-                          value={editDisplayName}
-                          onChange={(e) => setEditDisplayName(e.target.value)}
-                          placeholder="Display Name"
-                          className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
-                        />
-                        <button
-                          onClick={saveEdit}
-                          disabled={!editPattern.trim() || !editDisplayName.trim()}
-                          className="px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-xs"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={cancelEdit}
-                          className="px-2 py-1 bg-gray-100 text-gray-500 rounded hover:bg-gray-200 text-xs"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                        key={alias.id}
-                        className="flex items-center justify-between text-xs text-gray-500"
-                      >
-                        <span>
-                          <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 mr-1.5">
-                            {alias.matchType.replace("_", " ")}
-                          </span>
-                          <span className="font-mono text-gray-600">
-                            {alias.pattern.length > 60
-                              ? alias.pattern.slice(0, 60) + "..."
-                              : alias.pattern}
-                          </span>
-                          {alias.autoCreated && (
-                            <span className="ml-1.5 px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">
-                              auto
-                            </span>
-                          )}
+          <div className="divide-y divide-gray-100">
+            {warnings.map((w, idx) => (
+              <div key={idx} className="px-4 py-2.5 flex items-start gap-2">
+                <span className="shrink-0 mt-1 w-2 h-2 rounded-full bg-red-500" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-700">{w.aliasDisplayName}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px]">
+                      {w.aliasMatchType.replace("_", " ")} &ldquo;{w.aliasPattern}&rdquo;
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-0.5">{w.message}</p>
+                  {w.affectedItems.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {w.affectedItems.slice(0, 6).map((item) => (
+                        <span key={item} className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-mono truncate max-w-[250px]" title={item}>
+                          {item}
                         </span>
-                        <span className="flex items-center gap-2">
-                          <button
-                            onClick={() => startEdit(alias)}
-                            className="text-indigo-400 hover:text-indigo-600"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => deleteAlias(alias.id)}
-                            className="text-red-400 hover:text-red-600"
-                          >
-                            Delete
-                          </button>
-                        </span>
-                      </div>
-                    )
+                      ))}
+                      {w.affectedItems.length > 6 && (
+                        <span className="text-[10px] text-gray-400">+{w.affectedItems.length - 6} more</span>
+                      )}
+                    </div>
                   )}
                 </div>
+                <button
+                  onClick={() => {
+                    const alias = aliases.find(a => a.id === w.aliasId);
+                    if (alias) {
+                      setTab("aliases");
+                      startEdit(alias);
+                      setTimeout(() => {
+                        document.getElementById(`alias-${alias.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }, 100);
+                    }
+                  }}
+                  className="shrink-0 text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                >
+                  Edit Rule
+                </button>
               </div>
             ))}
-        </div>}
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+        {([
+          { key: "aliases" as const, label: "Aliases" },
+          { key: "review" as const, label: `Review & Match${suggestions.length > 0 ? ` (${suggestions.length})` : ""}` },
+          { key: "ignored" as const, label: `Ignored${ignoredCount > 0 ? ` (${ignoredCount})` : ""}` },
+        ]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              tab === t.key
+                ? "bg-white text-gray-800 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Smart Suggestions */}
-      {suggestionsLoaded && suggestions.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
+      {/* ─── ALIASES TAB ─── */}
+      {tab === "aliases" && (
+        <div className="space-y-4">
+          {/* Add Alias Rule */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Add Alias Rule</h3>
+            <div className="flex gap-3 items-end flex-wrap">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Match Type</label>
+                <select
+                  value={newMatchType}
+                  onChange={(e) => setNewMatchType(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="starts_with">Starts With</option>
+                  <option value="contains">Contains</option>
+                  <option value="exact">Exact Match</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs text-gray-500 mb-1">Pattern</label>
+                <input
+                  type="text"
+                  value={newPattern}
+                  onChange={(e) => setNewPattern(e.target.value)}
+                  placeholder="e.g. ORIG CO NAME:CON ED"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <span className="text-xs text-gray-400 pb-2.5">maps to</span>
+              <div className="flex-1 min-w-[150px]">
+                <label className="block text-xs text-gray-500 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={newDisplayName}
+                  onChange={(e) => setNewDisplayName(e.target.value)}
+                  placeholder="e.g. Con Edison"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <button
+                onClick={addAlias}
+                disabled={!newPattern.trim() || !newDisplayName.trim()}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Aliases Table — grouped by displayName */}
+          {sortedGroups.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+              No alias rules yet. Add a rule above or accept suggestions in the Review tab.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sortedGroups.map(([displayName, group]) => (
+                <div key={displayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  {/* Group header */}
+                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700">{displayName}</h4>
+                    <span className="text-xs text-gray-400 ml-auto">
+                      {group.length} {group.length === 1 ? "rule" : "rules"}
+                    </span>
+                  </div>
+                  {/* Rules table */}
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {group.map((alias) => {
+                        const isEditing = editId === alias.id;
+                        return (
+                          <tr
+                            key={alias.id}
+                            id={`alias-${alias.id}`}
+                            className="border-t border-gray-100 first:border-t-0 hover:bg-gray-50"
+                          >
+                            {isEditing ? (
+                              <td colSpan={4} className="px-4 py-2">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={editMatchType}
+                                    onChange={(e) => setEditMatchType(e.target.value)}
+                                    className="border border-gray-300 rounded px-1.5 py-0.5 text-xs shrink-0"
+                                  >
+                                    <option value="starts_with">starts with</option>
+                                    <option value="contains">contains</option>
+                                    <option value="exact">exact</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    value={editPattern}
+                                    onChange={(e) => setEditPattern(e.target.value)}
+                                    className="flex-1 min-w-0 border border-gray-300 rounded px-2 py-0.5 text-xs font-mono"
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") saveEdit();
+                                      if (e.key === "Escape") cancelEdit();
+                                    }}
+                                    autoFocus
+                                  />
+                                  <span className="text-xs text-gray-400 shrink-0">maps to</span>
+                                  <input
+                                    type="text"
+                                    value={editDisplayName}
+                                    onChange={(e) => setEditDisplayName(e.target.value)}
+                                    placeholder="Display Name"
+                                    className="w-48 shrink-0 border border-gray-300 rounded px-2 py-0.5 text-xs"
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") saveEdit();
+                                      if (e.key === "Escape") cancelEdit();
+                                    }}
+                                  />
+                                  <button
+                                    onClick={saveEdit}
+                                    className="text-xs text-emerald-600 hover:text-emerald-800 font-medium shrink-0"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={cancelEdit}
+                                    className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </td>
+                            ) : (
+                              <>
+                                <td className="px-4 py-2 w-28 whitespace-nowrap">
+                                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
+                                    {alias.matchType.replace("_", " ")}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-gray-800 font-mono text-xs">
+                                  {alias.pattern.length > 60
+                                    ? alias.pattern.slice(0, 60) + "..."
+                                    : alias.pattern}
+                                </td>
+                                <td className="px-4 py-2 w-20">
+                                  {alias.autoCreated && (
+                                    <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">
+                                      auto
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2 text-right w-28 whitespace-nowrap">
+                                  <div className="flex gap-2 justify-end">
+                                    <button
+                                      onClick={() => startEdit(alias)}
+                                      className="text-xs text-indigo-500 hover:text-indigo-700"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => deleteAlias(alias.id)}
+                                      className="text-xs text-red-500 hover:text-red-700"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── REVIEW & MATCH TAB ─── */}
+      {tab === "review" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium text-amber-800">
-                Suggested Groupings ({suggestions.length})
-              </h3>
-              <p className="text-xs text-amber-600 mt-0.5">
-                Review and accept suggestions, edit names, or ignore vendors.
+              <h3 className="text-sm font-medium text-gray-700">Review & Match</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {filteredSuggestions.length} suggestion{filteredSuggestions.length !== 1 ? "s" : ""} to review.
               </p>
             </div>
             <button
               onClick={fetchSuggestions}
-              className="text-xs px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50"
+              className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
             >
               Refresh
             </button>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {suggestions.map((s, idx) => {
-              const icon = s.type === "existing_group" ? "📂" : s.type === "new_group" ? "🆕" : "📌";
-              const label = s.type === "existing_group" ? "Add to existing group" : s.type === "new_group" ? "New group" : "Solo";
-              const displayName = s.editedName ?? s.groupName;
-              const matchType = s.editedMatchType ?? s.suggestedMatchType ?? "exact";
-              const pattern = s.editedPattern ?? s.suggestedPattern ?? "";
-
-              return (
-                <div key={idx} className="px-4 py-3 hover:bg-gray-50">
-                  {/* Header */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm">{icon}</span>
-                        <span className="text-[10px] uppercase tracking-wider text-gray-400">{label}</span>
-                        <span className="text-xs text-gray-500">{s.totalCount} txns</span>
-                        <span className={`text-xs ${s.totalAmount < 0 ? "text-emerald-600" : "text-gray-600"}`}>
-                          {formatCurrency(s.totalAmount)}
-                        </span>
-                      </div>
-
-                      {/* Editable display name + match config */}
-                      <div className="flex items-end gap-2 mb-2">
-                        <div className="relative">
-                          <label className="block text-[10px] text-gray-400 mb-0.5">Display Name</label>
-                          <input
-                            type="text"
-                            value={displayName}
-                            onChange={(e) => setSuggestions((prev) =>
-                              prev.map((p, i) => i === idx ? { ...p, editedName: e.target.value } : p)
-                            )}
-                            onFocus={() => setSuggestions((prev) =>
-                              prev.map((p, i) => i === idx ? { ...p, _showDropdown: true } : { ...p, _showDropdown: false })
-                            )}
-                            onBlur={() => setTimeout(() => setSuggestions((prev) =>
-                              prev.map((p) => ({ ...p, _showDropdown: false }))
-                            ), 200)}
-                            className="border border-gray-300 rounded px-2 py-1 text-sm font-medium w-48"
-                          />
-                          {s._showDropdown && (() => {
-                            const existingNames = [...new Set(aliases.map((a) => a.displayName))].filter((name) =>
-                              name.toLowerCase().includes((displayName || "").toLowerCase())
-                            ).slice(0, 8);
-                            if (existingNames.length === 0) return null;
-                            return (
-                              <div className="absolute z-10 top-full left-0 mt-0.5 w-48 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                                {existingNames.map((name) => (
-                                  <button
-                                    key={name}
-                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 text-gray-700 hover:text-indigo-700"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      setSuggestions((prev) =>
-                                        prev.map((p, i) => i === idx ? { ...p, editedName: name, _showDropdown: false } : p)
-                                      );
-                                    }}
-                                  >
-                                    {name}
-                                  </button>
-                                ))}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        <div>
-                          <label className="block text-[10px] text-gray-400 mb-0.5">Match Type</label>
-                          <select
-                            value={matchType}
-                            onChange={(e) => setSuggestions((prev) =>
-                              prev.map((p, i) => i === idx ? { ...p, editedMatchType: e.target.value } : p)
-                            )}
-                            className="border border-gray-300 rounded px-2 py-1 text-xs"
-                          >
-                            <option value="exact">Exact</option>
-                            <option value="starts_with">Starts With</option>
-                            <option value="contains">Contains</option>
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <label className="block text-[10px] text-gray-400 mb-0.5">Pattern to Match</label>
-                          <input
-                            type="text"
-                            value={pattern}
-                            onChange={(e) => setSuggestions((prev) =>
-                              prev.map((p, i) => i === idx ? { ...p, editedPattern: e.target.value } : p)
-                            )}
-                            className="border border-gray-300 rounded px-2 py-1 text-xs font-mono w-full text-gray-500"
-                            placeholder="Pattern..."
-                          />
-                        </div>
-                      </div>
-
-                      {/* Members list */}
-                      <div className="pl-6 space-y-0.5">
-                        {s.members.slice(0, 5).map((m, mi) => (
-                          <div key={mi} className="text-xs text-gray-500 flex items-center gap-2">
-                            <span className="text-gray-300">•</span>
-                            <span className="truncate max-w-[400px]" title={m.name}>{m.name}</span>
-                            <span className="text-gray-400">({m.count})</span>
-                          </div>
-                        ))}
-                        {s.members.length > 5 && (
-                          <div className="text-xs text-gray-400 pl-4">
-                            +{s.members.length - 5} more
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-col gap-1.5 shrink-0">
-                      <button
-                        onClick={() => applySuggestion(s)}
-                        className="text-xs px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 font-medium"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => skipSuggestion(s)}
-                        className="text-xs px-3 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
-                      >
-                        Skip
-                      </button>
-                      <button
-                        onClick={() => ignoreSuggestion(s)}
-                        className="text-xs px-3 py-1.5 bg-red-50 text-red-500 rounded hover:bg-red-100"
-                      >
-                        Ignore
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {suggestionsLoaded && suggestions.length === 0 && unmatchedCount === 0 && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
-          <p className="text-emerald-700 font-medium">All vendors matched!</p>
-          <p className="text-xs text-emerald-600 mt-1">No unmatched vendor names found.</p>
-        </div>
-      )}
-
-      {/* Ignored Vendors — collapsible */}
-      {ignoredCount > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setShowIgnored(!showIgnored)}
-            className="w-full px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between hover:bg-gray-100 transition-colors"
-          >
-            <h3 className="text-sm font-medium text-gray-500">
-              Ignored Vendors ({ignoredCount})
-            </h3>
-            <svg
-              className={`w-4 h-4 text-gray-400 transition-transform ${showIgnored ? "rotate-180" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {showIgnored && (
-            <>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-gray-500">
-                  <th className="px-4 py-2 font-medium">Vendor Name</th>
-                  <th className="px-4 py-2 font-medium text-right">Expenses</th>
-                  <th className="px-4 py-2 font-medium text-right">Total</th>
-                  <th className="px-4 py-2 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredIgnored.slice(0, ignoredVisible).map((v) => (
-                  <tr key={v.id} className="border-t border-gray-50 hover:bg-gray-50">
-                    <td className="px-4 py-2 text-gray-400 max-w-[300px]">
-                      <span className="block truncate" title={v.name}>
-                        {v.name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-right text-gray-400">{v.expenseCount}</td>
-                    <td className="px-4 py-2 text-right text-gray-400">
-                      {formatCurrency(v.totalSpent)}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        onClick={() => unignoreVendor(v.name)}
-                        className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
-                      >
-                        Unignore
-                      </button>
-                    </td>
+          {!suggestionsLoaded ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+            </div>
+          ) : filteredSuggestions.length === 0 && unmatchedCount === 0 ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
+              <p className="text-emerald-700 font-medium">All vendors matched!</p>
+              <p className="text-xs text-emerald-600 mt-1">No unmatched vendor names found.</p>
+            </div>
+          ) : filteredSuggestions.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+              No suggestions available. Try refreshing or add aliases manually.
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-gray-500 text-xs">
+                    <th className="px-4 py-2.5">Vendor(s)</th>
+                    <th className="px-4 py-2.5 text-right">Txns</th>
+                    <th className="px-4 py-2.5 text-right">Amount</th>
+                    <th className="px-4 py-2.5">Display Name</th>
+                    <th className="px-4 py-2.5">Match</th>
+                    <th className="px-4 py-2.5 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {ignored.length > ignoredVisible && (
-              <button
-                onClick={() => setIgnoredVisible((v) => v + PAGE_SIZE)}
-                className="w-full py-2.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-200 transition-colors"
-              >
-                Load {Math.min(PAGE_SIZE, ignored.length - ignoredVisible)} more ({ignored.length - ignoredVisible} remaining)
-              </button>
-            )}
-            </>
+                </thead>
+                <tbody>
+                  {filteredSuggestions.map((s, idx) => {
+                    const displayName = s.editedName ?? s.groupName;
+                    const matchType = s.editedMatchType ?? s.suggestedMatchType ?? "exact";
+                    const pattern = s.editedPattern ?? s.suggestedPattern ?? "";
+                    const isExpanded = expandedSuggestion === idx;
+
+                    return (
+                      <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50 align-top">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            {s.members.length > 1 && (
+                              <button
+                                onClick={() => setExpandedSuggestion(isExpanded ? null : idx)}
+                                className="text-gray-400 hover:text-gray-600 shrink-0"
+                              >
+                                <svg className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                              </button>
+                            )}
+                            <div>
+                              <span className="text-xs font-medium text-gray-800">
+                                {s.members[0]?.name || s.groupName}
+                              </span>
+                              {s.members.length > 1 && (
+                                <span className="text-[10px] text-gray-400 ml-1">
+                                  +{s.members.length - 1} more
+                                </span>
+                              )}
+                              {isExpanded && (
+                                <div className="mt-1 space-y-0.5 pl-1">
+                                  {s.members.slice(1).map((m, mi) => (
+                                    <div key={mi} className="text-[11px] text-gray-500 flex items-center gap-1.5">
+                                      <span className="text-gray-300">&#8226;</span>
+                                      <span className="truncate max-w-[250px]" title={m.name}>{m.name}</span>
+                                      <span className="text-gray-400">({m.count})</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-gray-600 text-xs">{s.totalCount}</td>
+                        <td className={`px-4 py-2.5 text-right text-xs ${s.totalAmount < 0 ? "text-emerald-600" : "text-gray-600"}`}>
+                          {formatCurrency(s.totalAmount)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={displayName}
+                              onChange={(e) => setSuggestions((prev) =>
+                                prev.map((p, i) => i === idx ? { ...p, editedName: e.target.value } : p)
+                              )}
+                              onFocus={() => setSuggestions((prev) =>
+                                prev.map((p, i) => i === idx ? { ...p, _showDropdown: true } : { ...p, _showDropdown: false })
+                              )}
+                              onBlur={() => setTimeout(() => setSuggestions((prev) =>
+                                prev.map((p) => ({ ...p, _showDropdown: false }))
+                              ), 200)}
+                              className="border border-gray-300 rounded px-2 py-1 text-xs font-medium w-full"
+                            />
+                            {s._showDropdown && (() => {
+                              const existingNames = [...new Set(aliases.map((a) => a.displayName))].filter((name) =>
+                                name.toLowerCase().includes((displayName || "").toLowerCase())
+                              ).slice(0, 6);
+                              if (existingNames.length === 0) return null;
+                              return (
+                                <div className="absolute z-10 top-full left-0 mt-0.5 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                  {existingNames.map((name) => (
+                                    <button
+                                      key={name}
+                                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 text-gray-700 hover:text-indigo-700"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setSuggestions((prev) =>
+                                          prev.map((p, i) => i === idx ? { ...p, editedName: name, _showDropdown: false } : p)
+                                        );
+                                      }}
+                                    >
+                                      {name}
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex gap-1">
+                            <select
+                              value={matchType}
+                              onChange={(e) => setSuggestions((prev) =>
+                                prev.map((p, i) => i === idx ? { ...p, editedMatchType: e.target.value } : p)
+                              )}
+                              className="border border-gray-300 rounded px-1.5 py-1 text-[11px] w-20"
+                            >
+                              <option value="exact">exact</option>
+                              <option value="starts_with">starts with</option>
+                              <option value="contains">contains</option>
+                            </select>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <div className="flex gap-1 justify-end">
+                            <button
+                              onClick={() => applySuggestion(s)}
+                              className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 font-medium"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => skipSuggestion(s)}
+                              className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                            >
+                              Skip
+                            </button>
+                            <button
+                              onClick={() => ignoreSuggestion(s)}
+                              className="px-2 py-0.5 text-xs bg-red-50 text-red-500 rounded hover:bg-red-100"
+                            >
+                              Ignore
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── IGNORED TAB ─── */}
+      {tab === "ignored" && (
+        <div className="space-y-4">
+          {ignoredCount === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+              No ignored vendors.
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-gray-500">
+                    <th className="px-4 py-2.5 font-medium">Vendor Name</th>
+                    <th className="px-4 py-2.5 font-medium text-right">Expenses</th>
+                    <th className="px-4 py-2.5 font-medium text-right">Total</th>
+                    <th className="px-4 py-2.5 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredIgnored.slice(0, ignoredVisible).map((v) => (
+                    <tr key={v.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-600 max-w-[300px]">
+                        <span className="block truncate" title={v.name}>
+                          {v.name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-500">{v.expenseCount}</td>
+                      <td className="px-4 py-2 text-right text-gray-500">
+                        {formatCurrency(v.totalSpent)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <button
+                          onClick={() => unignoreVendor(v.name)}
+                          className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                        >
+                          Unignore
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredIgnored.length > ignoredVisible && (
+                <button
+                  onClick={() => setIgnoredVisible((v) => v + PAGE_SIZE)}
+                  className="w-full py-2.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-200 transition-colors"
+                >
+                  Load {Math.min(PAGE_SIZE, filteredIgnored.length - ignoredVisible)} more ({filteredIgnored.length - ignoredVisible} remaining)
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

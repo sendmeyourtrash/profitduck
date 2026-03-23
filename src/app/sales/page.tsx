@@ -431,7 +431,11 @@ function SalesPage() {
       />
 
       {/* Summary Cards */}
-      {!initialLoading && total > 0 && ps && (
+      {!initialLoading && total > 0 && ps && (() => {
+        const gross = ps.grossSales || 1;
+        const pct = (v: number) => `${Math.abs(Math.round((v / gross) * 1000) / 10)}%`;
+        const netRevenue = ps.grossSales + (ps.feesTotal || 0) + (ps.marketingTotal || 0) + (ps.discounts || 0);
+        return (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Gross Sales</p>
@@ -440,39 +444,46 @@ function SalesPage() {
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Fees</p>
-            <p className="text-lg font-semibold text-red-500 mt-0.5">{formatCurrency(ps.feesTotal)}</p>
+            <p className="text-lg font-semibold text-red-500 mt-0.5">
+              {formatCurrency(ps.feesTotal)} <span className="text-xs font-normal text-gray-400">{pct(ps.feesTotal)}</span>
+            </p>
             <div className="text-[10px] text-gray-400 mt-0.5 space-y-0.5">
-              {ps.commissionFee !== 0 && <p>Commission: {formatCurrency(ps.commissionFee)}</p>}
-              {ps.processingFee !== 0 && <p>Processing: {formatCurrency(ps.processingFee)}</p>}
-              {ps.deliveryFee !== 0 && <p>Delivery: {formatCurrency(ps.deliveryFee)}</p>}
+              {ps.commissionFee !== 0 && <p>Commission: {formatCurrency(ps.commissionFee)} <span className="text-gray-300">{pct(ps.commissionFee)}</span></p>}
+              {ps.processingFee !== 0 && <p>Processing: {formatCurrency(ps.processingFee)} <span className="text-gray-300">{pct(ps.processingFee)}</span></p>}
+              {ps.deliveryFee !== 0 && <p>Delivery: {formatCurrency(ps.deliveryFee)} <span className="text-gray-300">{pct(ps.deliveryFee)}</span></p>}
             </div>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Marketing</p>
-            <p className="text-lg font-semibold text-amber-600 mt-0.5">{formatCurrency(ps.marketingTotal)}</p>
+            <p className="text-lg font-semibold text-amber-600 mt-0.5">
+              {formatCurrency(ps.marketingTotal)} <span className="text-xs font-normal text-gray-400">{pct(ps.marketingTotal)}</span>
+            </p>
             {ps.discounts !== 0 && (
-              <p className="text-[10px] text-gray-400 mt-0.5">Discounts: {formatCurrency(ps.discounts)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Discounts: {formatCurrency(ps.discounts)} <span className="text-gray-300">{pct(ps.discounts)}</span></p>
             )}
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Tax Collected</p>
-            <p className="text-lg font-semibold text-gray-700 mt-0.5">{formatCurrency(ps.tax)}</p>
+            <p className="text-lg font-semibold text-gray-700 mt-0.5">
+              {formatCurrency(ps.tax)} <span className="text-xs font-normal text-gray-400">{pct(ps.tax)}</span>
+            </p>
             {ps.tip > 0 && (
-              <p className="text-[10px] text-gray-400 mt-0.5">Tips: {formatCurrency(ps.tip)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Tips: {formatCurrency(ps.tip)} <span className="text-gray-300">{pct(ps.tip)}</span></p>
             )}
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Net Revenue</p>
-            <p className={`text-lg font-semibold mt-0.5 ${(ps.grossSales + (ps.feesTotal || 0) + (ps.marketingTotal || 0) + (ps.discounts || 0)) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-              {formatCurrency(ps.grossSales + (ps.feesTotal || 0) + (ps.marketingTotal || 0) + (ps.discounts || 0))}
+            <p className={`text-lg font-semibold mt-0.5 ${netRevenue >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {formatCurrency(netRevenue)} <span className="text-xs font-normal text-gray-400">{pct(netRevenue)}</span>
             </p>
             <p className="text-[10px] text-gray-400 mt-0.5">after fees & marketing</p>
             <p className="text-[10px] text-gray-500 mt-1 border-t border-gray-100 pt-1">
-              After tax: <span className="font-medium">{formatCurrency(ps.grossSales + (ps.feesTotal || 0) + (ps.marketingTotal || 0) + (ps.discounts || 0) - (ps.tax || 0))}</span>
+              After tax: <span className="font-medium">{formatCurrency(netRevenue - (ps.tax || 0))}</span> <span className="text-gray-300">{pct(netRevenue - (ps.tax || 0))}</span>
             </p>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Table */}
       <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>

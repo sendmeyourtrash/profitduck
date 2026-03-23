@@ -16,6 +16,17 @@ interface UnmatchedCategory {
   revenue: number;
 }
 
+interface AliasWarning {
+  type: "conflict";
+  severity: "error";
+  aliasId: string;
+  aliasPattern: string;
+  aliasMatchType: string;
+  aliasDisplayName: string;
+  message: string;
+  affectedItems: string[];
+}
+
 export default function MenuCategoryAliasesPanel() {
   const [aliases, setAliases] = useState<MenuCategoryAlias[]>([]);
   const [unmatched, setUnmatched] = useState<UnmatchedCategory[]>([]);
@@ -24,6 +35,7 @@ export default function MenuCategoryAliasesPanel() {
   const [matchedCount, setMatchedCount] = useState(0);
   const [unmatchedCount, setUnmatchedCount] = useState(0);
   const [ignoredCount, setIgnoredCount] = useState(0);
+  const [warnings, setWarnings] = useState<AliasWarning[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -63,6 +75,7 @@ export default function MenuCategoryAliasesPanel() {
     setMatchedCount(data.matchedCount || 0);
     setUnmatchedCount(data.unmatchedCount || 0);
     setIgnoredCount(data.ignoredCount || 0);
+    setWarnings(data.warnings || []);
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
@@ -209,6 +222,67 @@ export default function MenuCategoryAliasesPanel() {
         </div>
       </div>
 
+      {/* Warnings */}
+      {warnings.length > 0 && (
+        <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
+          <div className="px-4 py-3 bg-red-50 border-b border-red-200">
+            <h3 className="text-sm font-medium text-red-800">
+              Overlapping Groups ({warnings.length})
+            </h3>
+            <p className="text-xs text-red-600 mt-0.5">
+              These categories match multiple alias rules that map to different groups. Edit the rules to make them more specific.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {warnings.map((w, idx) => (
+              <div key={idx} className="px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 mt-0.5 w-2 h-2 rounded-full bg-red-500" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-gray-700">
+                        {w.aliasDisplayName}
+                      </span>
+                      <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px]">
+                        {w.aliasMatchType.replace("_", " ")} &ldquo;{w.aliasPattern}&rdquo;
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-1.5">{w.message}</p>
+                    {w.affectedItems.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {w.affectedItems.slice(0, 8).map((item) => (
+                          <span key={item} className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-mono">
+                            {item}
+                          </span>
+                        ))}
+                        {w.affectedItems.length > 8 && (
+                          <span className="text-[10px] text-gray-400">+{w.affectedItems.length - 8} more</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const alias = aliases.find(a => a.id === w.aliasId);
+                      if (alias) {
+                        setShowAliases(true);
+                        startEdit(alias);
+                        setTimeout(() => {
+                          document.getElementById(`alias-${alias.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }, 100);
+                      }
+                    }}
+                    className="shrink-0 text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                  >
+                    Edit Rule
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Add New Alias */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <h3 className="text-sm font-medium text-gray-700 mb-3">Add Alias Rule</h3>
@@ -288,7 +362,7 @@ export default function MenuCategoryAliasesPanel() {
                   <div className="space-y-1">
                     {group.map((alias) =>
                       editId === alias.id ? (
-                        <div key={alias.id} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg p-2">
+                        <div key={alias.id} id={`alias-${alias.id}`} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg p-2">
                           <input
                             type="text"
                             value={editPattern}
@@ -328,6 +402,7 @@ export default function MenuCategoryAliasesPanel() {
                       ) : (
                         <div
                           key={alias.id}
+                          id={`alias-${alias.id}`}
                           className="flex items-center justify-between text-xs text-gray-500"
                         >
                           <span>

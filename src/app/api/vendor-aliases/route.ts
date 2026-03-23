@@ -302,6 +302,91 @@ export async function GET(req: NextRequest) {
     // Table might not exist yet
   }
 
+  // --- Conflict Detection ---
+  // Get all vendor names from bank.db for matching simulation
+  let allVendorNames: string[] = [];
+  try {
+    const Database = require("better-sqlite3");
+    const path = require("path");
+    const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    const rows = bankDb.prepare(`
+      SELECT DISTINCT COALESCE(NULLIF(custom_name, ''), name) as vendor_name
+      FROM rocketmoney
+      WHERE vendor_name IS NOT NULL AND vendor_name != ''
+    `).all() as { vendor_name: string }[];
+    allVendorNames = rows.map(r => r.vendor_name);
+    bankDb.close();
+  } catch { /* bank.db may not exist */ }
+
+  function matchesAlias(name: string, pattern: string, matchType: string): boolean {
+    const lower = name.toLowerCase().trim();
+    const lowerPat = pattern.toLowerCase().trim();
+    if (matchType === "exact") return lower === lowerPat;
+    if (matchType === "starts_with") return lower.startsWith(lowerPat);
+    if (matchType === "contains") return lower.includes(lowerPat);
+    return false;
+  }
+
+  // Track which aliases match each vendor
+  const vendorMatches = new Map<string, { aliasIds: string[]; displayNames: string[] }>();
+  const aliasMatchMap = new Map<string, string[]>();
+
+  for (const alias of aliases) {
+    const matched: string[] = [];
+    for (const name of allVendorNames) {
+      if (matchesAlias(name, alias.pattern, alias.match_type)) {
+        matched.push(name);
+        const existing = vendorMatches.get(name) || { aliasIds: [], displayNames: [] };
+        existing.aliasIds.push(alias.id);
+        existing.displayNames.push(alias.display_name);
+        vendorMatches.set(name, existing);
+      }
+    }
+    aliasMatchMap.set(alias.id, matched);
+  }
+
+  // --- Conflict Detection: vendors matched by multiple groups ---
+  interface Warning {
+    type: "conflict";
+    severity: "error";
+    aliasId: string;
+    aliasPattern: string;
+    aliasMatchType: string;
+    aliasDisplayName: string;
+    message: string;
+    affectedItems: string[];
+  }
+  const warnings: Warning[] = [];
+
+  for (const [vendorName, match] of vendorMatches) {
+    const uniqueDisplayNames = [...new Set(match.displayNames)];
+    if (uniqueDisplayNames.length > 1) {
+      for (let i = 0; i < match.aliasIds.length; i++) {
+        const alias = aliases.find(a => a.id === match.aliasIds[i]);
+        if (!alias) continue;
+        warnings.push({
+          type: "conflict",
+          severity: "error",
+          aliasId: alias.id,
+          aliasPattern: alias.pattern,
+          aliasMatchType: alias.match_type,
+          aliasDisplayName: alias.display_name,
+          message: `"${vendorName}" matches this rule but also matches another rule that maps to "${uniqueDisplayNames.find(d => d !== alias.display_name)}"`,
+          affectedItems: [vendorName],
+        });
+      }
+    }
+  }
+
+  // Deduplicate warnings by aliasId
+  const seenWarnings = new Map<string, Warning>();
+  for (const w of warnings) {
+    const key = `${w.aliasId}-${w.type}`;
+    if (!seenWarnings.has(key)) {
+      seenWarnings.set(key, w);
+    }
+  }
+
   return NextResponse.json({
     aliases: aliases.map((a) => ({
       id: a.id,
@@ -310,9 +395,11 @@ export async function GET(req: NextRequest) {
       displayName: a.display_name,
       autoCreated: a.auto_created === 1,
       createdAt: a.created_at,
+      matchCount: (aliasMatchMap.get(a.id) || []).length,
     })),
     matchedCount: aliases.length,
     unmatchedCount: unmatched.length,
+    warnings: [...seenWarnings.values()],
     unmatched: (() => {
       // Enrich unmatched vendors with expense count and total from bank.db
       try {

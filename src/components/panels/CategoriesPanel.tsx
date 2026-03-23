@@ -8,7 +8,8 @@ interface ExpenseCategory {
   name: string;
   color: string | null;
   icon: string | null;
-  _count: { expenses: number; rules: number };
+  _count: { expenses: number; rules: number; amount: number };
+  ignored?: boolean;
 }
 
 interface CategorizationRule {
@@ -35,6 +36,8 @@ export default function CategoriesPanel() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [rules, setRules] = useState<CategorizationRule[]>([]);
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
+  const [uncategorizedAmount, setUncategorizedAmount] = useState(0);
+  const [ignoredCategories, setIgnoredCategories] = useState<{ id: number; categoryName: string; count: number }[]>([]);
   const [tab, setTab] = useState<"categories" | "rules" | "review">("categories");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -64,9 +67,32 @@ export default function CategoriesPanel() {
       fetch("/api/expense-categories").then((r) => r.json()),
       fetch("/api/categorization-rules").then((r) => r.json()),
     ]);
-    setCategories(catRes.categories || []);
+    // Merge ignored categories into the main list with a flag
+    const activeCats = (catRes.categories || []).map((c: ExpenseCategory) => ({ ...c, ignored: false }));
+    const ignoredCats = (catRes.ignoredCategories || []).map((ic: { categoryName: string; count: number }) => {
+      // Find the full category data if it exists in active list (it won't since it's ignored)
+      const existing = activeCats.find((c: ExpenseCategory) => c.name.toLowerCase() === ic.categoryName.toLowerCase());
+      if (existing) {
+        existing.ignored = true;
+        return null;
+      }
+      // Category exists in expense_categories but is ignored — find its data from the API
+      const fullCat = (catRes.categories || []).find((c: ExpenseCategory) => c.name.toLowerCase() === ic.categoryName.toLowerCase());
+      return fullCat ? { ...fullCat, ignored: true } : null;
+    }).filter(Boolean);
+
+    // Mark any categories that are in the ignored list
+    const ignoredNames = new Set((catRes.ignoredCategories || []).map((ic: { categoryName: string }) => ic.categoryName.toLowerCase()));
+    const allCats = activeCats.map((c: ExpenseCategory) => ({
+      ...c,
+      ignored: ignoredNames.has(c.name.toLowerCase()),
+    }));
+
+    setCategories(allCats);
     setRules(ruleRes.rules || []);
     setUncategorizedCount(catRes.uncategorizedCount || 0);
+    setUncategorizedAmount(catRes.uncategorizedAmount || 0);
+    setIgnoredCategories(catRes.ignoredCategories || []);
     setInitialLoading(false);
     setRefreshing(false);
   }, []);
@@ -149,6 +175,26 @@ export default function CategoriesPanel() {
   const deleteCategory = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"? Its expenses will become uncategorized and its rules will be removed.`)) return;
     await fetch(`/api/expense-categories?id=${id}`, { method: "DELETE" });
+    fetchData();
+  };
+
+  const ignoreCategory = async (categoryName: string) => {
+    await fetch("/api/expense-categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ignore-category", categoryName }),
+    });
+    setMessage(`"${categoryName}" ignored from bank statements`);
+    fetchData();
+  };
+
+  const unignoreCategory = async (categoryName: string) => {
+    await fetch("/api/expense-categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unignore-category", categoryName }),
+    });
+    setMessage(`"${categoryName}" restored to bank statements`);
     fetchData();
   };
 
@@ -308,17 +354,21 @@ export default function CategoriesPanel() {
                   <th className="px-4 py-3 font-medium">Color</th>
                   <th className="px-4 py-3 font-medium">Category</th>
                   <th className="px-4 py-3 font-medium text-right">
-                    Expenses
+                    Transactions
                   </th>
+                  <th className="px-4 py-3 font-medium text-right">Amount</th>
                   <th className="px-4 py-3 font-medium text-right">Rules</th>
-                  <th className="px-4 py-3 w-16" />
+                  <th className="px-2 py-3 w-14 text-center" />
+                  <th className="px-2 py-3 w-14 text-center" />
                 </tr>
               </thead>
               <tbody>
                 {categories.map((cat) => (
                   <tr
                     key={cat.id}
-                    className="border-t border-gray-100 hover:bg-indigo-50 cursor-pointer transition-colors"
+                    className={`border-t border-gray-100 cursor-pointer transition-colors ${
+                      cat.ignored ? "opacity-50 bg-gray-50/50 hover:bg-gray-100" : "hover:bg-indigo-50"
+                    }`}
                     onClick={() =>
                       router.push(
                         `/dashboard/expenses/category/${encodeURIComponent(cat.name)}`
@@ -343,14 +393,44 @@ export default function CategoriesPanel() {
                     </td>
                     <td className="px-4 py-2.5 text-gray-800 font-medium">
                       <span className="hover:text-indigo-600">{cat.name}</span>
+                      {cat.ignored && <span className="ml-2 text-[10px] text-amber-500 font-normal">(ignored)</span>}
                     </td>
                     <td className="px-4 py-2.5 text-right text-gray-600">
                       {cat._count.expenses}
                     </td>
+                    <td className={`px-4 py-2.5 text-right font-medium ${cat._count.amount < 0 ? "text-emerald-600" : cat._count.amount > 0 ? "text-gray-800" : "text-gray-400"}`}>
+                      {cat._count.expenses === 0 ? "—" : `$${Math.abs(cat._count.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      {cat._count.amount < 0 && cat._count.expenses > 0 && <span className="text-[10px] ml-0.5 text-emerald-500">↓</span>}
+                      {cat._count.amount > 0 && cat._count.expenses > 0 && <span className="text-[10px] ml-0.5 text-gray-400">↑</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-right text-gray-600">
                       {cat._count.rules}
                     </td>
-                    <td className="px-4 py-2.5 text-right">
+                    <td className="px-2 py-2.5 text-center">
+                      {cat.ignored ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            unignoreCategory(cat.name);
+                          }}
+                          className="text-xs text-indigo-500 hover:text-indigo-700 font-medium"
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            ignoreCategory(cat.name);
+                          }}
+                          className="text-xs text-amber-500 hover:text-amber-700"
+                          title="Hide from Bank Activity"
+                        >
+                          Ignore
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5 text-center">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -374,14 +454,22 @@ export default function CategoriesPanel() {
                   <td className="px-4 py-2.5 text-right text-gray-500">
                     {uncategorizedCount}
                   </td>
+                  <td className={`px-4 py-2.5 text-right font-medium ${uncategorizedAmount < 0 ? "text-emerald-600" : uncategorizedAmount > 0 ? "text-gray-800" : "text-gray-400"}`}>
+                    {uncategorizedCount === 0 ? "—" : `$${Math.abs(uncategorizedAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {uncategorizedAmount < 0 && uncategorizedCount > 0 && <span className="text-[10px] ml-0.5 text-emerald-500">↓</span>}
+                    {uncategorizedAmount > 0 && uncategorizedCount > 0 && <span className="text-[10px] ml-0.5 text-gray-400">↑</span>}
+                  </td>
                   <td className="px-4 py-2.5 text-right text-gray-400">
                     &mdash;
                   </td>
+                  <td />
                   <td />
                 </tr>
               </tbody>
             </table>
           </div>
+
+          {/* Ignored categories are now shown inline in the table above with muted styling */}
         </div>
       )}
 

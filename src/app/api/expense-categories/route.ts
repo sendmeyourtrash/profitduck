@@ -8,6 +8,9 @@ import {
   getAllCategorizationRules,
   getAllVendorAliases,
   getVendorAliasesDb,
+  getAllCategoryIgnores,
+  createCategoryIgnore,
+  deleteCategoryIgnore,
 } from "@/lib/db/config-db";
 import Database from "better-sqlite3";
 import path from "path";
@@ -39,18 +42,22 @@ export async function GET() {
     }
   }
 
-  // Count bank transactions per category by resolving vendor aliases
+  // Count bank transactions and sum amounts per category by resolving vendor aliases
   const expenseCountMap = new Map<string, number>();
+  const expenseAmountMap = new Map<string, number>();
   let uncategorizedCount = 0;
+  let uncategorizedAmount = 0;
 
   try {
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
     const rows = bankDb.prepare(`
-      SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name, COUNT(*) as cnt
+      SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
+             COUNT(*) as cnt,
+             COALESCE(SUM(CAST(amount AS REAL)), 0) as total_amount
       FROM rocketmoney
       WHERE 1=1
       GROUP BY vendor_name
-    `).all() as { vendor_name: string; cnt: number }[];
+    `).all() as { vendor_name: string; cnt: number; total_amount: number }[];
 
     for (const row of rows) {
       // Resolve vendor alias
@@ -74,8 +81,10 @@ export async function GET() {
       const categoryId = vendorToCategoryId.get(displayName.toLowerCase());
       if (categoryId) {
         expenseCountMap.set(categoryId, (expenseCountMap.get(categoryId) || 0) + row.cnt);
+        expenseAmountMap.set(categoryId, Math.round(((expenseAmountMap.get(categoryId) || 0) + row.total_amount) * 100) / 100);
       } else {
         uncategorizedCount += row.cnt;
+        uncategorizedAmount = Math.round((uncategorizedAmount + row.total_amount) * 100) / 100;
       }
     }
 
@@ -94,6 +103,7 @@ export async function GET() {
     _count: {
       expenses: expenseCountMap.get(c.id) || 0,
       rules: ruleCountMap.get(c.id) || 0,
+      amount: expenseAmountMap.get(c.id) || 0,
     },
     children: categories.filter((ch) => ch.parent_id === c.id).map((ch) => ({
       id: ch.id,
@@ -104,7 +114,16 @@ export async function GET() {
     })),
   })).filter((c) => !c.parentId); // Only return top-level, children are nested
 
-  return NextResponse.json({ categories: result, uncategorizedCount });
+  // Get ignored categories
+  const ignoredCategories = getAllCategoryIgnores().map((ic) => ({
+    id: ic.id,
+    categoryName: ic.category_name,
+    createdAt: ic.created_at,
+    // Find count from the result
+    count: result.find((c) => c.name.toLowerCase() === ic.category_name.toLowerCase())?._count.expenses || 0,
+  }));
+
+  return NextResponse.json({ categories: result, uncategorizedCount, uncategorizedAmount, ignoredCategories });
 }
 
 /**
@@ -113,8 +132,22 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, color, icon, parentId } = body;
+    const { action, categoryName, name, color, icon, parentId } = body;
 
+    // Handle ignore/unignore actions
+    if (action === "ignore-category") {
+      if (!categoryName) return NextResponse.json({ error: "categoryName is required" }, { status: 400 });
+      createCategoryIgnore(categoryName);
+      return NextResponse.json({ success: true, action: "ignored", categoryName });
+    }
+
+    if (action === "unignore-category") {
+      if (!categoryName) return NextResponse.json({ error: "categoryName is required" }, { status: 400 });
+      deleteCategoryIgnore(categoryName);
+      return NextResponse.json({ success: true, action: "unignored", categoryName });
+    }
+
+    // Default: create new category
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }

@@ -12,7 +12,10 @@ export function formatCurrency(amount: number): string {
  * Format a Date or ISO string as a short date (e.g., "Mar 12, 2026").
  */
 export function formatDate(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+  const raw = typeof date === "string" ? date : date.toISOString();
+  // Date-only strings ("2026-03-22") are parsed as UTC midnight, which shifts
+  // to the prior day in US timezones. Append T12:00:00 to keep the local date stable.
+  const d = new Date(raw.length === 10 ? raw + "T12:00:00" : raw);
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",

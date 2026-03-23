@@ -1,211 +1,259 @@
 /**
- * Expenses Dashboard API — Source of truth: Rocket Money transactions table.
+ * Expenses Dashboard API — Source of truth: bank.db (rocketmoney) + sales.db (orders).
  *
- * Uses the `transactions` table filtered to RM expenses (not the legacy `expenses` table)
- * so that dedup, reconciliation, and category data are consistent across the app.
- *
- * Excludes:
- *   - Internal transfers (category LIKE 'transfer:%')
- *   - Negative amounts (CC payment outflows — these cancel with income records)
- *   - Chase records (100% duplicates of RM)
+ * Bank expenses come from rocketmoney table (positive amounts, excluding payout categories).
+ * Platform fees come from sales.db orders table.
+ * Vendor names are resolved via vendor alias system.
+ * Categories use the RM category field, with ignored categories excluded.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import Database from "better-sqlite3";
+import path from "path";
+import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { getAllCategoryIgnores } from "@/lib/db/config-db";
 
-const PRIMARY_SOURCE = "rocketmoney";
+const DB_DIR = path.join(process.cwd(), "databases");
+
+function openDb(name: string) {
+  return new Database(path.join(DB_DIR, name), { readonly: true });
+}
+
+const PAYOUT_CATEGORIES = [
+  "Square", "Square ", "GrubHub", "DOORDASH", "Uber Eats", "Credit Card Payment",
+];
+
+const TRANSFER_CATEGORIES = ["Credit Card Payment"];
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const rawStart = searchParams.get("startDate");
   const rawEnd = searchParams.get("endDate");
-  const rawDays = searchParams.get("days");
 
-  let startDate: Date;
-  let endDate: Date | undefined;
+  const bankDb = openDb("bank.db");
+  const salesDb = openDb("sales.db");
 
-  if (rawStart) {
-    startDate = new Date(rawStart + "T00:00:00.000Z");
-    if (rawEnd) {
-      endDate = new Date(rawEnd + "T23:59:59.999Z");
+  try {
+    // ---------- Date range ----------
+    let startDate: string;
+    let endDate: string | undefined;
+
+    if (rawStart) {
+      startDate = rawStart;
+      if (rawEnd) endDate = rawEnd;
+    } else {
+      // All time — find earliest
+      const earliest = bankDb.prepare(
+        `SELECT MIN(date) as d FROM rocketmoney WHERE CAST(amount AS REAL) > 0`
+      ).get() as { d: string | null };
+      startDate = earliest?.d || "2020-01-01";
     }
-  } else if (rawDays) {
-    const days = parseInt(rawDays);
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-  } else {
-    // "All" — find the earliest expense
-    const earliest = await prisma.transaction.findFirst({
-      where: {
-        type: "expense",
-        sourcePlatform: PRIMARY_SOURCE,
-        duplicateOfId: null,
-        amount: { gt: 0 },
-      },
-      orderBy: { date: "asc" },
-      select: { date: true },
-    });
-    startDate = earliest
-      ? earliest.date
-      : new Date(new Date().setDate(new Date().getDate() - 365));
-  }
 
-  const dateGte = startDate.toISOString();
-  const dateLte = endDate ? endDate.toISOString() : undefined;
-  const dateClause = dateLte
-    ? `AND date >= '${dateGte}' AND date <= '${dateLte}'`
-    : `AND date >= '${dateGte}'`;
+    // ---------- Ignored categories ----------
+    const ignoredCats = getAllCategoryIgnores();
+    const ignoredCatNames = new Set(ignoredCats.map((ic) => ic.category_name.toLowerCase()));
 
-  // ── Expenses by category (from RM transactions) ──────────────────────
-  const expensesByCategory = await prisma.$queryRawUnsafe<
-    { category: string; total: number; cnt: number }[]
-  >(`
-    SELECT
-      COALESCE(category, '(uncategorized)') as category,
-      ROUND(SUM(amount), 2) as total,
-      COUNT(*) as cnt
-    FROM transactions
-    WHERE source_platform = '${PRIMARY_SOURCE}'
-      AND type = 'expense'
-      AND duplicate_of_id IS NULL
-      AND amount > 0
-      AND (category IS NULL OR category NOT LIKE 'transfer:%')
-      ${dateClause}
-    GROUP BY category
-    ORDER BY total DESC
-  `);
+    // ---------- Build payout exclusion ----------
+    const payoutPlaceholders = PAYOUT_CATEGORIES.map(() => "?").join(",");
 
-  // ── Expenses by vendor (description-based grouping) ──────────────────
-  const expensesByVendor = await prisma.$queryRawUnsafe<
-    { vendor: string; total: number; cnt: number }[]
-  >(`
-    SELECT
-      CASE
-        WHEN description LIKE 'Rent%' OR description LIKE '%1654 Third%' THEN 'Rent (1654 Third Ave)'
-        WHEN description LIKE 'Groceries - Costco%' THEN 'Costco'
-        WHEN description LIKE 'Groceries - JETRO%' THEN 'Jetro Cash & Carry'
-        WHEN description LIKE 'Groceries - Restaurant Depot%' OR description LIKE 'Groceries - RESTAURANT DEPOT%' THEN 'Restaurant Depot'
-        WHEN description LIKE 'Insurance%' THEN 'Insurance'
-        WHEN description LIKE 'Payroll%' OR description LIKE '%Gusto%' THEN 'Payroll (Gusto)'
-        WHEN description LIKE 'Taxes%' THEN 'Taxes'
-        WHEN description LIKE 'Bills%' THEN 'Bills & Utilities'
-        WHEN description LIKE 'Shopping - Amazon%' THEN 'Amazon'
-        WHEN description LIKE 'Permits%' THEN 'Permits & Licenses'
-        WHEN description LIKE 'Marketing%' OR description LIKE 'Ads%' THEN 'Marketing & Advertising'
-        WHEN description LIKE 'Construction%' OR description LIKE 'Maintenance%' THEN 'Construction & Maintenance'
-        ELSE substr(description, 1, 40)
-      END as vendor,
-      ROUND(SUM(amount), 2) as total,
-      COUNT(*) as cnt
-    FROM transactions
-    WHERE source_platform = '${PRIMARY_SOURCE}'
-      AND type = 'expense'
-      AND duplicate_of_id IS NULL
-      AND amount > 0
-      AND (category IS NULL OR category NOT LIKE 'transfer:%')
-      ${dateClause}
-    GROUP BY vendor
-    ORDER BY total DESC
-    LIMIT 20
-  `);
+    // ---------- Fetch all expense records ----------
+    const dateClause = endDate
+      ? `AND date >= ? AND date <= ?`
+      : `AND date >= ?`;
+    const dateParams = endDate ? [startDate, endDate] : [startDate];
 
-  // ── Daily expense trend ──────────────────────────────────────────────
-  const dailyExpenses = await prisma.$queryRawUnsafe<
-    { date: string; total: number }[]
-  >(`
-    SELECT strftime('%Y-%m-%d', date) as date, ROUND(SUM(amount), 2) as total
-    FROM transactions
-    WHERE source_platform = '${PRIMARY_SOURCE}'
-      AND type = 'expense'
-      AND duplicate_of_id IS NULL
-      AND amount > 0
-      AND (category IS NULL OR category NOT LIKE 'transfer:%')
-      ${dateClause}
-    GROUP BY strftime('%Y-%m-%d', date)
-    ORDER BY date ASC
-  `);
+    const allExpenses = bankDb.prepare(
+      `SELECT id, date, name, custom_name, description, category, amount, account_name, note
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0
+       AND category NOT IN (${payoutPlaceholders})
+       AND category IS NOT NULL
+       ${dateClause}
+       ORDER BY date DESC`
+    ).all(...PAYOUT_CATEGORIES, ...dateParams) as {
+      id: number; date: string; name: string; custom_name: string;
+      description: string; category: string; amount: string;
+      account_name: string; note: string;
+    }[];
 
-  // ── Expenses by payment method (from legacy expenses table — still useful) ──
-  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
-  const expensesByPaymentMethod = await prisma.expense.groupBy({
-    by: ["paymentMethod"],
-    where: { date: dateFilter },
-    _sum: { amount: true },
-    _count: true,
-    orderBy: { _sum: { amount: "desc" } },
-  });
+    // ---------- Process records: resolve vendors, filter ignored ----------
+    interface ProcessedExpense {
+      id: number;
+      date: string;
+      vendorName: string;
+      category: string;
+      resolvedCategory: string | null;
+      amount: number;
+      accountName: string;
+      note: string;
+    }
 
-  // ── Fees by platform (from platform_orders — granular breakdown) ─────
-  const platformFees = await prisma.platformOrder.groupBy({
-    by: ["platform"],
-    where: { orderDatetime: dateFilter },
-    _sum: {
-      commissionFee: true,
-      serviceFee: true,
-      deliveryFee: true,
-      marketingFees: true,
-      customerFees: true,
-    },
-  });
+    const processed: ProcessedExpense[] = [];
 
-  // ── Internal transfers summary ───────────────────────────────────────
-  const transferExpenses = await prisma.$queryRawUnsafe<
-    { category: string; total: number; cnt: number }[]
-  >(`
-    SELECT category, ROUND(SUM(ABS(amount)), 2) as total, COUNT(*) as cnt
-    FROM transactions
-    WHERE source_platform = '${PRIMARY_SOURCE}'
-      AND type = 'expense'
-      AND duplicate_of_id IS NULL
-      AND category LIKE 'transfer:%'
-      ${dateClause}
-    GROUP BY category
-    ORDER BY total DESC
-  `);
+    for (const r of allExpenses) {
+      const amt = parseFloat(r.amount) || 0;
+      if (amt <= 0) continue;
 
-  return NextResponse.json({
-    expensesByVendor: expensesByVendor.map((e) => ({
-      vendorId: e.vendor,
-      vendorName: e.vendor,
-      total: Number(e.total),
-      count: Number(e.cnt),
-    })),
-    expensesByCategory: expensesByCategory.map((e) => ({
-      category: e.category,
-      total: Number(e.total),
-      count: Number(e.cnt),
-    })),
-    dailyExpenses: dailyExpenses.map((d) => ({
-      date: d.date,
-      total: Number(d.total),
-    })),
-    expensesByPaymentMethod: expensesByPaymentMethod.map((e) => ({
-      paymentMethod: e.paymentMethod || "Unknown",
-      total: e._sum.amount || 0,
-      count: e._count,
-    })),
-    feesByPlatform: platformFees
-      .map((f) => ({
-        platform: f.platform,
-        fees:
-          (f._sum.commissionFee || 0) +
-          (f._sum.serviceFee || 0) +
-          (f._sum.deliveryFee || 0) +
-          (f._sum.marketingFees || 0) +
-          (f._sum.customerFees || 0),
-        breakdown: {
-          commission: f._sum.commissionFee || 0,
-          service: f._sum.serviceFee || 0,
-          delivery: f._sum.deliveryFee || 0,
-          marketing: f._sum.marketingFees || 0,
-          customer: f._sum.customerFees || 0,
-        },
+      const vendorName = resolveVendorFromRecord(r.name || "", r.custom_name || "", r.description || "");
+      const resolvedCategory = resolveVendorCategory(vendorName);
+      const categoryName = resolvedCategory || r.category || "Uncategorized";
+
+      // Skip ignored categories
+      if (ignoredCatNames.has(categoryName.toLowerCase())) continue;
+
+      processed.push({
+        id: r.id,
+        date: r.date,
+        vendorName,
+        category: categoryName,
+        resolvedCategory,
+        amount: amt,
+        accountName: r.account_name || "",
+        note: r.note || "",
+      });
+    }
+
+    // ---------- Expenses by vendor ----------
+    const vendorMap = new Map<string, { total: number; count: number }>();
+    for (const e of processed) {
+      const existing = vendorMap.get(e.vendorName);
+      if (existing) {
+        existing.total += e.amount;
+        existing.count++;
+      } else {
+        vendorMap.set(e.vendorName, { total: e.amount, count: 1 });
+      }
+    }
+    const expensesByVendor = [...vendorMap.entries()]
+      .map(([name, v]) => ({
+        vendorId: name,
+        vendorName: name,
+        total: Math.round(v.total * 100) / 100,
+        count: v.count,
       }))
-      .filter((f) => f.fees > 0)
-      .sort((a, b) => b.fees - a.fees),
-    transfers: transferExpenses.map((t) => ({
-      category: t.category,
-      total: Number(t.total),
-      count: Number(t.cnt),
-    })),
-  });
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 20);
+
+    // ---------- Expenses by category ----------
+    const categoryMap = new Map<string, { total: number; count: number }>();
+    for (const e of processed) {
+      const existing = categoryMap.get(e.category);
+      if (existing) {
+        existing.total += e.amount;
+        existing.count++;
+      } else {
+        categoryMap.set(e.category, { total: e.amount, count: 1 });
+      }
+    }
+    const expensesByCategory = [...categoryMap.entries()]
+      .map(([cat, v]) => ({
+        category: cat,
+        total: Math.round(v.total * 100) / 100,
+        count: v.count,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    // ---------- Daily expense trend ----------
+    const dailyMap = new Map<string, number>();
+    for (const e of processed) {
+      const d = e.date;
+      dailyMap.set(d, (dailyMap.get(d) || 0) + e.amount);
+    }
+    const dailyExpenses = [...dailyMap.entries()]
+      .map(([date, total]) => ({ date, total: Math.round(total * 100) / 100 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // ---------- Expenses by payment method (account_name) ----------
+    const pmMap = new Map<string, { total: number; count: number }>();
+    for (const e of processed) {
+      const pm = e.accountName || "Unknown";
+      const existing = pmMap.get(pm);
+      if (existing) {
+        existing.total += e.amount;
+        existing.count++;
+      } else {
+        pmMap.set(pm, { total: e.amount, count: 1 });
+      }
+    }
+    const expensesByPaymentMethod = [...pmMap.entries()]
+      .map(([pm, v]) => ({
+        paymentMethod: pm,
+        total: Math.round(v.total * 100) / 100,
+        count: v.count,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    // ---------- Platform fees from sales.db ----------
+    const feeDateClause = endDate
+      ? `AND date >= ? AND date <= ?`
+      : `AND date >= ?`;
+    const feeDateParams = endDate ? [startDate, endDate] : [startDate];
+
+    const platformFees = salesDb.prepare(
+      `SELECT platform,
+        ROUND(SUM(ABS(commission_fee)), 2) as commission,
+        ROUND(SUM(ABS(processing_fee)), 2) as service,
+        ROUND(SUM(ABS(delivery_fee)), 2) as delivery,
+        ROUND(SUM(ABS(marketing_fee)), 2) as marketing,
+        0 as customer
+       FROM orders
+       WHERE order_status = 'completed'
+       ${feeDateClause}
+       GROUP BY platform
+       ORDER BY SUM(ABS(fees_total)) DESC`
+    ).all(...feeDateParams) as {
+      platform: string; commission: number; service: number;
+      delivery: number; marketing: number; customer: number;
+    }[];
+
+    // ---------- Transfers summary ----------
+    const transferPlaceholders = TRANSFER_CATEGORIES.map(() => "?").join(",");
+    const transferDateClause = endDate
+      ? `AND date >= ? AND date <= ?`
+      : `AND date >= ?`;
+
+    const transferExpenses = bankDb.prepare(
+      `SELECT category, ROUND(SUM(ABS(CAST(amount AS REAL))), 2) as total, COUNT(*) as cnt
+       FROM rocketmoney
+       WHERE category IN (${transferPlaceholders})
+       ${transferDateClause}
+       GROUP BY category
+       ORDER BY total DESC`
+    ).all(...TRANSFER_CATEGORIES, ...dateParams) as {
+      category: string; total: number; cnt: number;
+    }[];
+
+    return NextResponse.json({
+      expensesByVendor,
+      expensesByCategory,
+      dailyExpenses,
+      expensesByPaymentMethod,
+      feesByPlatform: platformFees
+        .map((f) => ({
+          platform: f.platform,
+          fees:
+            (f.commission || 0) +
+            (f.service || 0) +
+            (f.delivery || 0) +
+            (f.marketing || 0) +
+            (f.customer || 0),
+          breakdown: {
+            commission: f.commission || 0,
+            service: f.service || 0,
+            delivery: f.delivery || 0,
+            marketing: f.marketing || 0,
+            customer: f.customer || 0,
+          },
+        }))
+        .filter((f) => f.fees > 0)
+        .sort((a, b) => b.fees - a.fees),
+      transfers: transferExpenses.map((t) => ({
+        category: t.category,
+        total: Number(t.total),
+        count: Number(t.cnt),
+      })),
+    });
+  } finally {
+    bankDb.close();
+    salesDb.close();
+  }
 }

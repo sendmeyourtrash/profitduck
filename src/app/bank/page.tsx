@@ -35,6 +35,9 @@ interface BankTransaction {
   id: string;
   date: string;
   description: string;
+  rawDescription?: string;
+  originalName?: string;
+  customName?: string | null;
   amount: number;
   category: string;
   accountName: string;
@@ -45,6 +48,7 @@ interface BankTransaction {
   source: string;
   note: string;
   type: string; // "deposit" or "expense"
+  ignored?: boolean;
 }
 
 interface BankSummary {
@@ -67,7 +71,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 
 function ExpandedRow({ tx }: { tx: BankTransaction }) {
   return (
-    <td colSpan={7} className="px-0 py-0">
+    <td colSpan={8} className="px-0 py-0">
       <div className="bg-gray-50/80 border-t border-gray-100">
         <div className="px-5 py-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6 gap-y-2">
@@ -139,11 +143,19 @@ function BankPage() {
   const [sort, setSort] = useState<SortConfig>(null);
   const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<{ name: string; ignored: boolean }[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [availableVendors, setAvailableVendors] = useState<{ name: string; count: number; tag: string }[]>([]);
   const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
   const limit = 50;
+
+  // Inline rename
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  // Bulk selection
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  const [bulkRenameValue, setBulkRenameValue] = useState("");
 
   const toggleSort = useCallback((key: string) => {
     setSort((prev) => {
@@ -230,12 +242,57 @@ function BankPage() {
   }, [filters, page, sort, selectedAccounts, selectedCategories, selectedVendors, globalStart, globalEnd]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { setExpanded(new Set()); }, [filters, page]);
+  useEffect(() => { setExpanded(new Set()); setSelectedTxIds(new Set()); }, [filters, page]);
 
   const handleFilterChange = useCallback((newFilters: FilterState) => {
     setFilters(newFilters);
     setPage(0);
   }, []);
+
+  const startRename = useCallback((tx: BankTransaction) => {
+    setRenamingId(tx.id);
+    setRenameValue(tx.customName || tx.originalName || tx.description || "");
+  }, []);
+
+  const saveRename = useCallback(async (id: string) => {
+    if (!renameValue.trim()) { setRenamingId(null); return; }
+    await fetch("/api/bank-activity", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: Number(id), customName: renameValue.trim() }),
+    });
+    setRenamingId(null);
+    fetchData();
+  }, [renameValue, fetchData]);
+
+  const saveBulkRename = useCallback(async () => {
+    if (!bulkRenameValue.trim() || selectedTxIds.size === 0) return;
+    await fetch("/api/bank-activity", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [...selectedTxIds].map(Number), customName: bulkRenameValue.trim() }),
+    });
+    setSelectedTxIds(new Set());
+    setBulkRenameValue("");
+    fetchData();
+  }, [bulkRenameValue, selectedTxIds, fetchData]);
+
+  const toggleSelectTx = useCallback((id: string) => {
+    setSelectedTxIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedTxIds.size === transactions.length) {
+      setSelectedTxIds(new Set());
+    } else {
+      setSelectedTxIds(new Set(transactions.map((t) => t.id)));
+    }
+  }, [selectedTxIds.size, transactions]);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -295,20 +352,22 @@ function BankPage() {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs text-gray-500 font-medium">Category:</span>
           {availableCategories.map((cat) => {
-            const active = selectedCategories.includes(cat);
+            const active = selectedCategories.includes(cat.name);
             return (
               <button
-                key={cat}
-                onClick={() => toggleCategory(cat)}
+                key={cat.name}
+                onClick={() => toggleCategory(cat.name)}
                 className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
                   active
                     ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300"
+                    : cat.ignored
+                    ? "bg-amber-50 text-amber-400 line-through"
                     : selectedCategories.length === 0
                     ? "bg-gray-100 text-gray-600"
                     : "bg-gray-50 text-gray-400"
                 }`}
               >
-                {cat}
+                {cat.name}
               </button>
             );
           })}
@@ -427,6 +486,15 @@ function BankPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr className="text-left text-gray-500">
+                  <th className="px-2 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedTxIds.size === transactions.length && transactions.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </th>
                   {[
                     { key: "date", label: "Date" },
                     { key: null, label: "Vendor" },
@@ -454,21 +522,58 @@ function BankPage() {
                     <React.Fragment key={tx.id}>
                       <tr
                         className={`border-t border-gray-100 cursor-pointer transition-colors ${
+                          tx.ignored ? "opacity-40" : ""
+                        } ${
+                          selectedTxIds.has(tx.id) ? "bg-indigo-50/30" : ""
+                        } ${
                           isExpanded ? "bg-indigo-50/50" : "hover:bg-gray-50"
                         }`}
                         onClick={() => toggleExpand(tx.id)}
                       >
+                        <td className="px-2 py-2.5 w-8" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedTxIds.has(tx.id)}
+                            onChange={() => toggleSelectTx(tx.id)}
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                        </td>
                         <td className="px-4 py-2.5 text-gray-600">
                           <span className="inline-flex items-center gap-1.5">
-                            <span className={`text-xs text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}>▸</span>
+                            <span className={`text-xs text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}>&#9656;</span>
                             {formatDate(tx.date)}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-800 font-medium">
-                          {tx.description || "-"}
+                        <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                          {renamingId === tx.id ? (
+                            <input
+                              type="text"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveRename(tx.id);
+                                if (e.key === "Escape") setRenamingId(null);
+                              }}
+                              onBlur={() => saveRename(tx.id)}
+                              className="w-full border border-indigo-300 rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              autoFocus
+                            />
+                          ) : (
+                            <div
+                              className="group cursor-text"
+                              onClick={() => startRename(tx)}
+                            >
+                              <span className="text-gray-800 font-medium group-hover:text-indigo-600">
+                                {tx.description || "-"}
+                              </span>
+                              {tx.customName && tx.originalName && tx.customName !== tx.originalName && (
+                                <span className="ml-1.5 text-[10px] text-indigo-400" title="Renamed">&#9998;</span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate text-xs">
-                          {tx.rawDescription !== tx.description ? tx.rawDescription : ""}
+                          {tx.rawDescription && tx.rawDescription !== tx.description ? tx.rawDescription : ""}
                           {tx.taxDeductible && (
                             <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-700">tax</span>
                           )}
@@ -527,6 +632,36 @@ function BankPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Rename Bar */}
+      {selectedTxIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-gray-200 shadow-lg rounded-xl px-5 py-3 flex items-center gap-3 z-50">
+          <span className="text-sm text-gray-700 font-medium whitespace-nowrap">
+            {selectedTxIds.size} selected
+          </span>
+          <input
+            type="text"
+            value={bulkRenameValue}
+            onChange={(e) => setBulkRenameValue(e.target.value)}
+            placeholder="Rename to..."
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            onKeyDown={(e) => { if (e.key === "Enter") saveBulkRename(); }}
+          />
+          <button
+            onClick={saveBulkRename}
+            disabled={!bulkRenameValue.trim()}
+            className="bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => { setSelectedTxIds(new Set()); setBulkRenameValue(""); }}
+            className="text-sm text-gray-400 hover:text-gray-600"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }

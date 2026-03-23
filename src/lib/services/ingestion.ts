@@ -8,14 +8,14 @@
  *   Step 1: CSV → Vendor DB (raw + cleanup)
  *   Step 2: Vendor DB → Unified DB (normalize)
  *
- * Also records import history in Prisma (dev.db) for tracking.
+ * Also records import history in categories.db for tracking.
  *
  * @see pipeline-step1-ingest.ts — Step 1 implementation
  * @see pipeline-step2-unify.ts — Step 2 implementation
  * @see PIPELINE.md — Full documentation
  */
 
-import { prisma } from "../db/prisma";
+import { createImport, getCategoriesDb } from "../db/config-db";
 import { readFile, readPdfFile } from "./file-reader";
 import { getParser, detectParser, SourcePlatform, ParseResult, detectChasePdf, parseChasePdfText } from "../parsers";
 import { computeFileHash, checkDuplicateFile, checkOverlappingImports, computeDateRange } from "./dedup";
@@ -39,7 +39,7 @@ export interface IngestOptions {
  * 1. Read and parse the file
  * 2. Step 1: Write raw data to vendor DB (with cleanup/dedup)
  * 3. Step 2: Read from vendor DB, write normalized data to unified DB
- * 4. Record import in Prisma for tracking
+ * 4. Record import in categories.db for tracking
  */
 export async function ingestFile(
   filePath: string,
@@ -138,17 +138,15 @@ export async function ingestFile(
     overlappingImports = await checkOverlappingImports(parserSource, dateRange.start, dateRange.end);
   }
 
-  // 6. Create import record in Prisma (for tracking)
-  const importRecord = await prisma.import.create({
-    data: {
-      source: parserSource,
-      fileName,
-      status: "processing",
-      fileHash,
-      dateRangeStart: dateRange?.start,
-      dateRangeEnd: dateRange?.end,
-    },
-  });
+  // 6. Create import record in config-db (for tracking)
+  const importId = createImport(
+    fileName,
+    parserSource,
+    0,
+    fileHash,
+    dateRange?.start.toISOString().slice(0, 10),
+    dateRange?.end.toISOString().slice(0, 10)
+  );
 
   try {
     let step1Result: IngestResult = { platform: parserSource, inserted: 0, skipped: 0, cleaned: 0, errors: [] };
@@ -204,22 +202,12 @@ export async function ingestFile(
 
     // 7. Update import record
     const totalProcessed = step1Result.inserted + step1Result.skipped;
-    const updated = await prisma.import.update({
-      where: { id: importRecord.id },
-      data: {
-        status: "completed",
-        rowsProcessed: totalProcessed,
-        rowsFailed: step1Result.errors.length + step2Result.errors.length,
-        rowsSkipped: step1Result.skipped,
-        errorMessage:
-          [...step1Result.errors, ...step2Result.errors].length > 0
-            ? [...step1Result.errors, ...step2Result.errors].slice(0, 10).join("; ")
-            : null,
-      },
-    });
+    getCategoriesDb().prepare(
+      "UPDATE imports SET status = 'completed', records_count = ? WHERE id = ?"
+    ).run(totalProcessed, importId);
 
     return {
-      import: updated,
+      import: { id: importId, fileName, source: parserSource, status: "completed", rowsProcessed: totalProcessed },
       summary: {
         source: parserSource,
         rowsProcessed: totalProcessed,
@@ -231,13 +219,9 @@ export async function ingestFile(
       overlappingImports: overlappingImports.length > 0 ? overlappingImports : null,
     };
   } catch (error) {
-    await prisma.import.update({
-      where: { id: importRecord.id },
-      data: {
-        status: "failed",
-        errorMessage: error instanceof Error ? error.message : "Unknown error",
-      },
-    });
+    getCategoriesDb().prepare(
+      "UPDATE imports SET status = 'failed' WHERE id = ?"
+    ).run(importId);
     throw error;
   }
 }

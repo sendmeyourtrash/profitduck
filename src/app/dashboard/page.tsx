@@ -15,6 +15,8 @@ interface PeriodStats {
 }
 
 interface OverviewData {
+  hasDateRange?: boolean;
+  period?: PeriodStats | null;
   today: PeriodStats;
   week: PeriodStats;
   month: PeriodStats;
@@ -65,7 +67,7 @@ export default function DashboardPage() {
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     Promise.all([
-      fetch("/api/dashboard/overview").then((r) => r.json()),
+      fetch(`/api/dashboard/overview?${params}`).then((r) => r.json()),
       fetch(`/api/dashboard/revenue?${params}`).then((r) => r.json()),
       fetch("/api/reconciliation/chains").then((r) => r.json()).catch(() => null),
     ])
@@ -100,29 +102,57 @@ export default function DashboardPage() {
   return (
     <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Period Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Today Revenue"
-          value={formatCurrency(overview.today.revenue)}
-          subtitle={`Net: ${formatCurrency(overview.today.netProfit)}`}
-        />
-        <StatCard
-          title="This Week"
-          value={formatCurrency(overview.week.revenue)}
-          subtitle={`Net: ${formatCurrency(overview.week.netProfit)}`}
-        />
-        <StatCard
-          title="This Month"
-          value={formatCurrency(overview.month.revenue)}
-          subtitle={`Net: ${formatCurrency(overview.month.netProfit)}`}
-        />
-        <StatCard
-          title="Net Profit (Month)"
-          value={formatCurrency(overview.month.netProfit)}
-          variant={overview.month.netProfit >= 0 ? "success" : "danger"}
-          subtitle={`Fees: ${formatCurrency(overview.month.fees)} | Expenses: ${formatCurrency(overview.month.expenses)}`}
-        />
-      </div>
+      {overview.hasDateRange && overview.period ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Selected Period Revenue"
+            value={formatCurrency(overview.period.revenue)}
+            subtitle={`Gross sales in date range`}
+          />
+          <StatCard
+            title="Period Fees"
+            value={formatCurrency(overview.period.fees)}
+            variant="warning"
+            subtitle="Platform commissions & fees"
+          />
+          <StatCard
+            title="Period Expenses"
+            value={formatCurrency(overview.period.expenses)}
+            variant="danger"
+            subtitle="Business operating costs"
+          />
+          <StatCard
+            title="Period Net Profit"
+            value={formatCurrency(overview.period.netProfit)}
+            variant={overview.period.netProfit >= 0 ? "success" : "danger"}
+            subtitle={`Fees: ${formatCurrency(overview.period.fees)} | Expenses: ${formatCurrency(overview.period.expenses)}`}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Today Revenue"
+            value={formatCurrency(overview.today.revenue)}
+            subtitle={`Net: ${formatCurrency(overview.today.netProfit)}`}
+          />
+          <StatCard
+            title="This Week"
+            value={formatCurrency(overview.week.revenue)}
+            subtitle={`Net: ${formatCurrency(overview.week.netProfit)}`}
+          />
+          <StatCard
+            title="This Month"
+            value={formatCurrency(overview.month.revenue)}
+            subtitle={`Net: ${formatCurrency(overview.month.netProfit)}`}
+          />
+          <StatCard
+            title="Net Profit (Month)"
+            value={formatCurrency(overview.month.netProfit)}
+            variant={overview.month.netProfit >= 0 ? "success" : "danger"}
+            subtitle={`Fees: ${formatCurrency(overview.month.fees)} | Expenses: ${formatCurrency(overview.month.expenses)}`}
+          />
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -294,8 +324,8 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {overview.recentTransactions.map((tx) => (
-                  <tr key={tx.id} className="border-b border-gray-50">
+                {overview.recentTransactions.map((tx, idx) => (
+                  <tr key={`${tx.id}-${idx}`} className="border-b border-gray-50">
                     <td className="py-2 text-gray-600">
                       {new Date(tx.date).toLocaleDateString()}
                     </td>

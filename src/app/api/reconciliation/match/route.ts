@@ -1,28 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  reconcileMatch,
-  unreconcileMatch,
-} from "@/lib/services/reconciliation";
+import { updateReconMatch, unmatchReconMatch } from "@/lib/db/config-db";
 
 export async function POST(request: NextRequest) {
   try {
-    const { payoutId, bankTransactionId } = await request.json();
+    const { matchId, bankTxId, bankDate, bankAmount } = await request.json();
 
-    if (!payoutId || !bankTransactionId) {
+    if (!matchId || !bankTxId) {
       return NextResponse.json(
-        { error: "payoutId and bankTransactionId are required" },
+        { error: "matchId and bankTxId are required" },
         { status: 400 }
       );
     }
 
-    await reconcileMatch(payoutId, bankTransactionId);
+    updateReconMatch(Number(matchId), Number(bankTxId), bankDate, Number(bankAmount));
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to reconcile",
-      },
+      { error: error instanceof Error ? error.message : "Failed to match" },
       { status: 500 }
     );
   }
@@ -30,23 +24,20 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { payoutId } = await request.json();
+    const { matchId } = await request.json();
 
-    if (!payoutId) {
+    if (!matchId) {
       return NextResponse.json(
-        { error: "payoutId is required" },
+        { error: "matchId is required" },
         { status: 400 }
       );
     }
 
-    await unreconcileMatch(payoutId);
+    unmatchReconMatch(Number(matchId));
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to unreconcile",
-      },
+      { error: error instanceof Error ? error.message : "Failed to unmatch" },
       { status: 500 }
     );
   }

@@ -856,31 +856,23 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-white/80 rounded-lg p-2.5">
                       <p className="text-xs text-gray-500">API Payments</p>
-                      <p className="font-medium text-gray-800 text-sm">{syncResult.totalPayments.toLocaleString()}</p>
+                      <p className="font-medium text-gray-800 text-sm">{(syncResult.totalPayments ?? 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-lg p-2.5">
+                      <p className="text-xs text-emerald-600">New Orders</p>
+                      <p className="font-medium text-emerald-800 text-sm">{(syncResult.newOrders ?? 0).toLocaleString()}</p>
                     </div>
                     <div className="bg-white/80 rounded-lg p-2.5">
-                      <p className="text-xs text-gray-500">Matched Orders</p>
-                      <p className="font-medium text-gray-800 text-sm">{syncResult.matched.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">Enriched Orders</p>
+                      <p className="font-medium text-gray-800 text-sm">{(syncResult.enrichedOrders ?? 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-emerald-50 rounded-lg p-2.5">
-                      <p className="text-xs text-emerald-600">Fees Enriched</p>
-                      <p className="font-medium text-emerald-800 text-sm">{syncResult.enriched.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-emerald-50 rounded-lg p-2.5">
-                      <p className="text-xs text-emerald-600">Total Fees Added</p>
-                      <p className="font-medium text-emerald-800 text-sm">
-                        ${syncResult.totalFeesAdded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </p>
+                    <div className="bg-white/80 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500">Skipped Duplicates</p>
+                      <p className="font-medium text-gray-800 text-sm">{(syncResult.skippedDuplicates ?? 0).toLocaleString()}</p>
                     </div>
                   </div>
-                  {syncResult.created > 0 && (
-                    <div className="bg-blue-50 rounded-lg p-2.5">
-                      <p className="text-xs text-blue-600">New Orders Created</p>
-                      <p className="font-medium text-blue-800 text-sm">{syncResult.created.toLocaleString()}</p>
-                    </div>
-                  )}
-                  {syncResult.skipped > 0 && (
-                    <p className="text-xs text-gray-500">{syncResult.skipped} order(s) already synced (skipped).</p>
+                  {(syncResult.errors ?? 0) > 0 && (
+                    <p className="text-xs text-red-500">{syncResult.errors} error(s) during sync.</p>
                   )}
                 </div>
               )}

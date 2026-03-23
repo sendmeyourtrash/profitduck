@@ -45,10 +45,32 @@ export async function GET() {
 
   const allCategories = getUniqueCategories();
 
-  const allAliasNames = new Set<string>();
+  // Simulate alias matching (same logic as pipeline-step3-aliases.ts)
+  function matchesAlias(name: string, pattern: string, matchType: string): boolean {
+    const lower = name.toLowerCase().trim();
+    const lowerPat = pattern.toLowerCase().trim();
+    if (matchType === "exact") return lower === lowerPat;
+    if (matchType === "starts_with") return lower.startsWith(lowerPat);
+    if (matchType === "contains") return lower.includes(lowerPat);
+    return false;
+  }
+
+  // Track which aliases match each category
+  const catMatches = new Map<string, { aliasIds: string[]; displayNames: string[] }>();
+  const aliasMatches = new Map<string, string[]>();
+
   for (const alias of aliases) {
-    allAliasNames.add(alias.display_name.toLowerCase());
-    allAliasNames.add(alias.pattern.toLowerCase());
+    const matched: string[] = [];
+    for (const cat of allCategories) {
+      if (matchesAlias(cat.name, alias.pattern, alias.match_type)) {
+        matched.push(cat.name);
+        const existing = catMatches.get(cat.name) || { aliasIds: [], displayNames: [] };
+        existing.aliasIds.push(alias.id);
+        existing.displayNames.push(alias.display_name);
+        catMatches.set(cat.name, existing);
+      }
+    }
+    aliasMatches.set(alias.id, matched);
   }
 
   let matchedCount = 0;
@@ -56,13 +78,54 @@ export async function GET() {
   const ignoredCategories: { name: string; qty: number; revenue: number }[] = [];
 
   for (const cat of allCategories) {
-    const lowerName = cat.name.toLowerCase();
-    if (allAliasNames.has(lowerName)) {
+    if (catMatches.has(cat.name)) {
       matchedCount++;
-    } else if (ignoredNames.has(lowerName)) {
+    } else if (ignoredNames.has(cat.name.toLowerCase())) {
       ignoredCategories.push(cat);
     } else {
       unmatchedCategories.push(cat);
+    }
+  }
+
+  // --- Conflict Detection: categories matched by multiple groups ---
+  interface Warning {
+    type: "conflict";
+    severity: "error";
+    aliasId: string;
+    aliasPattern: string;
+    aliasMatchType: string;
+    aliasDisplayName: string;
+    message: string;
+    affectedItems: string[];
+  }
+  const warnings: Warning[] = [];
+
+  for (const [catName, match] of catMatches) {
+    const uniqueDisplayNames = [...new Set(match.displayNames)];
+    if (uniqueDisplayNames.length > 1) {
+      for (let i = 0; i < match.aliasIds.length; i++) {
+        const alias = aliases.find(a => a.id === match.aliasIds[i]);
+        if (!alias) continue;
+        warnings.push({
+          type: "conflict",
+          severity: "error",
+          aliasId: alias.id,
+          aliasPattern: alias.pattern,
+          aliasMatchType: alias.match_type,
+          aliasDisplayName: alias.display_name,
+          message: `"${catName}" matches this rule but also matches another rule that maps to "${uniqueDisplayNames.find(d => d !== alias.display_name)}"`,
+          affectedItems: [catName],
+        });
+      }
+    }
+  }
+
+  // Deduplicate warnings by aliasId
+  const seenWarnings = new Map<string, Warning>();
+  for (const w of warnings) {
+    const key = `${w.aliasId}-${w.type}`;
+    if (!seenWarnings.has(key)) {
+      seenWarnings.set(key, w);
     }
   }
 
@@ -73,6 +136,8 @@ export async function GET() {
       matchType: a.match_type,
       displayName: a.display_name,
       createdAt: a.created_at,
+      matchCount: (aliasMatches.get(a.id) || []).length,
+      matchedItems: (aliasMatches.get(a.id) || []).slice(0, 20),
     })),
     totalCategories: allCategories.length,
     matchedCount,
@@ -80,6 +145,7 @@ export async function GET() {
     unmatched: unmatchedCategories,
     ignoredCount: ignoredCategories.length,
     ignored: ignoredCategories,
+    warnings: [...seenWarnings.values()],
   });
 }
 

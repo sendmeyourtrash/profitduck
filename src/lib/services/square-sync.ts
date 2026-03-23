@@ -1,20 +1,23 @@
 /**
- * Square API sync service — follows the 2-step pipeline:
+ * Square API Sync Service
+ * =======================
+ *
+ * Follows the 3-step pipeline:
  *
  *   Step 1: Square API → squareup.db (items table)
- *   Step 2: squareup.db → sales.db (orders table)
+ *   Step 2: squareup.db → sales.db (orders + order_items)
+ *   Step 3: Apply aliases (categories.db → sales.db order_items)
  *
- * Flow:
- * 1. Fetch all payments from Square API (cursor-paginated)
- * 2. For each payment, get the real order_id
- * 3. Batch-retrieve order details (line items, tax, dining option)
- * 4. STEP 1: Deduplicate and write to squareup.db (items table)
- * 5. STEP 2: Read new items from squareup.db, aggregate by transaction_id,
- *    write to sales.db (orders table)
+ * All Square data comes exclusively from the API (no CSV).
+ * Incremental syncs fetch new payments since the last sync date.
+ * Full syncs fetch everything from the beginning.
  *
- * @see pipeline-step1-ingest.ts
- * @see pipeline-step2-unify.ts
- * @see PIPELINE.md
+ * Step 2 and Step 3 use the shared pipeline functions from
+ * pipeline-step2-unify.ts and pipeline-step3-aliases.ts — no duplicated logic.
+ *
+ * @see pipeline-step2-unify.ts — Step 2 implementation (shared)
+ * @see pipeline-step3-aliases.ts — Step 3 implementation (shared)
+ * @see PIPELINE.md — Full documentation
  */
 
 import Database from "better-sqlite3";
@@ -25,11 +28,12 @@ import {
   SquarePayment,
   SquareOrderData,
 } from "./square-api";
+import { unifySquare } from "./pipeline-step2-unify";
+import { step3ApplyAliases } from "./pipeline-step3-aliases";
 import { ProgressCallback } from "./progress";
 
 const DB_DIR = path.join(process.cwd(), "databases");
 const SQUAREUP_DB_PATH = path.join(DB_DIR, "squareup.db");
-const SALES_DB_PATH = path.join(DB_DIR, "sales.db");
 
 const CARD_BRAND_MAP: Record<string, string> = {
   VISA: "Visa",
@@ -44,8 +48,10 @@ const CARD_BRAND_MAP: Record<string, string> = {
   OTHER_BRAND: "Other",
 };
 
-function normalizeCardBrand(payment: SquarePayment): string {
-  if (payment.source_type === "CASH") return "";
+function getPaymentMethod(payment: SquarePayment): string {
+  if (payment.source_type === "CASH") return "Cash";
+  if (payment.source_type === "WALLET") return "Digital Wallet";
+  if (payment.source_type === "EXTERNAL") return "External";
   const raw = payment.card_details?.card?.card_brand || "";
   return CARD_BRAND_MAP[raw] || raw || "";
 }
@@ -62,21 +68,26 @@ export interface SyncResult {
   totalPayments: number;
   newOrders: number;
   skippedDuplicates: number;
+  enrichedOrders: number;
   errors: number;
 }
 
 /**
- * Sync Square payments following the 2-step pipeline.
+ * Sync Square payments following the 3-step pipeline.
  *
  * Step 1: API → squareup.db (items table, raw data with cleanup)
- * Step 2: squareup.db → sales.db (unified orders table)
+ * Step 2: squareup.db → sales.db (orders + order_items) — shared function
+ * Step 3: Apply aliases (categories.db → sales.db order_items) — shared function
  */
 export async function syncSquareFees(
   startDate?: string,
   endDate?: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  fullSync = false
 ): Promise<SyncResult> {
-  const label = startDate
+  const label = fullSync
+    ? "Square Full Sync (all time)"
+    : startDate
     ? `Square Sync (since ${new Date(startDate).toLocaleDateString()})`
     : "Square Sync (full)";
   console.log(`[Square Sync] ${label}`);
@@ -85,22 +96,26 @@ export async function syncSquareFees(
   // FETCH — Get payments + order details from Square API
   // ============================================================
 
-  const payments = await fetchAllPayments(startDate, endDate, onProgress);
+  const fetchStart = fullSync ? undefined : startDate;
+  const payments = await fetchAllPayments(fetchStart, endDate, onProgress);
   console.log(`[Square Sync] Fetched ${payments.length} payments`);
 
-  // Dedup against squareup.db (Step 1 source of truth)
-  const sqDb = new Database(SQUAREUP_DB_PATH);
+  // ============================================================
+  // DEDUP: Find truly new payments not in squareup.db
+  // ============================================================
+
+  const sqDb2 = new Database(SQUAREUP_DB_PATH);
   const existingIds = new Set<string>(
-    (sqDb.prepare("SELECT DISTINCT transaction_id FROM items WHERE transaction_id != '' AND source = 'api'").all() as { transaction_id: string }[])
+    (sqDb2.prepare("SELECT DISTINCT transaction_id FROM items WHERE transaction_id != ''").all() as { transaction_id: string }[])
       .map((r) => r.transaction_id)
   );
-  sqDb.close();
+  sqDb2.close();
 
   const newPayments = payments.filter((p) => !existingIds.has(p.id));
   console.log(`[Square Sync] ${newPayments.length} new payments (${existingIds.size} already in squareup.db)`);
 
   if (newPayments.length === 0) {
-    return { totalPayments: payments.length, newOrders: 0, skippedDuplicates: payments.length, errors: 0 };
+    return { totalPayments: payments.length, newOrders: 0, skippedDuplicates: payments.length, enrichedOrders: 0, errors: 0 };
   }
 
   // Fetch order details (line items)
@@ -148,7 +163,6 @@ export async function syncSquareFees(
 
   let newItemsCount = 0;
   let errors = 0;
-  const newTransactionIds: string[] = [];
 
   const step1Insert = step1Db.transaction(() => {
     for (let i = 0; i < newPayments.length; i++) {
@@ -170,7 +184,7 @@ export async function syncSquareFees(
         const amountCents = payment.amount_money?.amount || 0;
         const tipCents = payment.tip_money?.amount || 0;
         const feeCents = calculateProcessingFee(payment);
-        const cardBrand = normalizeCardBrand(payment);
+        const paymentMethod = getPaymentMethod(payment);
 
         const realOrderId = paymentToOrderId.get(payment.id);
         const detail = realOrderId ? orderData.get(realOrderId) : undefined;
@@ -214,7 +228,7 @@ export async function syncSquareFees(
               payment.id, payment.id,
               "", "", "", "Payment", "INCREPEABLE",
               diningOption, "", "", "", "", "", "", "", "",
-              "", cardBrand, "",
+              "", paymentMethod, "",
               feeDollars / (detail.lineItems.length), tipDollars / (detail.lineItems.length)
             );
             newItemsCount++;
@@ -227,13 +241,11 @@ export async function syncSquareFees(
             payment.id, payment.id,
             "", "", "", "Payment", "INCREPEABLE",
             diningOption, "", "", "", "", "", "", "", "",
-            "", cardBrand, "",
+            "", paymentMethod, "",
             feeDollars, tipDollars
           );
           newItemsCount++;
         }
-
-        newTransactionIds.push(payment.id);
       } catch (err) {
         console.warn(`[Square Sync] Step 1 error for payment ${payment.id}:`, err);
         errors++;
@@ -246,104 +258,40 @@ export async function syncSquareFees(
   console.log(`[Square Sync] Step 1 complete: ${newItemsCount} items written to squareup.db`);
 
   // ============================================================
-  // STEP 2: Read from squareup.db → write to sales.db
+  // STEP 2: squareup.db → sales.db (orders + order_items)
+  // Uses shared unifySquare() from pipeline-step2-unify.ts
   // ============================================================
 
   onProgress?.({
     phase: "syncing",
     current: 0,
-    total: newTransactionIds.length,
-    message: "Step 2: Writing to sales.db...",
+    total: 0,
+    message: "Step 2: Writing to sales.db (orders + order_items)...",
   });
 
-  const srcDb = new Database(SQUAREUP_DB_PATH, { readonly: true });
-  const destDb = new Database(SALES_DB_PATH);
+  const step2Result = unifySquare();
+  console.log(`[Square Sync] Step 2 complete: inserted=${step2Result.inserted}, skipped=${step2Result.skipped}`);
 
-  // Ensure orders table exists
-  destDb.exec(`CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT, time TEXT, platform TEXT, order_id TEXT,
-    gross_sales REAL, tax REAL, total_fees REAL, net_sales REAL,
-    order_status TEXT, items TEXT, item_count INTEGER, modifiers TEXT,
-    tip REAL, discounts REAL, dining_option TEXT, customer_name TEXT,
-    payment_method TEXT, commission_fee REAL, processing_fee REAL,
-    delivery_fee REAL, marketing_fee REAL,
-    fees_total REAL, marketing_total REAL, refunds_total REAL,
-    adjustments_total REAL, other_total REAL
-  )`);
+  // ============================================================
+  // STEP 3: Apply aliases (categories.db → sales.db order_items)
+  // Uses shared step3ApplyAliases() from pipeline-step3-aliases.ts
+  // ============================================================
 
-  const insertOrder = destDb.prepare(`
-    INSERT INTO orders (date, time, platform, order_id, gross_sales, tax, total_fees, net_sales,
-      order_status, items, item_count, modifiers, tip, discounts, dining_option, customer_name,
-      payment_method, commission_fee, processing_fee, delivery_fee, marketing_fee,
-      fees_total, marketing_total, refunds_total, adjustments_total, other_total)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `);
-
-  let newOrders = 0;
-
-  const step2Insert = destDb.transaction(() => {
-    for (const txnId of newTransactionIds) {
-      // Dedup in sales.db
-      const existing = destDb.prepare("SELECT 1 FROM orders WHERE order_id = ? AND platform = 'square'").get(txnId);
-      if (existing) continue;
-
-      // Read aggregated order from squareup.db
-      const order = srcDb.prepare(`
-        SELECT
-          MIN(date) as date,
-          MIN(time) as time,
-          GROUP_CONCAT(item || ' x' || CAST(CAST(CAST(qty AS REAL) AS INTEGER) AS TEXT), ' | ') as items,
-          COUNT(*) as item_count,
-          GROUP_CONCAT(CASE WHEN modifiers_applied != '' AND modifiers_applied IS NOT NULL THEN item || ': ' || modifiers_applied END, ' | ') as modifiers,
-          ROUND(SUM(CAST(gross_sales AS REAL)), 2) as gross_sales,
-          ROUND(SUM(CAST(discounts AS REAL)), 2) as discounts,
-          ROUND(SUM(CAST(net_sales AS REAL)), 2) as net_sales,
-          ROUND(SUM(CAST(tax AS REAL)), 2) as tax,
-          ROUND(SUM(CAST(processing_fee AS REAL)), 2) as processing_fee,
-          MAX(CAST(tip AS REAL)) as tip,
-          MIN(dining_option) as dining_option,
-          MIN(CASE WHEN customer_name != '' AND customer_name IS NOT NULL THEN customer_name END) as customer_name,
-          MIN(CASE WHEN card_brand != '' AND card_brand IS NOT NULL THEN card_brand END) as payment_method,
-          MIN(event_type) as event_type
-        FROM items
-        WHERE transaction_id = ?
-      `).get(txnId) as Record<string, unknown> | undefined;
-
-      if (!order || !order.date) continue;
-
-      const gross = order.gross_sales as number || 0;
-      const tax = order.tax as number || 0;
-      const tip = order.tip as number || 0;
-      const procFee = -(order.processing_fee as number || 0);
-      const discounts = -(Math.abs(order.discounts as number || 0));
-      const status = (order.event_type as string) === "Refund" ? "refund" : "completed";
-      const refundsTotal = status === "refund" ? gross : 0;
-
-      const feesTotal = procFee;
-      const netSales = Math.round((gross + discounts + tax + tip + feesTotal) * 100) / 100;
-
-      insertOrder.run(
-        order.date, order.time, "square", txnId,
-        gross, tax, feesTotal, netSales,
-        status, order.items, order.item_count, order.modifiers,
-        tip, discounts, order.dining_option || "", order.customer_name || "", order.payment_method || "",
-        0, procFee, 0, 0,
-        feesTotal, 0, refundsTotal, 0, 0
-      );
-      newOrders++;
-    }
+  onProgress?.({
+    phase: "syncing",
+    current: 0,
+    total: 0,
+    message: "Step 3: Applying aliases...",
   });
 
-  step2Insert();
-  srcDb.close();
-  destDb.close();
-  console.log(`[Square Sync] Step 2 complete: ${newOrders} orders written to sales.db`);
+  const aliasResult = step3ApplyAliases();
+  console.log(`[Square Sync] Step 3 complete: items=${aliasResult.itemAliasesApplied}, categories=${aliasResult.categoryAliasesApplied}`);
 
   const result: SyncResult = {
     totalPayments: payments.length,
-    newOrders,
-    skippedDuplicates: payments.length - newTransactionIds.length,
+    newOrders: step2Result.inserted,
+    skippedDuplicates: payments.length - newPayments.length,
+    enrichedOrders: 0,
     errors,
   };
 
@@ -358,7 +306,7 @@ export async function syncSquareFees(
 export function getLastSyncDate(): string | null {
   try {
     const db = new Database(SQUAREUP_DB_PATH, { readonly: true });
-    const row = db.prepare("SELECT MAX(date) as last_date FROM items WHERE source = 'api'").get() as { last_date: string | null } | undefined;
+    const row = db.prepare("SELECT MAX(date) as last_date FROM items").get() as { last_date: string | null } | undefined;
     db.close();
     return row?.last_date || null;
   } catch {

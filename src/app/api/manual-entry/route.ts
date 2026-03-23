@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import Database from "better-sqlite3";
+import path from "path";
+
+const DB_DIR = path.join(process.cwd(), "databases");
+
+function openBankDb() {
+  return new Database(path.join(DB_DIR, "bank.db"));
+}
 
 /**
  * POST /api/manual-entry
- * Create a manual transaction entry.
+ * Create a manual transaction entry in bank.db.
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { date, amount, type, category, description, sourcePlatform } = body;
+    const { date, amount, type, category, description } = body;
 
-    // Validate required fields
     if (!date || amount === undefined || !type) {
       return NextResponse.json(
         { error: "Missing required fields: date, amount, type" },
@@ -18,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validTypes = ["income", "expense", "fee", "payout", "adjustment"];
+    const validTypes = ["income", "expense", "fee", "adjustment"];
     if (!validTypes.includes(type)) {
       return NextResponse.json(
         { error: `Invalid type. Must be one of: ${validTypes.join(", ")}` },
@@ -34,44 +40,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        date: new Date(date),
-        amount: parsedAmount,
-        type,
-        sourcePlatform: sourcePlatform || "manual",
-        category: category || null,
-        description: description || null,
-        isManual: true,
-        rawData: JSON.stringify({ manualEntry: true, ...body }),
-      },
-    });
-
-    // If it's an expense, also create an expense record
-    if (type === "expense" && description) {
-      let vendor = await prisma.vendor.findUnique({
-        where: { name: description },
-      });
-      if (!vendor) {
-        vendor = await prisma.vendor.create({
-          data: { name: description, category: category || null },
-        });
-      }
-      await prisma.expense.create({
-        data: {
-          vendorId: vendor.id,
-          amount: Math.abs(parsedAmount),
-          date: new Date(date),
-          category: category || null,
-          notes: "Manual entry",
+    // Insert into bank.db rocketmoney table
+    // Expenses are positive amounts, income/deposits are negative
+    const bankAmount = type === "expense" ? Math.abs(parsedAmount) : -Math.abs(parsedAmount);
+    const db = openBankDb();
+    try {
+      const result = db.prepare(
+        `INSERT INTO rocketmoney (date, name, description, amount, category, account_name, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        date,
+        description || "Manual Entry",
+        description || "Manual Entry",
+        String(bankAmount),
+        category || "Manual",
+        "Manual",
+        `manual_entry:${type}`
+      );
+      return NextResponse.json({
+        transaction: {
+          id: result.lastInsertRowid,
+          date,
+          amount: parsedAmount,
+          type,
+          category,
+          description,
+          isManual: true,
         },
       });
+    } finally {
+      db.close();
     }
-
-    return NextResponse.json({ transaction });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -85,17 +86,35 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get("limit") || "50");
   const offset = parseInt(searchParams.get("offset") || "0");
 
-  const [transactions, total] = await Promise.all([
-    prisma.transaction.findMany({
-      where: { isManual: true },
-      orderBy: { date: "desc" },
-      take: limit,
-      skip: offset,
-    }),
-    prisma.transaction.count({ where: { isManual: true } }),
-  ]);
+  const db = new Database(path.join(DB_DIR, "bank.db"), { readonly: true });
+  try {
+    const transactions = db.prepare(
+      `SELECT id, date, name as description, amount, category, note
+       FROM rocketmoney WHERE account_name = 'Manual'
+       ORDER BY date DESC LIMIT ? OFFSET ?`
+    ).all(limit, offset) as {
+      id: number; date: string; description: string; amount: string; category: string; note: string;
+    }[];
 
-  return NextResponse.json({ transactions, total });
+    const countRow = db.prepare(
+      `SELECT COUNT(*) as cnt FROM rocketmoney WHERE account_name = 'Manual'`
+    ).get() as { cnt: number };
+
+    return NextResponse.json({
+      transactions: transactions.map((t) => ({
+        id: String(t.id),
+        date: t.date,
+        amount: parseFloat(t.amount) || 0,
+        type: t.note?.startsWith("manual_entry:") ? t.note.split(":")[1] : "expense",
+        category: t.category,
+        description: t.description,
+        isManual: true,
+      })),
+      total: countRow.cnt,
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -110,17 +129,23 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  const tx = await prisma.transaction.findUnique({ where: { id } });
-  if (!tx) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  if (!tx.isManual) {
-    return NextResponse.json(
-      { error: "Can only delete manual entries" },
-      { status: 403 }
-    );
-  }
+  const db = openBankDb();
+  try {
+    // Only delete if it's a manual entry
+    const row = db.prepare(
+      "SELECT id FROM rocketmoney WHERE id = ? AND account_name = 'Manual'"
+    ).get(Number(id));
 
-  await prisma.transaction.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+    if (!row) {
+      return NextResponse.json(
+        { error: "Manual entry not found" },
+        { status: 404 }
+      );
+    }
+
+    db.prepare("DELETE FROM rocketmoney WHERE id = ?").run(Number(id));
+    return NextResponse.json({ success: true });
+  } finally {
+    db.close();
+  }
 }

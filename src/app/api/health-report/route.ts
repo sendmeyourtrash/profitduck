@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import Database from "better-sqlite3";
+import path from "path";
+import { getAllCategoryIgnores, countClosedDaysInRange } from "@/lib/db/config-db";
 import { linearRegression, computeSeasonalIndices } from "@/lib/utils/statistics";
-import { getReconciliationStats } from "@/lib/services/reconciliation";
 import {
   startOfMonth,
   endOfMonth,
@@ -15,9 +16,24 @@ import {
   subYears,
   getDaysInMonth,
   getDate,
+  format,
 } from "date-fns";
 import { formatCurrency } from "@/lib/utils/format";
 import { getSetting, SETTING_KEYS } from "@/lib/services/settings";
+
+// ---------- Database helpers ----------
+
+const DB_DIR = path.join(process.cwd(), "databases");
+
+function openDb(name: string) {
+  return new Database(path.join(DB_DIR, name), { readonly: true });
+}
+
+function dateStr(d: Date): string {
+  return format(d, "yyyy-MM-dd");
+}
+
+const PAYOUT_CATEGORIES = ["Square", "Square ", "GrubHub", "DOORDASH", "Uber Eats", "Credit Card Payment"];
 
 // ---------- Period configuration ----------
 
@@ -128,26 +144,6 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-async function sumTransactions(
-  type: string,
-  start: Date,
-  end: Date
-): Promise<number> {
-  const result = await prisma.transaction.aggregate({
-    where: { type, date: { gte: start, lte: end } },
-    _sum: { amount: true },
-  });
-  return result._sum.amount || 0;
-}
-
-async function sumExpenses(start: Date, end: Date): Promise<number> {
-  const result = await prisma.expense.aggregate({
-    where: { date: { gte: start, lte: end } },
-    _sum: { amount: true },
-  });
-  return result._sum.amount || 0;
-}
-
 // ---------- Custom date range resolver ----------
 
 function resolveCustomDates(
@@ -162,7 +158,6 @@ function resolveCustomDates(
   const spanMs = currentEnd.getTime() - currentStart.getTime();
   const spanDays = Math.max(1, Math.round(spanMs / 86_400_000));
 
-  // Previous period: YoY shifts same dates back 1 year; prior shifts by span
   const previousStart = compare === "yoy"
     ? startOfDay(subYears(currentStart, 1))
     : startOfDay(subDays(currentStart, spanDays));
@@ -170,7 +165,6 @@ function resolveCustomDates(
     ? endOfDay(subYears(currentEnd, 1))
     : endOfDay(subDays(currentStart, 1));
 
-  // Chart lookback: scale with span
   let lookbackDays: number;
   if (spanDays <= 7) lookbackDays = 14;
   else if (spanDays <= 30) lookbackDays = 60;
@@ -179,14 +173,12 @@ function resolveCustomDates(
   lookbackDays = Math.max(lookbackDays, spanDays + 7);
   const chartLookbackStart = subDays(currentEnd, lookbackDays);
 
-  // Forecast days: scale with span
   let forecastDays: number;
   if (spanDays <= 1) forecastDays = 1;
   else if (spanDays <= 7) forecastDays = 7;
   else if (spanDays <= 30) forecastDays = 30;
   else forecastDays = 90;
 
-  // Period label
   const fmt = (d: Date) =>
     d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const periodLabel = rawStart
@@ -222,406 +214,412 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   let dates: PeriodDateRanges;
 
-  // Comparison mode: "prior" (default) or "yoy" (year-over-year)
   const compare = searchParams.get("compare") === "yoy" ? "yoy" : "prior";
 
-  // Prefer startDate/endDate, fall back to period param
   const rawStart = searchParams.get("startDate");
   const rawEnd = searchParams.get("endDate");
 
-  if (rawStart || rawEnd) {
-    dates = resolveCustomDates(rawStart || "", rawEnd || "", now, compare);
-  } else {
-    const rawPeriod = searchParams.get("period") ?? "1m";
-    if (rawPeriod === "all") {
-      // "All" mode: find earliest data, use full range
-      const earliest = await prisma.transaction.findFirst({
-        where: { type: "income" },
-        orderBy: { date: "asc" },
-        select: { date: true },
-      });
-      const allStart = earliest ? startOfDay(earliest.date) : startOfDay(subDays(now, 365));
-      dates = resolveCustomDates(
-        allStart.toISOString().split("T")[0],
-        now.toISOString().split("T")[0],
-        now,
-        compare
-      );
+  const salesDb = openDb("sales.db");
+  const bankDb = openDb("bank.db");
+
+  try {
+    // ---------- Resolve period ----------
+
+    if (rawStart || rawEnd) {
+      dates = resolveCustomDates(rawStart || "", rawEnd || "", now, compare);
     } else {
-      const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
-        ? (rawPeriod as Period)
-        : "1m";
-      dates = resolvePeriodDates(period, now, compare);
+      const rawPeriod = searchParams.get("period") ?? "1m";
+      if (rawPeriod === "all") {
+        const earliest = salesDb.prepare(
+          `SELECT MIN(date) as d FROM orders WHERE order_status = 'completed'`
+        ).get() as { d: string | null };
+        const allStart = earliest?.d
+          ? startOfDay(new Date(earliest.d + "T00:00:00"))
+          : startOfDay(subDays(now, 365));
+        dates = resolveCustomDates(
+          dateStr(allStart),
+          dateStr(now),
+          now,
+          compare
+        );
+      } else {
+        const period: Period = VALID_PERIODS.includes(rawPeriod as Period)
+          ? (rawPeriod as Period)
+          : "1m";
+        dates = resolvePeriodDates(period, now, compare);
+      }
     }
-  }
 
-  // ---------- Parallel query groups ----------
+    // ---------- Sales.db query helpers ----------
 
-  const [
-    // Group A: Period KPIs
-    curRevenue,
-    curFees,
-    curExpenses,
-    prevRevenue,
-    prevFees,
-    prevExpenses,
+    const sumRevenue = (start: Date, end: Date): number => {
+      const r = salesDb.prepare(
+        `SELECT ROUND(SUM(gross_sales), 2) as total FROM orders
+         WHERE order_status = 'completed' AND date >= ? AND date <= ?`
+      ).get(dateStr(start), dateStr(end)) as { total: number };
+      return r.total || 0;
+    };
 
-    // Group B: Daily series (chart lookback)
-    dailySeries,
+    const sumFees = (start: Date, end: Date): number => {
+      const r = salesDb.prepare(
+        `SELECT ROUND(SUM(ABS(fees_total)), 2) as fees, ROUND(SUM(ABS(marketing_total)), 2) as mktg
+         FROM orders WHERE order_status = 'completed' AND date >= ? AND date <= ?`
+      ).get(dateStr(start), dateStr(end)) as { fees: number; mktg: number };
+      return (r.fees || 0) + (r.mktg || 0);
+    };
 
-    // Group C: Platform aggregates
-    platformAgg,
+    // ---------- Bank.db expense helpers ----------
 
-    // Group D: Expense by category (current period)
-    expensesByCategory,
-    prevPeriodExpenseTotal,
+    const excludeList = PAYOUT_CATEGORIES.map(() => "?").join(",");
 
-    // Group E: Reconciliation
-    reconStats,
-    alertsBySeverity,
-    recentAlerts,
+    const sumExpenses = (start: Date, end: Date): number => {
+      const r = bankDb.prepare(
+        `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total FROM rocketmoney
+         WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+         AND category IS NOT NULL AND date >= ? AND date <= ?`
+      ).get(...PAYOUT_CATEGORIES, dateStr(start), dateStr(end)) as { total: number };
+      return r.total || 0;
+    };
 
-    // Group F: Closed days (current period)
-    closedDaysCount,
+    // ---------- Get ignored categories ----------
 
-    // Group G: All-time monthly revenue for seasonal indices
-    monthlyRevenueSamples,
-  ] = await Promise.all([
-    // A
-    sumTransactions("income", dates.currentStart, dates.currentEnd),
-    sumTransactions("fee", dates.currentStart, dates.currentEnd),
-    sumExpenses(dates.currentStart, dates.currentEnd),
-    sumTransactions("income", dates.previousStart, dates.previousEnd),
-    sumTransactions("fee", dates.previousStart, dates.previousEnd),
-    sumExpenses(dates.previousStart, dates.previousEnd),
+    const ignoredCats = getAllCategoryIgnores();
+    const ignoredCatNames = new Set(ignoredCats.map((ic) => ic.category_name.toLowerCase()));
 
-    // B
-    prisma.$queryRawUnsafe<
-      { date: string; total: number; count: number }[]
-    >(
-      `SELECT date(date) as date, SUM(amount) as total, COUNT(*) as count
-       FROM transactions
-       WHERE type = 'income' AND date >= ?
-       GROUP BY date(date)
-       ORDER BY date(date) ASC`,
-      dates.chartLookbackStart.toISOString()
-    ),
+    // ---------- Period KPIs ----------
 
-    // C
-    prisma.platformOrder.groupBy({
-      by: ["platform"],
-      where: { orderDatetime: { gte: dates.currentStart, lte: dates.currentEnd } },
-      _sum: {
-        subtotal: true,
-        commissionFee: true,
-        serviceFee: true,
-        deliveryFee: true,
-        netPayout: true,
-        tip: true,
-      },
-      _count: true,
-    }),
+    const curRevenue = sumRevenue(dates.currentStart, dates.currentEnd);
+    const curFees = sumFees(dates.currentStart, dates.currentEnd);
+    const curExpenses = sumExpenses(dates.currentStart, dates.currentEnd);
+    const prevRevenue = sumRevenue(dates.previousStart, dates.previousEnd);
+    const prevFees = sumFees(dates.previousStart, dates.previousEnd);
+    const prevExpenses = sumExpenses(dates.previousStart, dates.previousEnd);
 
-    // D
-    prisma.expense.groupBy({
-      by: ["category"],
-      where: { date: { gte: dates.currentStart, lte: dates.currentEnd } },
-      _sum: { amount: true },
-      _count: true,
-      orderBy: { _sum: { amount: "desc" } },
-      take: 10,
-    }),
-    sumExpenses(dates.previousStart, dates.previousEnd),
+    // ---------- Daily series for chart ----------
 
-    // E
-    getReconciliationStats(),
-    prisma.reconciliationAlert.groupBy({
-      by: ["severity"],
-      where: { resolved: false },
-      _count: true,
-    }),
-    prisma.reconciliationAlert.findMany({
-      where: { resolved: false },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
+    const dailySeries = salesDb.prepare(
+      `SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as count
+       FROM orders WHERE order_status = 'completed' AND date >= ?
+       GROUP BY date ORDER BY date ASC`
+    ).all(dateStr(dates.chartLookbackStart)) as { date: string; total: number; count: number }[];
 
-    // F
-    prisma.closedDay.count({
-      where: { date: { gte: dates.currentStart, lte: dates.currentEnd } },
-    }),
+    // ---------- Platform aggregates ----------
 
-    // G
-    prisma.$queryRawUnsafe<{ month: number; total: number }[]>(
+    const platformAgg = salesDb.prepare(
+      `SELECT platform,
+        COUNT(*) as order_count,
+        ROUND(SUM(gross_sales), 2) as subtotal,
+        ROUND(SUM(ABS(fees_total)), 2) as total_fees,
+        ROUND(SUM(net_sales), 2) as net_payout,
+        ROUND(SUM(tip), 2) as tip
+       FROM orders
+       WHERE order_status = 'completed' AND date >= ? AND date <= ?
+       GROUP BY platform ORDER BY subtotal DESC`
+    ).all(dateStr(dates.currentStart), dateStr(dates.currentEnd)) as {
+      platform: string; order_count: number; subtotal: number;
+      total_fees: number; net_payout: number; tip: number;
+    }[];
+
+    // ---------- Expense by category ----------
+
+    const rawExpensesByCategory = bankDb.prepare(
+      `SELECT category, ROUND(SUM(CAST(amount AS REAL)), 2) as total, COUNT(*) as cnt
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+       AND category IS NOT NULL AND date >= ? AND date <= ?
+       GROUP BY category ORDER BY total DESC LIMIT 10`
+    ).all(...PAYOUT_CATEGORIES, dateStr(dates.currentStart), dateStr(dates.currentEnd)) as {
+      category: string; total: number; cnt: number;
+    }[];
+
+    // Filter out ignored categories
+    const expensesByCategory = rawExpensesByCategory.filter(
+      (e) => !ignoredCatNames.has(e.category.toLowerCase())
+    );
+
+    const prevPeriodExpenseTotal = sumExpenses(dates.previousStart, dates.previousEnd);
+
+    // ---------- Monthly revenue samples for seasonal indices ----------
+
+    const monthlyRevenueSamples = salesDb.prepare(
       `SELECT CAST(strftime('%m', date) AS INTEGER) as month,
-              SUM(amount) as total
-       FROM transactions
-       WHERE type = 'income'
+              ROUND(SUM(gross_sales), 2) as total
+       FROM orders WHERE order_status = 'completed'
        GROUP BY strftime('%Y-%m', date)`
-    ),
-  ]);
+    ).all() as { month: number; total: number }[];
 
-  // Fetch restaurant open date setting
-  const restaurantOpenDate = await getSetting(SETTING_KEYS.RESTAURANT_OPEN_DATE);
+    // ---------- Reconciliation & Closed Days ----------
 
-  // ---------- Compute derived values ----------
+    // Reconciliation stats — placeholder until reconciliation is migrated
+    const reconStats = { totalPayouts: 0, reconciledPayouts: 0, reconciliationRate: 0 };
+    const alertsBySeverity: { severity: string; _count: number }[] = [];
+    const recentAlerts: { id: string; type: string; severity: string; message: string; platform: string | null; createdAt: Date }[] = [];
 
-  // KPIs
-  const curNetProfit = curRevenue - curFees - curExpenses;
-  const prevNetProfit = prevRevenue - prevFees - prevExpenses;
-  const curProfitMargin =
-    curRevenue > 0 ? (curNetProfit / curRevenue) * 100 : 0;
-  const prevProfitMargin =
-    prevRevenue > 0 ? (prevNetProfit / prevRevenue) * 100 : 0;
-  const curOpCostRatio =
-    curRevenue > 0 ? ((curFees + curExpenses) / curRevenue) * 100 : 0;
-  const prevOpCostRatio =
-    prevRevenue > 0 ? ((prevFees + prevExpenses) / prevRevenue) * 100 : 0;
+    // Closed days from config-db
+    const closedDaysCount = countClosedDaysInRange(dateStr(dates.currentStart), dateStr(dates.currentEnd));
 
-  // Daily series + regression
-  const dailyData = dailySeries.map((d) => ({
-    date: d.date,
-    total: Number(d.total),
-    count: Number(d.count),
-  }));
+    // Fetch restaurant open date setting
+    const restaurantOpenDate = await getSetting(SETTING_KEYS.RESTAURANT_OPEN_DATE);
 
-  const points = dailyData.map((d, i) => ({ x: i, y: d.total }));
-  const reg = linearRegression(points);
+    // ---------- Compute derived values ----------
 
-  const absSlope = Math.abs(reg.slope);
-  const dailyChangeLabel =
-    absSlope >= 1
-      ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/day`
-      : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/day`;
+    // KPIs
+    const curNetProfit = curRevenue - curFees - curExpenses;
+    const prevNetProfit = prevRevenue - prevFees - prevExpenses;
+    const curProfitMargin =
+      curRevenue > 0 ? (curNetProfit / curRevenue) * 100 : 0;
+    const prevProfitMargin =
+      prevRevenue > 0 ? (prevNetProfit / prevRevenue) * 100 : 0;
+    const curOpCostRatio =
+      curRevenue > 0 ? ((curFees + curExpenses) / curRevenue) * 100 : 0;
+    const prevOpCostRatio =
+      prevRevenue > 0 ? ((prevFees + prevExpenses) / prevRevenue) * 100 : 0;
 
-  // Seasonal indices
-  const seasonalIndices = computeSeasonalIndices(
-    monthlyRevenueSamples.map((r) => ({
-      month: Number(r.month),
-      total: Number(r.total),
-    }))
-  );
-  const hasSeasonalData = monthlyRevenueSamples.length >= 12;
+    // Daily series + regression
+    const dailyData = dailySeries.map((d) => ({
+      date: d.date,
+      total: Number(d.total),
+      count: Number(d.count),
+    }));
 
-  // Projected end-of-period revenue (for current month context)
-  const daysInMonth = getDaysInMonth(now);
-  const dayOfMonth = getDate(now);
-  const daysRemaining = daysInMonth - dayOfMonth;
-  const projectedMonthlyRevenue = curRevenue + reg.slope * daysRemaining;
+    const points = dailyData.map((d, i) => ({ x: i, y: d.total }));
+    const reg = linearRegression(points);
 
-  // Projected horizon revenue (with seasonal adjustment)
-  const lastIdx = dailyData.length - 1;
-  let projectedHorizonRevenue = 0;
-  for (let j = 1; j <= dates.forecastDays; j++) {
-    const futureDate = new Date(now);
-    futureDate.setDate(futureDate.getDate() + j);
-    const futureMonth = futureDate.getMonth() + 1; // 1-12
-    const baseProjected = reg.slope * (lastIdx + j) + reg.intercept;
-    const seasonalFactor = seasonalIndices[futureMonth] ?? 1.0;
-    projectedHorizonRevenue += Math.max(0, baseProjected * seasonalFactor);
-  }
+    const absSlope = Math.abs(reg.slope);
+    const dailyChangeLabel =
+      absSlope >= 1
+        ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/day`
+        : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/day`;
 
-  // Platform performance
-  const platforms = platformAgg
-    .map((p) => {
-      const totalFees =
-        (p._sum.commissionFee || 0) +
-        (p._sum.serviceFee || 0) +
-        (p._sum.deliveryFee || 0);
-      const totalSubtotal = p._sum.subtotal || 0;
-      const totalNetPayout = p._sum.netPayout || 0;
-      const feeRate = totalSubtotal > 0 ? (totalFees / totalSubtotal) * 100 : 0;
-      return {
-        platform: p.platform,
-        orderCount: p._count,
-        totalSubtotal,
-        totalFees,
-        totalNetPayout,
-        feeRate: Math.round(feeRate * 10) / 10,
-        avgNetPerOrder:
-          p._count > 0 ? Math.round((totalNetPayout / p._count) * 100) / 100 : 0,
-      };
-    })
-    .sort((a, b) => b.avgNetPerOrder - a.avgNetPerOrder);
+    // Seasonal indices
+    const seasonalIndices = computeSeasonalIndices(
+      monthlyRevenueSamples.map((r) => ({
+        month: Number(r.month),
+        total: Number(r.total),
+      }))
+    );
+    const hasSeasonalData = monthlyRevenueSamples.length >= 12;
 
-  // Expense health
-  const expenseTrendPct = changeDelta(curExpenses, prevPeriodExpenseTotal);
-  const expenseTrendDir: "up" | "down" | "flat" =
-    expenseTrendPct > 2 ? "up" : expenseTrendPct < -2 ? "down" : "flat";
+    // Projected end-of-period revenue
+    const daysInMonth = getDaysInMonth(now);
+    const dayOfMonth = getDate(now);
+    const daysRemaining = daysInMonth - dayOfMonth;
+    const projectedMonthlyRevenue = curRevenue + reg.slope * daysRemaining;
 
-  // Alert counts
-  const alertCountMap: Record<string, number> = { error: 0, warning: 0, info: 0 };
-  for (const a of alertsBySeverity) {
-    alertCountMap[a.severity] = a._count;
-  }
+    // Projected horizon revenue (with seasonal adjustment)
+    const lastIdx = dailyData.length - 1;
+    let projectedHorizonRevenue = 0;
+    for (let j = 1; j <= dates.forecastDays; j++) {
+      const futureDate = new Date(now);
+      futureDate.setDate(futureDate.getDate() + j);
+      const futureMonth = futureDate.getMonth() + 1;
+      const baseProjected = reg.slope * (lastIdx + j) + reg.intercept;
+      const seasonalFactor = seasonalIndices[futureMonth] ?? 1.0;
+      projectedHorizonRevenue += Math.max(0, baseProjected * seasonalFactor);
+    }
 
-  // Chart lookback in days (for display)
-  const chartLookbackDays = Math.round(
-    (now.getTime() - dates.chartLookbackStart.getTime()) / 86_400_000
-  );
+    // Platform performance
+    const platforms = platformAgg
+      .map((p) => {
+        const totalFees = p.total_fees || 0;
+        const totalSubtotal = p.subtotal || 0;
+        const totalNetPayout = p.net_payout || 0;
+        const feeRate = totalSubtotal > 0 ? (totalFees / totalSubtotal) * 100 : 0;
+        return {
+          platform: p.platform,
+          orderCount: p.order_count,
+          totalSubtotal,
+          totalFees,
+          totalNetPayout,
+          feeRate: Math.round(feeRate * 10) / 10,
+          avgNetPerOrder:
+            p.order_count > 0 ? Math.round((totalNetPayout / p.order_count) * 100) / 100 : 0,
+        };
+      })
+      .sort((a, b) => b.avgNetPerOrder - a.avgNetPerOrder);
 
-  // ---------- Auto-generate insights ----------
-  const insights: string[] = [];
+    // Expense health
+    const expenseTrendPct = changeDelta(curExpenses, prevPeriodExpenseTotal);
+    const expenseTrendDir: "up" | "down" | "flat" =
+      expenseTrendPct > 2 ? "up" : expenseTrendPct < -2 ? "down" : "flat";
 
-  if (dailyData.length >= 7) {
-    if (reg.slope > 5) {
+    // Alert counts
+    const alertCountMap: Record<string, number> = { error: 0, warning: 0, info: 0 };
+    for (const a of alertsBySeverity) {
+      alertCountMap[a.severity] = a._count;
+    }
+
+    // Chart lookback in days
+    const chartLookbackDays = Math.round(
+      (now.getTime() - dates.chartLookbackStart.getTime()) / 86_400_000
+    );
+
+    // ---------- Auto-generate insights ----------
+    const insights: string[] = [];
+
+    if (dailyData.length >= 7) {
+      if (reg.slope > 5) {
+        insights.push(
+          `Revenue is growing at ${dailyChangeLabel} based on ${chartLookbackDays}-day trend.`
+        );
+      } else if (reg.slope < -5) {
+        insights.push(
+          `Revenue has been declining at ${dailyChangeLabel} \u2014 review recent weeks.`
+        );
+      }
+    }
+
+    if (prevRevenue > 0) {
+      const revChange = changeDelta(curRevenue, prevRevenue);
+      if (revChange > 0) {
+        insights.push(
+          `Revenue is up ${revChange.toFixed(1)}% ${dates.comparisonLabel}.`
+        );
+      } else if (revChange < -5) {
+        insights.push(
+          `Revenue is down ${Math.abs(revChange).toFixed(1)}% ${dates.comparisonLabel}.`
+        );
+      }
+    }
+
+    const worstFeePlatform = [...platforms].sort(
+      (a, b) => b.feeRate - a.feeRate
+    )[0];
+    if (worstFeePlatform && worstFeePlatform.feeRate > 20) {
       insights.push(
-        `Revenue is growing at ${dailyChangeLabel} based on ${chartLookbackDays}-day trend.`
-      );
-    } else if (reg.slope < -5) {
-      insights.push(
-        `Revenue has been declining at ${dailyChangeLabel} \u2014 review recent weeks.`
+        `${capitalize(worstFeePlatform.platform)} has the highest fee rate at ${worstFeePlatform.feeRate.toFixed(1)}%, costing ${formatCurrency(worstFeePlatform.totalFees)} total.`
       );
     }
-  }
 
-  if (prevRevenue > 0) {
-    const revChange = changeDelta(curRevenue, prevRevenue);
-    if (revChange > 0) {
+    const totalAlerts =
+      alertCountMap.error + alertCountMap.warning + alertCountMap.info;
+    if (totalAlerts > 0) {
       insights.push(
-        `Revenue is up ${revChange.toFixed(1)}% ${dates.comparisonLabel}.`
-      );
-    } else if (revChange < -5) {
-      insights.push(
-        `Revenue is down ${Math.abs(revChange).toFixed(1)}% ${dates.comparisonLabel}.`
+        `${totalAlerts} unresolved reconciliation alert${totalAlerts > 1 ? "s" : ""} require attention (${alertCountMap.error} error${alertCountMap.error !== 1 ? "s" : ""}).`
       );
     }
-  }
 
-  const worstFeePlatform = [...platforms].sort(
-    (a, b) => b.feeRate - a.feeRate
-  )[0];
-  if (worstFeePlatform && worstFeePlatform.feeRate > 20) {
-    insights.push(
-      `${capitalize(worstFeePlatform.platform)} has the highest fee rate at ${worstFeePlatform.feeRate.toFixed(1)}%, costing ${formatCurrency(worstFeePlatform.totalFees)} total.`
-    );
-  }
+    if (curProfitMargin < 10 && curRevenue > 0) {
+      insights.push(
+        `Profit margin of ${curProfitMargin.toFixed(1)}% is below 10% \u2014 consider reviewing high-cost categories.`
+      );
+    }
 
-  const totalAlerts =
-    alertCountMap.error + alertCountMap.warning + alertCountMap.info;
-  if (totalAlerts > 0) {
-    insights.push(
-      `${totalAlerts} unresolved reconciliation alert${totalAlerts > 1 ? "s" : ""} require attention (${alertCountMap.error} error${alertCountMap.error !== 1 ? "s" : ""}).`
-    );
-  }
+    if (expenseTrendDir === "up" && expenseTrendPct > 10) {
+      insights.push(
+        `Operating expenses rose ${expenseTrendPct.toFixed(1)}% ${dates.comparisonLabel}.`
+      );
+    }
 
-  if (curProfitMargin < 10 && curRevenue > 0) {
-    insights.push(
-      `Profit margin of ${curProfitMargin.toFixed(1)}% is below 10% \u2014 consider reviewing high-cost categories.`
-    );
-  }
+    if (reconStats.reconciliationRate < 50 && reconStats.totalPayouts > 0) {
+      insights.push(
+        `Only ${reconStats.reconciliationRate}% of payouts are reconciled \u2014 consider matching outstanding deposits.`
+      );
+    }
 
-  if (expenseTrendDir === "up" && expenseTrendPct > 10) {
-    insights.push(
-      `Operating expenses rose ${expenseTrendPct.toFixed(1)}% ${dates.comparisonLabel}.`
-    );
-  }
+    const bestPlatform = platforms[0];
+    if (bestPlatform) {
+      insights.push(
+        `${capitalize(bestPlatform.platform)} yields the highest net per order at ${formatCurrency(bestPlatform.avgNetPerOrder)}.`
+      );
+    }
 
-  if (reconStats.reconciliationRate < 50 && reconStats.totalPayouts > 0) {
-    insights.push(
-      `Only ${reconStats.reconciliationRate}% of payouts are reconciled \u2014 consider matching outstanding deposits.`
-    );
-  }
+    // ---------- Build response ----------
+    const dataThrough = now.toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
 
-  const bestPlatform = platforms[0];
-  if (bestPlatform) {
-    insights.push(
-      `${capitalize(bestPlatform.platform)} yields the highest net per order at ${formatCurrency(bestPlatform.avgNetPerOrder)}.`
-    );
-  }
-
-  // ---------- Build response ----------
-  const dataThrough = now.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  return NextResponse.json({
-    kpis: {
-      current: {
-        revenue: curRevenue,
-        fees: curFees,
-        expenses: curExpenses,
-        netProfit: curNetProfit,
-        profitMargin: Math.round(curProfitMargin * 10) / 10,
-        operatingCostRatio: Math.round(curOpCostRatio * 10) / 10,
+    return NextResponse.json({
+      kpis: {
+        current: {
+          revenue: curRevenue,
+          fees: curFees,
+          expenses: curExpenses,
+          netProfit: curNetProfit,
+          profitMargin: Math.round(curProfitMargin * 10) / 10,
+          operatingCostRatio: Math.round(curOpCostRatio * 10) / 10,
+        },
+        previous: {
+          revenue: prevRevenue,
+          fees: prevFees,
+          expenses: prevExpenses,
+          netProfit: prevNetProfit,
+          profitMargin: Math.round(prevProfitMargin * 10) / 10,
+          operatingCostRatio: Math.round(prevOpCostRatio * 10) / 10,
+        },
+        change: {
+          revenue: changeDelta(curRevenue, prevRevenue),
+          netProfit: changeDelta(curNetProfit, prevNetProfit),
+          profitMargin: Math.round((curProfitMargin - prevProfitMargin) * 10) / 10,
+          operatingCostRatio:
+            Math.round((curOpCostRatio - prevOpCostRatio) * 10) / 10,
+        },
       },
-      previous: {
-        revenue: prevRevenue,
-        fees: prevFees,
-        expenses: prevExpenses,
-        netProfit: prevNetProfit,
-        profitMargin: Math.round(prevProfitMargin * 10) / 10,
-        operatingCostRatio: Math.round(prevOpCostRatio * 10) / 10,
+      projection: {
+        dailySeries: dailyData,
+        trend: {
+          slope: reg.slope,
+          intercept: reg.intercept,
+          r2: reg.r2,
+          dailyChangeLabel,
+          projectedMonthlyRevenue: Math.round(projectedMonthlyRevenue * 100) / 100,
+          confidenceLabel: confidenceLabel(reg.r2),
+          projectedHorizonRevenue:
+            Math.round(projectedHorizonRevenue * 100) / 100,
+          forecastDays: dates.forecastDays,
+          chartLookbackDays,
+          seasonalIndices,
+          hasSeasonalData,
+        },
       },
-      change: {
-        revenue: changeDelta(curRevenue, prevRevenue),
-        netProfit: changeDelta(curNetProfit, prevNetProfit),
-        profitMargin: Math.round((curProfitMargin - prevProfitMargin) * 10) / 10,
-        operatingCostRatio:
-          Math.round((curOpCostRatio - prevOpCostRatio) * 10) / 10,
+      platforms,
+      expenses: {
+        currentTotal: curExpenses,
+        previousTotal: prevPeriodExpenseTotal,
+        trendDirection: expenseTrendDir,
+        trendPct: Math.round(Math.abs(expenseTrendPct) * 10) / 10,
+        topCategories: expensesByCategory.map((e) => ({
+          category: e.category || "Uncategorized",
+          amount: Number(e.total) || 0,
+          pctOfRevenue:
+            curRevenue > 0
+              ? Math.round((Number(e.total || 0) / curRevenue) * 1000) / 10
+              : 0,
+        })),
       },
-    },
-    projection: {
-      dailySeries: dailyData,
-      trend: {
-        slope: reg.slope,
-        intercept: reg.intercept,
-        r2: reg.r2,
-        dailyChangeLabel,
-        projectedMonthlyRevenue: Math.round(projectedMonthlyRevenue * 100) / 100,
-        confidenceLabel: confidenceLabel(reg.r2),
-        projectedHorizonRevenue:
-          Math.round(projectedHorizonRevenue * 100) / 100,
-        forecastDays: dates.forecastDays,
-        chartLookbackDays,
-        seasonalIndices,
-        hasSeasonalData,
+      reconciliation: {
+        totalPayouts: reconStats.totalPayouts,
+        reconciledPayouts: reconStats.reconciledPayouts,
+        reconciliationRate: reconStats.reconciliationRate,
+        alertCounts: {
+          error: alertCountMap.error,
+          warning: alertCountMap.warning,
+          info: alertCountMap.info,
+          total: totalAlerts,
+        },
+        recentAlerts: recentAlerts.map((a) => ({
+          id: a.id,
+          type: a.type,
+          severity: a.severity,
+          message: a.message,
+          platform: a.platform,
+          createdAt: a.createdAt.toISOString(),
+        })),
       },
-    },
-    platforms,
-    expenses: {
-      currentTotal: curExpenses,
-      previousTotal: prevPeriodExpenseTotal,
-      trendDirection: expenseTrendDir,
-      trendPct: Math.round(Math.abs(expenseTrendPct) * 10) / 10,
-      topCategories: expensesByCategory.map((e) => ({
-        category: e.category || "Uncategorized",
-        amount: e._sum.amount || 0,
-        pctOfRevenue:
-          curRevenue > 0
-            ? Math.round(((e._sum.amount || 0) / curRevenue) * 1000) / 10
-            : 0,
-      })),
-    },
-    reconciliation: {
-      totalPayouts: reconStats.totalPayouts,
-      reconciledPayouts: reconStats.reconciledPayouts,
-      reconciliationRate: reconStats.reconciliationRate,
-      alertCounts: {
-        error: alertCountMap.error,
-        warning: alertCountMap.warning,
-        info: alertCountMap.info,
-        total: totalAlerts,
+      insights,
+      meta: {
+        closedDays: closedDaysCount,
+        period: dates.periodLabel,
+        periodLabel: dates.periodLabel,
+        comparisonLabel: dates.comparisonLabel,
+        dataThrough,
+        restaurantOpenDate,
       },
-      recentAlerts: recentAlerts.map((a) => ({
-        id: a.id,
-        type: a.type,
-        severity: a.severity,
-        message: a.message,
-        platform: a.platform,
-        createdAt: a.createdAt.toISOString(),
-      })),
-    },
-    insights,
-    meta: {
-      closedDays: closedDaysCount,
-      period: dates.periodLabel,
-      periodLabel: dates.periodLabel,
-      comparisonLabel: dates.comparisonLabel,
-      dataThrough,
-      restaurantOpenDate,
-    },
-  });
+    });
+  } finally {
+    salesDb.close();
+    bankDb.close();
+  }
 }

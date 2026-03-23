@@ -3,6 +3,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getSalesDb } from "@/lib/db/sales-db";
+import { getCategoriesDb } from "@/lib/db/config-db";
 
 const VALID_PLATFORMS = new Set(["square", "doordash", "ubereats", "grubhub"]);
 
@@ -102,7 +103,7 @@ export async function GET(
       fees: o.fees_total,
       netPayout: o.net_sales,
       items: o.items,
-      paymentMethod: o.payment_method,
+      cardBrand: o.payment_method || "",
       diningOption: o.dining_option,
       orderStatus: o.order_status,
     })),
@@ -115,28 +116,50 @@ export async function GET(
     const itemConditions = conditions.map(c => c.replace("platform", "oi.platform").replace("date", "oi.date"));
     const itemWhere = `WHERE ${itemConditions.join(" AND ")}`;
 
-    // Top items (using display_name)
+    // Load ignore lists from categories.db
+    const catDb = getCategoriesDb();
+    const itemIgnores = (catDb.prepare("SELECT item_name FROM menu_item_ignores").all() as { item_name: string }[])
+      .map(r => r.item_name);
+    let categoryIgnores: string[] = [];
+    try {
+      categoryIgnores = (catDb.prepare("SELECT category_name FROM category_ignores").all() as { category_name: string }[])
+        .map(r => r.category_name);
+    } catch { /* table may not exist yet */ }
+
+    // Build ignore filter for items
+    const itemIgnoreFilter = itemIgnores.length > 0
+      ? ` AND oi.display_name NOT IN (${itemIgnores.map(() => "?").join(",")})`
+      : "";
+    const itemQueryParams = [...queryParams, ...itemIgnores];
+
+    // Top items (using display_name, filtered by ignore list)
     const topItems = db.prepare(`
       SELECT oi.display_name as name, oi.display_category as category,
         ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue
       FROM order_items oi
-      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0
+      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0${itemIgnoreFilter}
       GROUP BY oi.display_name
       ORDER BY qty DESC
-    `).all(...queryParams) as { name: string; category: string; qty: number; revenue: number }[];
+    `).all(...itemQueryParams) as { name: string; category: string; qty: number; revenue: number }[];
 
     response.topItems = topItems;
 
-    // Category breakdown (using display_category)
+    // Build ignore filter for categories
+    const catIgnoreFilter = categoryIgnores.length > 0
+      ? ` AND oi.display_category NOT IN (${categoryIgnores.map(() => "?").join(",")})`
+      : "";
+    const catQueryParams = [...queryParams, ...categoryIgnores];
+
+    // Category breakdown (using display_category, filtered by ignore list)
     const categoryBreakdown = db.prepare(`
       SELECT oi.display_category as category,
         ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue,
         COUNT(*) as itemCount
       FROM order_items oi
-      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0
+      ${itemWhere} AND oi.event_type = 'Payment' AND oi.qty > 0${catIgnoreFilter}
       GROUP BY oi.display_category
       ORDER BY revenue DESC
-    `).all(...queryParams) as { category: string; qty: number; revenue: number; itemCount: number }[];
+    `).all(...catQueryParams) as { category: string; qty: number; revenue: number; itemCount: number }[];
 
     response.categoryBreakdown = categoryBreakdown;
 
@@ -147,7 +170,7 @@ export async function GET(
         ROUND(SUM(tax), 2) as tax,
         ROUND(SUM(tip), 2) as tip,
         ROUND(SUM(net_sales), 2) as total
-      FROM orders ${where} AND payment_method IS NOT NULL
+      FROM orders ${where} AND payment_method IS NOT NULL AND payment_method != ''
       GROUP BY payment_method ORDER BY total DESC
     `).all(...queryParams) as { payment_method: string; count: number; subtotal: number; tax: number; tip: number; total: number }[];
 

@@ -288,6 +288,7 @@ export interface SquareOrderLineItem {
   total_tax_money?: { amount: number; currency: string };
   total_discount_money?: { amount: number; currency: string };
   variation_name?: string;
+  modifiers?: { name?: string }[];
 }
 
 export interface SquareOrderData {
@@ -350,6 +351,7 @@ export async function batchRetrieveOrders(
             total_tax_money: li.total_tax_money,
             total_discount_money: li.total_discount_money,
             variation_name: li.variation_name,
+            modifiers: (li.modifiers || []).map((m: { name?: string }) => ({ name: m.name })),
           })
         );
 

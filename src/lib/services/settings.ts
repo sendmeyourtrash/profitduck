@@ -1,9 +1,17 @@
 /**
  * Settings service — CRUD for the key-value settings table.
  * Stores API keys, preferences, and sync configuration persistently.
+ *
+ * Uses categories.db (via config-db) instead of Prisma.
+ * Functions return plain values (not Promises) but callers can still `await` them.
  */
 
-import { prisma } from "../db/prisma";
+import {
+  getSettingValue,
+  setSettingValue,
+  deleteSettingValue,
+  getAllSettingValues,
+} from "../db/config-db";
 
 export const SETTING_KEYS = {
   SQUARE_API_TOKEN: "square_api_token",
@@ -31,36 +39,26 @@ const SENSITIVE_KEYS: Set<string> = new Set([
 // ---------------------------------------------------------------------------
 
 export async function getSetting(key: string): Promise<string | null> {
-  const row = await prisma.setting.findUnique({ where: { key } });
-  return row?.value ?? null;
+  return getSettingValue(key);
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-  await prisma.setting.upsert({
-    where: { key },
-    update: { value },
-    create: { key, value },
-  });
+  setSettingValue(key, value);
 }
 
 export async function deleteSetting(key: string): Promise<void> {
-  await prisma.setting.deleteMany({ where: { key } });
+  deleteSettingValue(key);
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {
-  const rows = await prisma.setting.findMany();
-  const result: Record<string, string> = {};
-  for (const row of rows) {
-    result[row.key] = row.value;
-  }
-  return result;
+  return getAllSettingValues();
 }
 
 /**
  * Return all settings with sensitive values masked for client display.
  */
 export async function getAllSettingsMasked(): Promise<Record<string, string>> {
-  const all = await getAllSettings();
+  const all = getAllSettingValues();
   const masked: Record<string, string> = {};
   for (const [key, value] of Object.entries(all)) {
     masked[key] = SENSITIVE_KEYS.has(key) ? maskToken(value) : value;
@@ -73,15 +71,15 @@ export async function getAllSettingsMasked(): Promise<Record<string, string>> {
 // ---------------------------------------------------------------------------
 
 export async function getSquareToken(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.SQUARE_API_TOKEN);
+  return getSettingValue(SETTING_KEYS.SQUARE_API_TOKEN);
 }
 
 export async function setSquareTokenDb(token: string): Promise<void> {
-  return setSetting(SETTING_KEYS.SQUARE_API_TOKEN, token);
+  setSettingValue(SETTING_KEYS.SQUARE_API_TOKEN, token);
 }
 
 export async function deleteSquareTokenDb(): Promise<void> {
-  return deleteSetting(SETTING_KEYS.SQUARE_API_TOKEN);
+  deleteSettingValue(SETTING_KEYS.SQUARE_API_TOKEN);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,20 +87,20 @@ export async function deleteSquareTokenDb(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function isAutoSyncEnabled(): Promise<boolean> {
-  const val = await getSetting(SETTING_KEYS.AUTO_SYNC_ENABLED);
+  const val = getSettingValue(SETTING_KEYS.AUTO_SYNC_ENABLED);
   return val === "true";
 }
 
 export async function setAutoSyncEnabled(enabled: boolean): Promise<void> {
-  return setSetting(SETTING_KEYS.AUTO_SYNC_ENABLED, String(enabled));
+  setSettingValue(SETTING_KEYS.AUTO_SYNC_ENABLED, String(enabled));
 }
 
 export async function getLastSyncAt(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.LAST_SYNC_AT);
+  return getSettingValue(SETTING_KEYS.LAST_SYNC_AT);
 }
 
 export async function setLastSyncAt(iso: string): Promise<void> {
-  return setSetting(SETTING_KEYS.LAST_SYNC_AT, iso);
+  setSettingValue(SETTING_KEYS.LAST_SYNC_AT, iso);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,39 +108,39 @@ export async function setLastSyncAt(iso: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function getPlaidAccessToken(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.PLAID_ACCESS_TOKEN);
+  return getSettingValue(SETTING_KEYS.PLAID_ACCESS_TOKEN);
 }
 
 export async function setPlaidAccessTokenDb(token: string): Promise<void> {
-  return setSetting(SETTING_KEYS.PLAID_ACCESS_TOKEN, token);
+  setSettingValue(SETTING_KEYS.PLAID_ACCESS_TOKEN, token);
 }
 
 export async function deletePlaidAccessTokenDb(): Promise<void> {
-  return deleteSetting(SETTING_KEYS.PLAID_ACCESS_TOKEN);
+  deleteSettingValue(SETTING_KEYS.PLAID_ACCESS_TOKEN);
 }
 
 export async function getPlaidItemId(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.PLAID_ITEM_ID);
+  return getSettingValue(SETTING_KEYS.PLAID_ITEM_ID);
 }
 
 export async function setPlaidItemIdDb(itemId: string): Promise<void> {
-  return setSetting(SETTING_KEYS.PLAID_ITEM_ID, itemId);
+  setSettingValue(SETTING_KEYS.PLAID_ITEM_ID, itemId);
 }
 
 export async function getPlaidCursor(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.PLAID_CURSOR);
+  return getSettingValue(SETTING_KEYS.PLAID_CURSOR);
 }
 
 export async function setPlaidCursorDb(cursor: string): Promise<void> {
-  return setSetting(SETTING_KEYS.PLAID_CURSOR, cursor);
+  setSettingValue(SETTING_KEYS.PLAID_CURSOR, cursor);
 }
 
 export async function getPlaidLastSyncAt(): Promise<string | null> {
-  return getSetting(SETTING_KEYS.PLAID_LAST_SYNC_AT);
+  return getSettingValue(SETTING_KEYS.PLAID_LAST_SYNC_AT);
 }
 
 export async function setPlaidLastSyncAt(iso: string): Promise<void> {
-  return setSetting(SETTING_KEYS.PLAID_LAST_SYNC_AT, iso);
+  setSettingValue(SETTING_KEYS.PLAID_LAST_SYNC_AT, iso);
 }
 
 export async function clearAllPlaidSettings(): Promise<void> {
@@ -155,7 +153,7 @@ export async function clearAllPlaidSettings(): Promise<void> {
     SETTING_KEYS.PLAID_LAST_SYNC_AT,
   ];
   for (const key of keys) {
-    await deleteSetting(key);
+    deleteSettingValue(key);
   }
 }
 

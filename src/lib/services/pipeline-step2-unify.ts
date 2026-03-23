@@ -66,6 +66,19 @@ function ensureSalesDbSchema(db: InstanceType<typeof Database>) {
     fees_total REAL, marketing_total REAL, refunds_total REAL,
     adjustments_total REAL, other_total REAL
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT, platform TEXT, date TEXT, time TEXT,
+    item_name TEXT, category TEXT, qty REAL, unit_price REAL,
+    gross_sales REAL, discounts REAL, net_sales REAL, modifiers TEXT,
+    display_name TEXT, display_category TEXT,
+    event_type TEXT, dining_option TEXT
+  )`);
+  // Ensure indexes exist
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_oi_order ON order_items(order_id, platform)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_oi_item ON order_items(display_name, platform)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_oi_cat ON order_items(display_category, platform)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_oi_date ON order_items(date)`);
 }
 
 function ensureBankDbSchema(db: InstanceType<typeof Database>) {
@@ -84,8 +97,12 @@ function ensureBankDbSchema(db: InstanceType<typeof Database>) {
 // ============================================================
 
 /**
- * Read squareup.db items, aggregate by transaction_id, write to sales.db orders.
- * Square items are item-level → must GROUP BY transaction_id to get order-level.
+ * Read squareup.db items, write to sales.db orders + order_items.
+ *
+ * Square items are item-level → must GROUP BY transaction_id for orders table,
+ * but write individual rows to order_items for item analytics.
+ *
+ * All data comes from the Square API (no CSV).
  */
 export function unifySquare(): UnifyResult {
   const src = openDb("squareup.db", true);
@@ -93,7 +110,7 @@ export function unifySquare(): UnifyResult {
   ensureSalesDbSchema(dest);
   const result: UnifyResult = { platform: "square", inserted: 0, skipped: 0, errors: [] };
 
-  // Get all unique transaction_ids from squareup.db
+  // Aggregate item-level rows into order-level records
   const orders = src.prepare(`
     SELECT
       transaction_id,
@@ -117,7 +134,7 @@ export function unifySquare(): UnifyResult {
     GROUP BY transaction_id
   `).all() as Record<string, unknown>[];
 
-  const insert = dest.prepare(`
+  const insertOrder = dest.prepare(`
     INSERT INTO orders (date, time, platform, order_id, gross_sales, tax, total_fees, net_sales,
       order_status, items, item_count, modifiers, tip, discounts, dining_option, customer_name,
       payment_method, commission_fee, processing_fee, delivery_fee, marketing_fee,
@@ -125,11 +142,30 @@ export function unifySquare(): UnifyResult {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `);
 
+  // Get all individual items for order_items table
+  const allItems = src.prepare(`
+    SELECT item, category, qty, gross_sales, discounts, net_sales,
+      modifiers_applied, event_type, dining_option, transaction_id, date, time
+    FROM items
+    WHERE transaction_id != '' AND transaction_id IS NOT NULL
+    ORDER BY date, time
+  `).all() as Record<string, unknown>[];
+
+  const insertItem = dest.prepare(`
+    INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
+      unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
+      event_type, dining_option)
+    VALUES (?, 'square', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const newOrderIds = new Set<string>();
+
   const insertMany = dest.transaction(() => {
+    // 1. Insert orders
     for (const o of orders) {
       const orderId = o.transaction_id as string;
 
-      // Dedup
+      // Dedup within sales.db
       const existing = dest.prepare("SELECT 1 FROM orders WHERE order_id = ? AND platform = 'square'").get(orderId);
       if (existing) { result.skipped++; continue; }
 
@@ -142,9 +178,9 @@ export function unifySquare(): UnifyResult {
       const refundsTotal = status === "refund" ? gross : 0;
 
       const feesTotal = procFee;
-      const netSales = Math.round((gross + discounts + tax + tip + feesTotal) * 100) / 100;
+      const netSales = Math.round((gross + discounts + feesTotal) * 100) / 100;
 
-      insert.run(
+      insertOrder.run(
         o.date, o.time, "square", orderId,
         gross, tax, feesTotal, netSales,
         status, o.items, o.item_count, o.modifiers,
@@ -153,6 +189,36 @@ export function unifySquare(): UnifyResult {
         feesTotal, 0, refundsTotal, 0, 0
       );
       result.inserted++;
+      newOrderIds.add(orderId);
+    }
+
+    // 2. Insert order_items for newly added orders
+    //    Normalize item names: strip " x1" suffixes and label empty names
+    for (const row of allItems) {
+      const txnId = row.transaction_id as string;
+      if (!newOrderIds.has(txnId)) continue;
+
+      const rawName = ((row.item as string) || "").trim();
+      const itemName = rawName
+        ? rawName.replace(/\s+x\d+$/, "")  // strip "x1" suffix
+        : "Unknown Item";
+
+      const qty = (row.qty as number) || 1;
+      const gross = (row.gross_sales as number) || 0;
+      const unitPrice = qty > 0 ? Math.round((gross / qty) * 100) / 100 : 0;
+
+      insertItem.run(
+        txnId,
+        row.date || "", row.time || "",
+        itemName, row.category || "", qty,
+        unitPrice, gross,
+        row.discounts || 0, row.net_sales || 0,
+        row.modifiers_applied || "",
+        itemName,             // display_name (populated by Step 3)
+        row.category || "",   // display_category (populated by Step 3)
+        row.event_type || "Payment",
+        row.dining_option || ""
+      );
     }
   });
 
@@ -180,6 +246,13 @@ export function unifyGrubhub(): UnifyResult {
       payment_method, commission_fee, processing_fee, delivery_fee, marketing_fee,
       fees_total, marketing_total, refunds_total, adjustments_total, other_total)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  const insertItem = dest.prepare(`
+    INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
+      unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
+      event_type, dining_option)
+    VALUES (?, 'grubhub', ?, ?, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -246,6 +319,16 @@ export function unifyGrubhub(): UnifyResult {
         commissionFee, processingFee, deliveryFee, marketingFee,
         feesTotal, marketingTotal, refundsTotal, adjustmentsTotal, 0
       );
+
+      // order_items: 1 row per order (no item detail from GrubHub)
+      insertItem.run(
+        orderId,
+        r.order_date, r.order_time_local,
+        "GrubHub Order", status, gross, gross, net,
+        "GrubHub Order", status,
+        "Payment", diningOption
+      );
+
       result.inserted++;
     }
   });
@@ -274,6 +357,13 @@ export function unifyDoordash(): UnifyResult {
       payment_method, commission_fee, processing_fee, delivery_fee, marketing_fee,
       fees_total, marketing_total, refunds_total, adjustments_total, other_total)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  const insertItem = dest.prepare(`
+    INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
+      unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
+      event_type, dining_option)
+    VALUES (?, 'doordash', ?, ?, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -321,6 +411,16 @@ export function unifyDoordash(): UnifyResult {
         commissionFee, processingFee, 0, marketingFee,
         feesTotal, marketingTotal, 0, adjustmentsTotal, 0
       );
+
+      // order_items: 1 row per order (no item detail from DoorDash)
+      insertItem.run(
+        orderId,
+        r.timestamp_local_date, r.timestamp_local_time,
+        "DoorDash Order", status, gross, gross, net,
+        "DoorDash Order", status,
+        "Payment", diningOption
+      );
+
       result.inserted++;
     }
   });
@@ -349,6 +449,13 @@ export function unifyUberEats(): UnifyResult {
       payment_method, commission_fee, processing_fee, delivery_fee, marketing_fee,
       fees_total, marketing_total, refunds_total, adjustments_total, other_total)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  const insertItem = dest.prepare(`
+    INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
+      unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
+      event_type, dining_option)
+    VALUES (?, 'ubereats', ?, NULL, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -387,6 +494,16 @@ export function unifyUberEats(): UnifyResult {
         commissionFee + chargesFee, 0, 0, 0,
         feesTotal, 0, refundsTotal, 0, 0
       );
+
+      // order_items: 1 row per order (no item detail from Uber Eats)
+      insertItem.run(
+        orderId,
+        r.date,
+        "Uber Eats Order", status, gross, gross, payout,
+        "Uber Eats Order", status,
+        "Payment", "Delivery"
+      );
+
       result.inserted++;
     }
   });
@@ -459,9 +576,11 @@ export function step2Unify(platform: string): UnifyResult {
  */
 export function step2UnifyAll(rebuild = false): UnifyResult[] {
   if (rebuild) {
-    // Clear unified tables
+    // Clear unified tables (orders + order_items)
     const salesDb = openDb("sales.db");
+    ensureSalesDbSchema(salesDb);
     salesDb.exec("DELETE FROM orders");
+    salesDb.exec("DELETE FROM order_items");
     salesDb.close();
 
     const bankDb = openDb("bank.db");

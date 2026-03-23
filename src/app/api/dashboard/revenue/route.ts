@@ -1,95 +1,88 @@
+/**
+ * Dashboard Revenue API — Daily revenue data from sales.db
+ *
+ * Returns daily revenue totals, platform breakdown, and daily-by-platform data
+ * for the revenue chart and platform pie chart on the dashboard.
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db/prisma";
+import Database from "better-sqlite3";
+import path from "path";
+
+const DB_DIR = path.join(process.cwd(), "databases");
+
+function openDb(name: string) {
+  return new Database(path.join(DB_DIR, name), { readonly: true });
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const rawStart = searchParams.get("startDate");
-  const rawEnd = searchParams.get("endDate");
-  const rawDays = searchParams.get("days");
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
 
-  let startDate: Date;
-  let endDate: Date | undefined;
+  const db = openDb("sales.db");
 
-  if (rawStart) {
-    startDate = new Date(rawStart + "T00:00:00.000Z");
-    if (rawEnd) {
-      endDate = new Date(rawEnd + "T23:59:59.999Z");
-    }
-  } else if (rawDays) {
-    const days = parseInt(rawDays);
-    startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-  } else {
-    const earliest = await prisma.transaction.findFirst({
-      where: { type: "income" },
-      orderBy: { date: "asc" },
-      select: { date: true },
+  try {
+    const baseConds = ["order_status = 'completed'"];
+    const baseParams: string[] = [];
+    if (startDate) { baseConds.push("date >= ?"); baseParams.push(startDate); }
+    if (endDate) { baseConds.push("date <= ?"); baseParams.push(endDate); }
+    const where = baseConds.join(" AND ");
+
+    // Daily revenue
+    const dailyRevenue = db.prepare(`
+      SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as count
+      FROM orders WHERE ${where}
+      GROUP BY date ORDER BY date ASC
+    `).all(...baseParams) as { date: string; total: number; count: number }[];
+
+    // Revenue by platform
+    const revenueByPlatform = db.prepare(`
+      SELECT platform, ROUND(SUM(gross_sales), 2) as revenue, COUNT(*) as count
+      FROM orders WHERE ${where}
+      GROUP BY platform ORDER BY revenue DESC
+    `).all(...baseParams) as { platform: string; revenue: number; count: number }[];
+
+    // Average order value by platform
+    const avgOrderByPlatform = db.prepare(`
+      SELECT platform,
+        ROUND(AVG(gross_sales), 2) as avg_gross,
+        ROUND(AVG(net_sales), 2) as avg_net,
+        COUNT(*) as order_count
+      FROM orders WHERE ${where}
+      GROUP BY platform ORDER BY avg_gross DESC
+    `).all(...baseParams) as { platform: string; avg_gross: number; avg_net: number; order_count: number }[];
+
+    // Daily revenue by platform
+    const dailyByPlatform = db.prepare(`
+      SELECT date, platform, ROUND(SUM(gross_sales), 2) as total
+      FROM orders WHERE ${where}
+      GROUP BY date, platform ORDER BY date ASC
+    `).all(...baseParams) as { date: string; platform: string; total: number }[];
+
+    return NextResponse.json({
+      dailyRevenue: dailyRevenue.map((d) => ({
+        date: d.date,
+        total: Number(d.total),
+        count: Number(d.count),
+      })),
+      revenueByPlatform: revenueByPlatform.map((r) => ({
+        platform: r.platform,
+        revenue: Number(r.revenue),
+        count: Number(r.count),
+      })),
+      avgOrderByPlatform: avgOrderByPlatform.map((a) => ({
+        platform: a.platform,
+        avgSubtotal: Number(a.avg_gross),
+        avgNetPayout: Number(a.avg_net),
+        orderCount: Number(a.order_count),
+      })),
+      dailyByPlatform: dailyByPlatform.map((d) => ({
+        date: d.date,
+        platform: d.platform,
+        total: Number(d.total),
+      })),
     });
-    startDate = earliest ? earliest.date : new Date(new Date().setDate(new Date().getDate() - 365));
+  } finally {
+    db.close();
   }
-
-  const dateFilter = { gte: startDate, ...(endDate ? { lte: endDate } : {}) };
-
-  // Revenue by platform
-  const revenueByPlatform = await prisma.transaction.groupBy({
-    by: ["sourcePlatform"],
-    where: {
-      type: "income",
-      date: dateFilter,
-    },
-    _sum: { amount: true },
-    _count: true,
-  });
-
-  // Revenue by day (via platform orders for detailed breakdown)
-  const dailyRevenue = await prisma.$queryRawUnsafe<
-    { date: string; total: number; count: number }[]
-  >(
-    `SELECT date(date) as date, SUM(amount) as total, COUNT(*) as count
-     FROM transactions
-     WHERE type = 'income' AND date >= ?${endDate ? " AND date <= ?" : ""}
-     GROUP BY date(date)
-     ORDER BY date(date) ASC`,
-    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
-  );
-
-  // Average order value by platform
-  const avgOrderByPlatform = await prisma.platformOrder.groupBy({
-    by: ["platform"],
-    where: { orderDatetime: dateFilter },
-    _avg: { subtotal: true, netPayout: true },
-    _count: true,
-  });
-
-  // Daily revenue by platform
-  const dailyByPlatform = await prisma.$queryRawUnsafe<
-    { date: string; platform: string; total: number }[]
-  >(
-    `SELECT date(date) as date, source_platform as platform, SUM(amount) as total
-     FROM transactions
-     WHERE type = 'income' AND date >= ?${endDate ? " AND date <= ?" : ""}
-     GROUP BY date(date), source_platform
-     ORDER BY date(date) ASC`,
-    ...[startDate.toISOString(), ...(endDate ? [endDate.toISOString()] : [])]
-  );
-
-  return NextResponse.json({
-    revenueByPlatform: revenueByPlatform.map((r) => ({
-      platform: r.sourcePlatform,
-      revenue: r._sum.amount || 0,
-      count: r._count,
-    })),
-    dailyRevenue: dailyRevenue.map((d) => ({
-      date: d.date,
-      total: Number(d.total),
-      count: Number(d.count),
-    })),
-    avgOrderByPlatform: avgOrderByPlatform.map((a) => ({
-      platform: a.platform,
-      avgSubtotal: a._avg.subtotal || 0,
-      avgNetPayout: a._avg.netPayout || 0,
-      orderCount: a._count,
-    })),
-    dailyByPlatform,
-  });
 }
