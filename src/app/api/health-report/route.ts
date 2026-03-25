@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { getAllCategoryIgnores, countClosedDaysInRange } from "@/lib/db/config-db";
+import { getAllCategoryIgnores, countClosedDaysInRange, getSettingValue } from "@/lib/db/config-db";
+import { setConfiguredTimezone } from "@/lib/utils/format";
 import { linearRegression, computeSeasonalIndices } from "@/lib/utils/statistics";
 import {
   startOfMonth,
@@ -209,6 +210,10 @@ function resolveCustomDates(
 // ---------- GET handler ----------
 
 export async function GET(request: NextRequest) {
+  // Load configured timezone for date formatting
+  const tz = getSettingValue("timezone");
+  if (tz) setConfiguredTimezone(tz);
+
   const { searchParams } = new URL(request.url);
 
   const now = new Date();
@@ -297,11 +302,14 @@ export async function GET(request: NextRequest) {
 
     // ---------- Daily series for chart ----------
 
+    // Never show data before the user's selected start date
+    const chartStart = dates.currentStart;
+
     const dailySeries = salesDb.prepare(
       `SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as count
        FROM orders WHERE order_status = 'completed' AND date >= ?
        GROUP BY date ORDER BY date ASC`
-    ).all(dateStr(dates.chartLookbackStart)) as { date: string; total: number; count: number }[];
+    ).all(dateStr(chartStart)) as { date: string; total: number; count: number }[];
 
     // ---------- Platform aggregates ----------
 
@@ -338,6 +346,98 @@ export async function GET(request: NextRequest) {
     );
 
     const prevPeriodExpenseTotal = sumExpenses(dates.previousStart, dates.previousEnd);
+
+    // Previous period expense breakdown by category (for comparison)
+    const prevExpensesByCategory = bankDb.prepare(
+      `SELECT category, ROUND(SUM(CAST(amount AS REAL)), 2) as total
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+       AND category IS NOT NULL AND date >= ? AND date <= ?
+       GROUP BY category`
+    ).all(...PAYOUT_CATEGORIES, dateStr(dates.previousStart), dateStr(dates.previousEnd)) as {
+      category: string; total: number;
+    }[];
+    const prevExpenseCatMap = new Map(prevExpensesByCategory.map((e) => [e.category, e.total]));
+
+    // ---------- Menu Performance (top items, current vs previous period) ----------
+
+    const currentItems = salesDb.prepare(
+      `SELECT oi.display_name as name, SUM(oi.qty) as qty, ROUND(SUM(oi.gross_sales), 2) as revenue
+       FROM order_items oi JOIN orders o ON oi.order_id = o.order_id
+       WHERE o.order_status = 'completed' AND oi.event_type NOT IN ('discount', 'refund')
+       AND o.date >= ? AND o.date <= ?
+       GROUP BY oi.display_name ORDER BY revenue DESC LIMIT 10`
+    ).all(dateStr(dates.currentStart), dateStr(dates.currentEnd)) as { name: string; qty: number; revenue: number }[];
+
+    const prevItems = salesDb.prepare(
+      `SELECT oi.display_name as name, ROUND(SUM(oi.gross_sales), 2) as revenue
+       FROM order_items oi JOIN orders o ON oi.order_id = o.order_id
+       WHERE o.order_status = 'completed' AND oi.event_type NOT IN ('discount', 'refund')
+       AND o.date >= ? AND o.date <= ?
+       GROUP BY oi.display_name`
+    ).all(dateStr(dates.previousStart), dateStr(dates.previousEnd)) as { name: string; revenue: number }[];
+
+    const prevItemMap = new Map(prevItems.map((i) => [i.name, i.revenue]));
+
+    const menuPerformance = currentItems.map((item) => {
+      const prevRev = prevItemMap.get(item.name) || 0;
+      const change = prevRev > 0 ? Math.round(((item.revenue - prevRev) / prevRev) * 1000) / 10 : (item.revenue > 0 ? 100 : 0);
+      return {
+        name: item.name,
+        qty: Number(item.qty),
+        revenue: Number(item.revenue),
+        prevRevenue: prevRev,
+        change,
+      };
+    });
+
+    // ---------- Labor Cost Ratio ----------
+
+    const laborCategories = ["Salary", "Payroll & Salary"];
+    const laborPlaceholders = laborCategories.map(() => "?").join(",");
+
+    const curLaborRow = bankDb.prepare(
+      `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND (category IN (${laborPlaceholders}) OR LOWER(name) LIKE '%salary%' OR LOWER(name) LIKE '%payroll%' OR LOWER(name) LIKE '%gusto%')
+       AND date >= ? AND date <= ?`
+    ).get(...laborCategories, dateStr(dates.currentStart), dateStr(dates.currentEnd)) as { total: number };
+
+    const prevLaborRow = bankDb.prepare(
+      `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND (category IN (${laborPlaceholders}) OR LOWER(name) LIKE '%salary%' OR LOWER(name) LIKE '%payroll%' OR LOWER(name) LIKE '%gusto%')
+       AND date >= ? AND date <= ?`
+    ).get(...laborCategories, dateStr(dates.previousStart), dateStr(dates.previousEnd)) as { total: number };
+
+    const curLabor = curLaborRow.total || 0;
+    const prevLabor = prevLaborRow.total || 0;
+    const laborCostRatio = curRevenue > 0 ? Math.round((curLabor / curRevenue) * 1000) / 10 : 0;
+    const prevLaborCostRatio = prevRevenue > 0 ? Math.round((prevLabor / prevRevenue) * 1000) / 10 : 0;
+
+    // ---------- Daily expense series (for chart overlay) ----------
+
+    const dailyExpenses = bankDb.prepare(
+      `SELECT date, ROUND(SUM(CAST(amount AS REAL)), 2) as total
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+       AND category IS NOT NULL AND date >= ?
+       GROUP BY date ORDER BY date ASC`
+    ).all(...PAYOUT_CATEGORIES, dateStr(chartStart)) as { date: string; total: number }[];
+
+    // ---------- Break-even daily amount ----------
+    // Use calendar months (not expense-days) for accurate averaging
+
+    const breakEvenData = bankDb.prepare(
+      `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months, ROUND(SUM(CAST(amount AS REAL)), 2) as total
+       FROM rocketmoney
+       WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+       AND category IS NOT NULL`
+    ).get(...PAYOUT_CATEGORIES) as { months: number; total: number };
+
+    const breakEvenDaily = breakEvenData.months > 0
+      ? Math.round(((breakEvenData.total || 0) / breakEvenData.months / 30) * 100) / 100
+      : 0;
 
     // ---------- Monthly revenue samples for seasonal indices ----------
 
@@ -457,71 +557,100 @@ export async function GET(request: NextRequest) {
     // ---------- Auto-generate insights ----------
     const insights: string[] = [];
 
-    if (dailyData.length >= 7) {
-      if (reg.slope > 5) {
-        insights.push(
-          `Revenue is growing at ${dailyChangeLabel} based on ${chartLookbackDays}-day trend.`
-        );
-      } else if (reg.slope < -5) {
-        insights.push(
-          `Revenue has been declining at ${dailyChangeLabel} \u2014 review recent weeks.`
-        );
-      }
-    }
-
+    // Revenue trend
     if (prevRevenue > 0) {
       const revChange = changeDelta(curRevenue, prevRevenue);
-      if (revChange > 0) {
-        insights.push(
-          `Revenue is up ${revChange.toFixed(1)}% ${dates.comparisonLabel}.`
-        );
+      if (revChange > 5) {
+        insights.push(`Revenue is up ${revChange.toFixed(1)}% ${dates.comparisonLabel} — strong growth.`);
       } else if (revChange < -5) {
-        insights.push(
-          `Revenue is down ${Math.abs(revChange).toFixed(1)}% ${dates.comparisonLabel}.`
-        );
+        insights.push(`Revenue is down ${Math.abs(revChange).toFixed(1)}% ${dates.comparisonLabel} — investigate what changed.`);
+      } else {
+        insights.push(`Revenue is stable (${revChange >= 0 ? "+" : ""}${revChange.toFixed(1)}%) ${dates.comparisonLabel}.`);
       }
     }
 
-    const worstFeePlatform = [...platforms].sort(
-      (a, b) => b.feeRate - a.feeRate
-    )[0];
+    // Profit margin health
+    if (curRevenue > 0) {
+      if (curProfitMargin < 0) {
+        insights.push(`Operating at a loss — expenses and fees exceed revenue by ${formatCurrency(Math.abs(curNetProfit))}.`);
+      } else if (curProfitMargin < 10) {
+        insights.push(`Profit margin is thin at ${curProfitMargin.toFixed(1)}% — look for cost-cutting opportunities.`);
+      } else if (curProfitMargin >= 20) {
+        insights.push(`Healthy profit margin of ${curProfitMargin.toFixed(1)}% — well above industry average.`);
+      }
+    }
+
+    // Top menu item performance
+    if (menuPerformance.length > 0) {
+      const topItem = menuPerformance[0];
+      insights.push(`Best seller: ${topItem.name} with ${topItem.qty} sold (${formatCurrency(topItem.revenue)} revenue).`);
+
+      // Find fastest growing item
+      const growers = menuPerformance.filter((i) => i.prevRevenue > 0 && i.change > 20);
+      if (growers.length > 0) {
+        const fastest = growers.sort((a, b) => b.change - a.change)[0];
+        insights.push(`${fastest.name} is surging — up ${fastest.change.toFixed(0)}% ${dates.comparisonLabel}.`);
+      }
+
+      // Find declining items
+      const decliners = menuPerformance.filter((i) => i.prevRevenue > 0 && i.change < -20);
+      if (decliners.length > 0) {
+        const worst = decliners.sort((a, b) => a.change - b.change)[0];
+        insights.push(`${worst.name} dropped ${Math.abs(worst.change).toFixed(0)}% — consider promotion or menu review.`);
+      }
+    }
+
+    // Expense alerts — flag categories growing fast
+    const risingExpenses = expensesByCategory
+      .map((e) => {
+        const prev = prevExpenseCatMap.get(e.category) || 0;
+        const change = prev > 0 ? ((Number(e.total) - prev) / prev) * 100 : 0;
+        return { category: e.category, total: Number(e.total), prev, change };
+      })
+      .filter((e) => e.change > 25 && e.prev > 50);
+    if (risingExpenses.length > 0) {
+      const worst = risingExpenses.sort((a, b) => b.change - a.change)[0];
+      insights.push(`${worst.category} spending jumped ${worst.change.toFixed(0)}% (${formatCurrency(worst.prev)} → ${formatCurrency(worst.total)}) — worth reviewing.`);
+    }
+
+    // Biggest expense as % of revenue
+    if (expensesByCategory.length > 0 && curRevenue > 0) {
+      const biggest = expensesByCategory[0];
+      const pct = (Number(biggest.total) / curRevenue) * 100;
+      if (pct > 30) {
+        insights.push(`${biggest.category} accounts for ${pct.toFixed(0)}% of revenue — your largest cost center.`);
+      }
+    }
+
+    // Labor cost
+    if (curLabor > 0 && curRevenue > 0) {
+      if (laborCostRatio > 35) {
+        insights.push(`Labor costs are ${laborCostRatio.toFixed(1)}% of revenue — above the 25-35% industry benchmark.`);
+      } else if (laborCostRatio < 15) {
+        insights.push(`Labor at only ${laborCostRatio.toFixed(1)}% of revenue — very lean staffing.`);
+      }
+    }
+
+    // Platform fee comparison
+    const worstFeePlatform = [...platforms].sort((a, b) => b.feeRate - a.feeRate)[0];
+    const bestPlatform = [...platforms].sort((a, b) => b.avgNetPerOrder - a.avgNetPerOrder)[0];
     if (worstFeePlatform && worstFeePlatform.feeRate > 20) {
-      insights.push(
-        `${capitalize(worstFeePlatform.platform)} has the highest fee rate at ${worstFeePlatform.feeRate.toFixed(1)}%, costing ${formatCurrency(worstFeePlatform.totalFees)} total.`
-      );
+      insights.push(`${capitalize(worstFeePlatform.platform)} takes ${worstFeePlatform.feeRate.toFixed(1)}% in fees — costing you ${formatCurrency(worstFeePlatform.totalFees)} this period.`);
+    }
+    if (bestPlatform && platforms.length > 1) {
+      insights.push(`${capitalize(bestPlatform.platform)} gives you the best net per order at ${formatCurrency(bestPlatform.avgNetPerOrder)}.`);
     }
 
-    const totalAlerts =
-      alertCountMap.error + alertCountMap.warning + alertCountMap.info;
-    if (totalAlerts > 0) {
-      insights.push(
-        `${totalAlerts} unresolved reconciliation alert${totalAlerts > 1 ? "s" : ""} require attention (${alertCountMap.error} error${alertCountMap.error !== 1 ? "s" : ""}).`
-      );
-    }
-
-    if (curProfitMargin < 10 && curRevenue > 0) {
-      insights.push(
-        `Profit margin of ${curProfitMargin.toFixed(1)}% is below 10% \u2014 consider reviewing high-cost categories.`
-      );
-    }
-
-    if (expenseTrendDir === "up" && expenseTrendPct > 10) {
-      insights.push(
-        `Operating expenses rose ${expenseTrendPct.toFixed(1)}% ${dates.comparisonLabel}.`
-      );
-    }
-
-    if (reconStats.reconciliationRate < 50 && reconStats.totalPayouts > 0) {
-      insights.push(
-        `Only ${reconStats.reconciliationRate}% of payouts are reconciled \u2014 consider matching outstanding deposits.`
-      );
-    }
-
-    const bestPlatform = platforms[0];
-    if (bestPlatform) {
-      insights.push(
-        `${capitalize(bestPlatform.platform)} yields the highest net per order at ${formatCurrency(bestPlatform.avgNetPerOrder)}.`
-      );
+    // Break-even context
+    if (breakEvenDaily > 0 && curRevenue > 0) {
+      const avgDailyRevenue = dailyData.length > 0
+        ? dailyData.reduce((s, d) => s + d.total, 0) / dailyData.length
+        : 0;
+      if (avgDailyRevenue > breakEvenDaily * 1.2) {
+        insights.push(`Averaging ${formatCurrency(avgDailyRevenue)}/day — comfortably above the ${formatCurrency(breakEvenDaily)}/day break-even point.`);
+      } else if (avgDailyRevenue < breakEvenDaily) {
+        insights.push(`Daily revenue (${formatCurrency(avgDailyRevenue)}) is below break-even (${formatCurrency(breakEvenDaily)}/day) — need to increase sales or cut costs.`);
+      }
     }
 
     // ---------- Build response ----------
@@ -559,6 +688,8 @@ export async function GET(request: NextRequest) {
       },
       projection: {
         dailySeries: dailyData,
+        dailyExpenses: dailyExpenses.map((d) => ({ date: d.date, total: Number(d.total) })),
+        breakEvenDaily,
         trend: {
           slope: reg.slope,
           intercept: reg.intercept,
@@ -580,33 +711,25 @@ export async function GET(request: NextRequest) {
         previousTotal: prevPeriodExpenseTotal,
         trendDirection: expenseTrendDir,
         trendPct: Math.round(Math.abs(expenseTrendPct) * 10) / 10,
-        topCategories: expensesByCategory.map((e) => ({
-          category: e.category || "Uncategorized",
-          amount: Number(e.total) || 0,
-          pctOfRevenue:
-            curRevenue > 0
-              ? Math.round((Number(e.total || 0) / curRevenue) * 1000) / 10
-              : 0,
-        })),
+        topCategories: expensesByCategory.map((e) => {
+          const amt = Number(e.total) || 0;
+          const prevAmt = prevExpenseCatMap.get(e.category) || 0;
+          return {
+            category: e.category || "Uncategorized",
+            amount: amt,
+            prevAmount: prevAmt,
+            pctOfRevenue: curRevenue > 0 ? Math.round((amt / curRevenue) * 1000) / 10 : 0,
+            change: prevAmt > 0 ? Math.round(((amt - prevAmt) / prevAmt) * 1000) / 10 : (amt > 0 ? 100 : 0),
+          };
+        }),
       },
-      reconciliation: {
-        totalPayouts: reconStats.totalPayouts,
-        reconciledPayouts: reconStats.reconciledPayouts,
-        reconciliationRate: reconStats.reconciliationRate,
-        alertCounts: {
-          error: alertCountMap.error,
-          warning: alertCountMap.warning,
-          info: alertCountMap.info,
-          total: totalAlerts,
-        },
-        recentAlerts: recentAlerts.map((a) => ({
-          id: a.id,
-          type: a.type,
-          severity: a.severity,
-          message: a.message,
-          platform: a.platform,
-          createdAt: a.createdAt.toISOString(),
-        })),
+      menuPerformance,
+      labor: {
+        current: curLabor,
+        previous: prevLabor,
+        ratio: laborCostRatio,
+        prevRatio: prevLaborCostRatio,
+        change: Math.round((laborCostRatio - prevLaborCostRatio) * 10) / 10,
       },
       insights,
       meta: {

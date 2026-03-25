@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useCallback, useState } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
 type Preset = { label: string; getStart: () => Date | null };
 
 function toDateStr(d: Date) {
-  return d.toISOString().split("T")[0];
+  // Use local date components instead of UTC-based toISOString()
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function todayStr() {
@@ -42,12 +46,16 @@ function startOfYear(): Date {
   return new Date(new Date().getFullYear(), 0, 1);
 }
 
+// openDate is set dynamically after fetching from settings
+let _openDate: string | null = null;
+
 const ROLLING: Preset[] = [
   { label: "1D", getStart: () => daysAgo(1) },
   { label: "7D", getStart: () => daysAgo(7) },
   { label: "30D", getStart: () => daysAgo(30) },
   { label: "90D", getStart: () => daysAgo(90) },
   { label: "1Y", getStart: () => daysAgo(365) },
+  { label: "Open", getStart: () => _openDate ? new Date(_openDate + "T00:00:00") : null },
   { label: "All", getStart: () => null },
 ];
 
@@ -63,6 +71,21 @@ const ALL_PRESETS = [...ROLLING, ...CALENDAR];
 export default function DateRangePicker() {
   const { startDate, endDate, setDateRange, minDate, maxDate } = useDateRange();
   const [lastClicked, setLastClicked] = useState<string | null>(null);
+  const [hasOpenDate, setHasOpenDate] = useState(!!_openDate);
+
+  useEffect(() => {
+    if (_openDate) return; // already fetched
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        const od = data?.settings?.restaurant_open_date;
+        if (od) {
+          _openDate = od;
+          setHasOpenDate(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const activePreset = useMemo(() => {
     if (!startDate && !endDate) return "All";
@@ -133,7 +156,7 @@ export default function DateRangePicker() {
 
       {/* Preset buttons */}
       <div className="flex items-center gap-1">
-        {ROLLING.map((p) => (
+        {ROLLING.filter((p) => p.label !== "Open" || hasOpenDate).map((p) => (
           <button key={p.label} onClick={() => applyPreset(p)} className={btnClass(p.label)}>
             {p.label}
           </button>

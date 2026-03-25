@@ -68,7 +68,8 @@ any & { onBarClick?: (name: string) => void; chartWidth: number }) {
         textAnchor="end"
         dominantBaseline="central"
         fontSize={11}
-        fill="#666"
+        fill="var(--foreground, #666)"
+        opacity={0.6}
       >
         {label}
       </text>

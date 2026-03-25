@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Profit Duck - Restaurant Financial Dashboard
 
-## Getting Started
+A Next.js dashboard for restaurant owners to track sales, expenses, bank activity, and business health across multiple platforms (Square POS, DoorDash, GrubHub, Uber Eats).
 
-First, run the development server:
+## Quick Start
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Architecture
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Framework:** Next.js 16 (App Router, Turbopack)
+- **Database:** SQLite via better-sqlite3 (no external DB required)
+- **Styling:** Tailwind CSS
+- **Charts:** Recharts
 
-## Learn More
+All data lives in local SQLite files under `/databases/`. No cloud database, no Docker, no external services required (except Square API for live sales sync).
 
-To learn more about Next.js, take a look at the following resources:
+## Data Sources
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Source | Import Method | Data |
+|--------|-------------|------|
+| Square POS | API sync (automatic) | Sales, orders, items, fees |
+| DoorDash | CSV upload | Orders, fees, payouts |
+| GrubHub | CSV upload | Orders, fees, payouts |
+| Uber Eats | CSV upload | Orders, fees, payouts |
+| Rocket Money | CSV upload | Bank transactions |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Pages
 
-## Deploy on Vercel
+| Page | URL | Purpose |
+|------|-----|---------|
+| Overview | `/dashboard` | Revenue, expenses, profit, top items, trends |
+| Health Report | `/health-report` | KPIs, projections, seasonality, insights |
+| Expenses | `/dashboard/expenses` | Cost breakdown, budget tracking, movers |
+| Platforms | `/dashboard/platforms` | Platform comparison, fee analysis |
+| Sales | `/sales` | Transaction-level sales with filtering |
+| Bank Activity | `/bank` | Bank transactions with vendor aliases |
+| Settings | `/settings` | API keys, sync, CSV uploads, aliases |
+| Reconciliation | `/reconciliation` | Match sales to bank deposits |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Key Concepts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Three-Step Pipeline
+
+All data flows through a 3-step pipeline. See [PIPELINE.md](./PIPELINE.md) for details.
+
+```
+Step 1: Source -> Vendor DB    (raw data with cleanup)
+Step 2: Vendor DB -> Unified DB (normalize to common schema)
+Step 3: Apply Aliases           (menu names, categories)
+```
+
+### Vendor Aliases
+
+Bank transactions have raw names like "AMZN MKTP US" or "COSTCO WHSE #1062". Vendor aliases map these to clean display names ("Amazon", "Costco") using pattern matching (exact, starts_with, contains).
+
+### Expense Categories
+
+Categorization rules auto-assign bank transactions to expense categories (Rent, Groceries, Payroll, etc.) based on vendor name patterns. Categories can be ignored to exclude them from reports.
+
+### Transaction Renaming
+
+Individual bank transactions can be renamed inline from the Bank Activity page. This sets a `custom_name` field that takes priority over vendor alias resolution.
+
+## Databases
+
+All stored in `/databases/`:
+
+| Database | Purpose |
+|----------|---------|
+| `sales.db` | Unified sales orders + items (all platforms) |
+| `bank.db` | Bank transactions from Rocket Money |
+| `categories.db` | Settings, aliases, categories, rules, reconciliation |
+| `vendor-aliases.db` | Bank vendor name mappings |
+| `squareup.db` | Raw Square API data (Step 1) |
+| `grubhub.db` | Raw GrubHub CSV data (Step 1) |
+| `doordash.db` | Raw DoorDash CSV data (Step 1) |
+| `ubereats.db` | Raw Uber Eats CSV data (Step 1) |
+
+## Environment Variables
+
+```env
+SQUARE_ACCESS_TOKEN=   # Square POS API token (also stored in categories.db)
+PLAID_CLIENT_ID=       # Plaid bank connection (optional)
+PLAID_SECRET=          # Plaid secret (optional)
+PLAID_ENV=sandbox      # Plaid environment
+```
+
+## Documentation
+
+- [PIPELINE.md](./PIPELINE.md) - Data pipeline architecture
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Detailed system architecture

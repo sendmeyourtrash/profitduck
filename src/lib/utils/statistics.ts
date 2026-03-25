@@ -4,9 +4,9 @@
  */
 export function linearRegression(
   points: { x: number; y: number }[]
-): { slope: number; intercept: number; r2: number } {
+): { slope: number; intercept: number; r2: number; standardError: number } {
   const n = points.length;
-  if (n < 2) return { slope: 0, intercept: points[0]?.y ?? 0, r2: 0 };
+  if (n < 2) return { slope: 0, intercept: points[0]?.y ?? 0, r2: 0, standardError: 0 };
 
   let sumX = 0,
     sumY = 0,
@@ -23,12 +23,12 @@ export function linearRegression(
   }
 
   const denom = n * sumX2 - sumX * sumX;
-  if (denom === 0) return { slope: 0, intercept: sumY / n, r2: 0 };
+  if (denom === 0) return { slope: 0, intercept: sumY / n, r2: 0, standardError: 0 };
 
   const slope = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slope * sumX) / n;
 
-  // R² (coefficient of determination)
+  // R² (coefficient of determination) + standard error of residuals
   const meanY = sumY / n;
   let ssTot = 0,
     ssRes = 0;
@@ -38,7 +38,10 @@ export function linearRegression(
   }
   const r2 = ssTot === 0 ? 0 : 1 - ssRes / ssTot;
 
-  return { slope, intercept, r2 };
+  // Standard error of the estimate (root mean square error)
+  const standardError = n > 2 ? Math.sqrt(ssRes / (n - 2)) : 0;
+
+  return { slope, intercept, r2, standardError };
 }
 
 /**

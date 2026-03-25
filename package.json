@@ -25,6 +25,7 @@
     "pdf.js-extract": "^0.2.1",
     "plaid": "^41.4.0",
     "prisma": "^7.5.0",
+    "puppeteer": "^24.40.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-plaid-link": "^4.1.1",

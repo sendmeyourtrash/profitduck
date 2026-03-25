@@ -331,6 +331,7 @@ function SalesPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [platformSummary, setPlatformSummary] = useState<PlatformSummary | null>(null);
+  const [cashSummary, setCashSummary] = useState<{ orderCount: number; grossSales: number; tax: number; tip: number; netSales: number } | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filters, setFilters] = useState<FilterState>(emptyFilters);
@@ -399,6 +400,7 @@ function SalesPage() {
         setOrders(data.transactions || []);
         setTotal(data.total || 0);
         setPlatformSummary(data.platformSummary || null);
+        setCashSummary(data.cashSummary || null);
       })
       .finally(() => { setInitialLoading(false); setRefreshing(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,6 +443,11 @@ function SalesPage() {
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Gross Sales</p>
             <p className="text-lg font-semibold text-emerald-600 mt-0.5">{formatCurrency(ps.grossSales)}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{ps.orderCount.toLocaleString()} orders</p>
+            {cashSummary && cashSummary.orderCount > 0 && (
+              <p className="text-[10px] text-emerald-500 mt-0.5 border-t border-gray-100 pt-1">
+                💵 Cash: {formatCurrency(cashSummary.grossSales)} <span className="text-gray-400">({cashSummary.orderCount} orders)</span>
+              </p>
+            )}
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Fees</p>
@@ -470,6 +477,11 @@ function SalesPage() {
             {ps.tip > 0 && (
               <p className="text-[10px] text-gray-400 mt-0.5">Tips: {formatCurrency(ps.tip)} <span className="text-gray-300">{pct(ps.tip)}</span></p>
             )}
+            {cashSummary && cashSummary.tax > 0 && (
+              <p className="text-[10px] text-emerald-500 mt-0.5 border-t border-gray-100 pt-1">
+                💵 Cash tax: {formatCurrency(cashSummary.tax)}
+              </p>
+            )}
           </div>
           <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Net Revenue</p>
@@ -480,6 +492,11 @@ function SalesPage() {
             <p className="text-[10px] text-gray-500 mt-1 border-t border-gray-100 pt-1">
               After tax: <span className="font-medium">{formatCurrency(netRevenue - (ps.tax || 0))}</span> <span className="text-gray-300">{pct(netRevenue - (ps.tax || 0))}</span>
             </p>
+            {cashSummary && cashSummary.netSales > 0 && (
+              <p className="text-[10px] text-emerald-500 mt-0.5">
+                💵 Cash net: {formatCurrency(cashSummary.netSales)}
+              </p>
+            )}
           </div>
         </div>
         );

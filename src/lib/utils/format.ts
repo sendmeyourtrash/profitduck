@@ -10,6 +10,7 @@ export function formatCurrency(amount: number): string {
 
 /**
  * Format a Date or ISO string as a short date (e.g., "Mar 12, 2026").
+ * Uses the configured timezone to prevent day-shift issues.
  */
 export function formatDate(date: Date | string): string {
   const raw = typeof date === "string" ? date : date.toISOString();
@@ -20,11 +21,13 @@ export function formatDate(date: Date | string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: _configuredTimezone,
   });
 }
 
 /**
  * Format a Date or ISO string as a short date with time.
+ * Uses the configured timezone.
  */
 export function formatDateTime(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
@@ -34,7 +37,26 @@ export function formatDateTime(date: Date | string): string {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: _configuredTimezone,
   });
+}
+
+/**
+ * Convert a date string to a stable local YYYY-MM-DD string in the configured timezone.
+ * Use this instead of toISOString().slice(0,10) to avoid UTC day-shift.
+ */
+export function toLocalDateStr(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: _configuredTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value || "2026";
+  const m = parts.find((p) => p.type === "month")?.value || "01";
+  const dy = parts.find((p) => p.type === "day")?.value || "01";
+  return `${y}-${m}-${dy}`;
 }
 
 /**
@@ -81,42 +103,120 @@ export function parseDate(value: unknown): Date | null {
 }
 
 /**
- * Map of common timezone names/abbreviations to UTC offset strings.
+ * Map of common timezone names/abbreviations to IANA timezone identifiers.
  * Square uses names like "Eastern Time (US & Canada)".
  * Grubhub uses IANA like "America/New_York".
  */
-const TZ_OFFSETS: Record<string, string> = {
+const TZ_TO_IANA: Record<string, string> = {
   // Standard names (from Square CSVs)
-  "eastern time (us & canada)": "-05:00",
-  "central time (us & canada)": "-06:00",
-  "mountain time (us & canada)": "-07:00",
-  "pacific time (us & canada)": "-08:00",
-  // IANA zones (from Grubhub)
-  "america/new_york": "-05:00",
-  "america/chicago": "-06:00",
-  "america/denver": "-07:00",
-  "america/los_angeles": "-08:00",
+  "eastern time (us & canada)": "America/New_York",
+  "central time (us & canada)": "America/Chicago",
+  "mountain time (us & canada)": "America/Denver",
+  "pacific time (us & canada)": "America/Los_Angeles",
+  // IANA zones (from Grubhub) — pass through
+  "america/new_york": "America/New_York",
+  "america/chicago": "America/Chicago",
+  "america/denver": "America/Denver",
+  "america/los_angeles": "America/Los_Angeles",
   // Abbreviations
-  est: "-05:00",
-  edt: "-04:00",
-  cst: "-06:00",
-  cdt: "-05:00",
-  mst: "-07:00",
-  mdt: "-06:00",
-  pst: "-08:00",
-  pdt: "-07:00",
-  utc: "+00:00",
-  gmt: "+00:00",
+  est: "America/New_York",
+  edt: "America/New_York",
+  cst: "America/Chicago",
+  cdt: "America/Chicago",
+  mst: "America/Denver",
+  mdt: "America/Denver",
+  pst: "America/Los_Angeles",
+  pdt: "America/Los_Angeles",
+  utc: "UTC",
+  gmt: "UTC",
 };
 
+/** Map IANA timezone to current UTC offset string (handles DST automatically) */
+function ianaToOffset(iana: string): string {
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: iana,
+      timeZoneName: "shortOffset",
+    });
+    const parts = formatter.formatToParts(now);
+    const tzPart = parts.find((p) => p.type === "timeZoneName");
+    if (tzPart) {
+      // "GMT-5" → "-05:00", "GMT+0" → "+00:00", "GMT-4" → "-04:00"
+      const match = tzPart.value.match(/GMT([+-]?\d+)?(?::(\d+))?/);
+      if (match) {
+        const hours = parseInt(match[1] || "0");
+        const mins = parseInt(match[2] || "0");
+        const sign = hours >= 0 ? "+" : "-";
+        return `${sign}${String(Math.abs(hours)).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+      }
+    }
+  } catch { /* fallback below */ }
+  return "+00:00";
+}
+
 /**
- * Resolve a timezone string to a UTC offset like "-05:00".
- * Falls back to "-05:00" (Eastern) for NYC-based business.
+ * Configured timezone (IANA format). Set once from settings, used everywhere.
+ * Defaults to browser/server local timezone.
  */
-function resolveTimezone(tz?: string | null): string {
-  if (!tz) return "-05:00"; // Default to Eastern for NYC
+let _configuredTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+
+/** Set the app-wide timezone (call from settings load) */
+export function setConfiguredTimezone(iana: string): void {
+  _configuredTimezone = iana;
+}
+
+/** Get the app-wide configured timezone */
+export function getConfiguredTimezone(): string {
+  return _configuredTimezone;
+}
+
+/**
+ * Resolve a source timezone string to a UTC offset like "-05:00".
+ * If no source TZ provided, uses the app-configured timezone.
+ * Handles DST automatically via IANA timezone lookup.
+ */
+export function resolveTimezone(tz?: string | null): string {
+  if (!tz) return ianaToOffset(_configuredTimezone);
   const normalized = tz.trim().toLowerCase();
-  return TZ_OFFSETS[normalized] || "-05:00";
+  const iana = TZ_TO_IANA[normalized];
+  if (iana) return ianaToOffset(iana);
+  // Try as IANA directly
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: tz.trim() });
+    return ianaToOffset(tz.trim());
+  } catch { /* not valid IANA */ }
+  return ianaToOffset(_configuredTimezone);
+}
+
+/**
+ * Resolve a source timezone string to an IANA timezone identifier.
+ */
+export function resolveToIANA(tz?: string | null): string {
+  if (!tz) return _configuredTimezone;
+  const normalized = tz.trim().toLowerCase();
+  return TZ_TO_IANA[normalized] || _configuredTimezone;
+}
+
+/**
+ * Load timezone from a value (e.g., fetched from settings API or DB).
+ * Server-side API routes should call: setConfiguredTimezone(getSettingValue("timezone"))
+ * Client-side pages should fetch timezone from /api/settings and call setConfiguredTimezone().
+ */
+export function loadConfiguredTimezone(): string {
+  // No-op — returns current configured timezone.
+  // To actually load from DB, server code should use:
+  //   import { getSettingValue } from "@/lib/db/config-db";
+  //   setConfiguredTimezone(getSettingValue("timezone") || "America/New_York");
+  return _configuredTimezone;
+}
+
+/**
+ * Get today's date as YYYY-MM-DD in the configured timezone.
+ */
+export function todayInConfiguredTz(): string {
+  loadConfiguredTimezone();
+  return toLocalDateStr(new Date());
 }
 
 /**

@@ -19,13 +19,20 @@ interface DateRangeContextValue {
 
 const DateRangeContext = createContext<DateRangeContextValue | null>(null);
 
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function defaultRange(): { startDate: string; endDate: string } {
   const now = new Date();
   const start = new Date(now);
   start.setDate(start.getDate() - 30);
   return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: now.toISOString().split("T")[0],
+    startDate: toLocalDateStr(start),
+    endDate: toLocalDateStr(now),
   };
 }
 

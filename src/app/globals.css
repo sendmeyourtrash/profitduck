@@ -5,10 +5,275 @@
   --foreground: #111827;
 }
 
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE — Comprehensive overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+/* --- Backgrounds --- */
+.dark .bg-white { background-color: #1e293b !important; }
+.dark .bg-gray-50 { background-color: #0f172a !important; }
+.dark .bg-gray-100 { background-color: #1e293b !important; }
+.dark .bg-gray-200 { background-color: #334155 !important; }
+.dark .bg-gray-400 { background-color: #64748b !important; }
+.dark .bg-white\/80 { background-color: rgba(30, 41, 59, 0.85) !important; }
+
+/* --- Borders --- */
+.dark .border-gray-50 { border-color: #334155 !important; }
+.dark .border-gray-100 { border-color: #334155 !important; }
+.dark .border-gray-200 { border-color: #334155 !important; }
+.dark .border-gray-300 { border-color: #475569 !important; }
+.dark .border-t { border-color: #334155 !important; }
+.dark .border-b { border-color: #334155 !important; }
+.dark .divide-gray-100 > * + * { border-color: #334155 !important; }
+
+/* --- Text grays --- */
+.dark .text-gray-900 { color: #f1f5f9 !important; }
+.dark .text-gray-800 { color: #e2e8f0 !important; }
+.dark .text-gray-700 { color: #cbd5e1 !important; }
+.dark .text-gray-600 { color: #94a3b8 !important; }
+.dark .text-gray-500 { color: #94a3b8 !important; }
+.dark .text-gray-400 { color: #64748b !important; }
+
+/* --- Hover states --- */
+.dark .hover\:bg-gray-50:hover { background-color: #334155 !important; }
+.dark .hover\:bg-gray-100:hover { background-color: #334155 !important; }
+.dark .hover\:bg-gray-200:hover { background-color: #475569 !important; }
+.dark .hover\:text-gray-700:hover { color: #e2e8f0 !important; }
+.dark .hover\:text-gray-900:hover { color: #f1f5f9 !important; }
+.dark .hover\:text-indigo-800:hover { color: #a5b4fc !important; }
+.dark .hover\:border-amber-400:hover { border-color: #f59e0b !important; }
+
+/* --- Indigo (insights, links, active states) --- */
+.dark .bg-indigo-50 { background-color: rgba(99, 102, 241, 0.1) !important; }
+.dark .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.15) !important; }
+.dark .bg-indigo-200 { background-color: rgba(99, 102, 241, 0.25) !important; }
+.dark .border-indigo-100 { border-color: rgba(99, 102, 241, 0.25) !important; }
+.dark .border-indigo-200 { border-color: rgba(99, 102, 241, 0.3) !important; }
+.dark .text-indigo-600 { color: #818cf8 !important; }
+.dark .text-indigo-700 { color: #a5b4fc !important; }
+.dark .text-indigo-800 { color: #c7d2fe !important; }
+.dark .text-indigo-900 { color: #e0e7ff !important; }
+.dark .text-indigo-400 { color: #818cf8 !important; }
+
+/* --- Emerald (success, positive) --- */
+.dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.1) !important; }
+.dark .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.15) !important; }
+.dark .bg-emerald-200 { background-color: rgba(16, 185, 129, 0.25) !important; }
+.dark .border-emerald-100 { border-color: rgba(16, 185, 129, 0.25) !important; }
+.dark .text-emerald-600 { color: #34d399 !important; }
+.dark .text-emerald-700 { color: #6ee7b7 !important; }
+
+/* --- Red (danger, expenses) --- */
+.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.1) !important; }
+.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.15) !important; }
+.dark .bg-red-200 { background-color: rgba(239, 68, 68, 0.25) !important; }
+.dark .border-red-100 { border-color: rgba(239, 68, 68, 0.25) !important; }
+.dark .border-red-200 { border-color: rgba(239, 68, 68, 0.3) !important; }
+.dark .text-red-600 { color: #f87171 !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+
+/* --- Amber (warning) --- */
+.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.1) !important; }
+.dark .bg-amber-100 { background-color: rgba(245, 158, 11, 0.15) !important; }
+.dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.25) !important; }
+.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.3) !important; }
+.dark .text-amber-500 { color: #fbbf24 !important; }
+.dark .text-amber-600 { color: #fcd34d !important; }
+.dark .text-amber-700 { color: #fde68a !important; }
+.dark .text-amber-800 { color: #fef3c7 !important; }
+
+/* --- Violet (seasonal) --- */
+.dark .bg-violet-50 { background-color: rgba(139, 92, 246, 0.1) !important; }
+.dark .text-violet-500 { color: #a78bfa !important; }
+.dark .text-violet-700 { color: #c4b5fd !important; }
+
+/* --- Blue (info) --- */
+.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.1) !important; }
+.dark .bg-blue-50\/50 { background-color: rgba(59, 130, 246, 0.08) !important; }
+.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.15) !important; }
+.dark .border-blue-100 { border-color: rgba(59, 130, 246, 0.25) !important; }
+.dark .border-blue-200 { border-color: rgba(59, 130, 246, 0.3) !important; }
+.dark .text-blue-700 { color: #93c5fd !important; }
+
+/* --- Green (platform cards) --- */
+.dark .bg-green-50 { background-color: rgba(34, 197, 94, 0.1) !important; }
+.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.15) !important; }
+.dark .border-green-200 { border-color: rgba(34, 197, 94, 0.25) !important; }
+.dark .text-green-700 { color: #86efac !important; }
+
+/* --- Orange (platform cards) --- */
+.dark .bg-orange-50 { background-color: rgba(249, 115, 22, 0.1) !important; }
+.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.15) !important; }
+.dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.25) !important; }
+
+/* --- Badges (status pills, tags) --- */
+.dark .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.2) !important; }
+.dark .text-emerald-700 { color: #6ee7b7 !important; }
+.dark .bg-blue-100.text-blue-700 { background-color: rgba(59, 130, 246, 0.2) !important; color: #93c5fd !important; }
+.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.2) !important; }
+.dark .text-red-700 { color: #fca5a5 !important; }
+.dark .bg-amber-100.text-amber-700 { background-color: rgba(245, 158, 11, 0.2) !important; color: #fde68a !important; }
+
+/* --- Purple (filters, badges) --- */
+.dark .bg-purple-50 { background-color: rgba(168, 85, 247, 0.1) !important; }
+.dark .bg-purple-100 { background-color: rgba(168, 85, 247, 0.2) !important; }
+.dark .text-purple-600 { color: #c084fc !important; }
+.dark .text-purple-700 { color: #d8b4fe !important; }
+.dark .ring-purple-300 { --tw-ring-color: rgba(168, 85, 247, 0.35) !important; }
+
+/* --- Rose (filters) --- */
+.dark .bg-rose-100 { background-color: rgba(244, 63, 94, 0.2) !important; }
+.dark .text-rose-700 { color: #fda4af !important; }
+
+/* --- Slate (filters) --- */
+.dark .bg-slate-100 { background-color: rgba(100, 116, 139, 0.2) !important; }
+.dark .text-slate-700 { color: #cbd5e1 !important; }
+
+/* --- Teal (progress, reconciliation) --- */
+.dark .bg-teal-100 { background-color: rgba(20, 184, 166, 0.2) !important; }
+.dark .bg-teal-600 { background-color: #0d9488 !important; }
+.dark .text-teal-700 { color: #5eead4 !important; }
+
+/* --- Yellow --- */
+.dark .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.1) !important; }
+.dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.15) !important; }
+.dark .text-yellow-700 { color: #fde047 !important; }
+
+/* --- Pink --- */
+.dark .bg-pink-50 { background-color: rgba(236, 72, 153, 0.1) !important; }
+.dark .bg-pink-100 { background-color: rgba(236, 72, 153, 0.15) !important; }
+
+/* --- Cyan --- */
+.dark .bg-cyan-50 { background-color: rgba(6, 182, 212, 0.1) !important; }
+.dark .bg-cyan-100 { background-color: rgba(6, 182, 212, 0.15) !important; }
+
+/* --- Receipt card borders --- */
+.dark .border-t-2.border-gray-200 { border-color: #475569 !important; }
+.dark .border-t.border-gray-100 { border-color: #334155 !important; }
+.dark .border-b.border-gray-100 { border-color: #334155 !important; }
+
+/* --- Expanded row background --- */
+.dark .bg-gray-50\/50 { background-color: rgba(15, 23, 42, 0.5) !important; }
+.dark .bg-gray-50\/80 { background-color: rgba(15, 23, 42, 0.8) !important; }
+.dark tr.bg-gray-50 { background-color: #1e293b !important; }
+
+/* --- Misc text/border catch-alls --- */
+.dark .text-emerald-500 { color: #34d399 !important; }
+.dark .text-red-500 { color: #f87171 !important; }
+.dark .text-amber-500 { color: #fbbf24 !important; }
+.dark .text-blue-600 { color: #60a5fa !important; }
+.dark .bg-gray-300 { background-color: #475569 !important; }
+.dark .text-violet-600 { color: #a78bfa !important; }
+.dark .border-gray-700 { border-color: #374151 !important; }
+.dark .divide-gray-200 > * + * { border-color: #334155 !important; }
+.dark .ring-1.ring-gray-200 { --tw-ring-color: #334155 !important; }
+.dark .focus\:ring-indigo-500:focus { --tw-ring-color: rgba(99, 102, 241, 0.5) !important; }
+
+/* --- Inputs, selects, textareas --- */
+.dark input[type="date"],
+.dark input[type="text"],
+.dark input[type="search"],
+.dark input[type="number"],
+.dark input[type="password"],
+.dark input[type="email"],
+.dark select,
+.dark textarea {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3) !important;
+}
+
+/* --- Tables --- */
+.dark thead.bg-gray-50 { background-color: #1e293b !important; }
+.dark th { color: #94a3b8 !important; }
+.dark td { color: #cbd5e1 !important; }
+.dark tr.border-b { border-color: #334155 !important; }
+.dark tr.border-t { border-color: #334155 !important; }
+
+/* --- Buttons --- */
+.dark .bg-white.border.border-gray-200 {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+  color: #cbd5e1 !important;
+}
+.dark .bg-white.shadow-sm {
+  background-color: #1e293b !important;
+}
+
+/* --- Scrollbars --- */
+.dark ::-webkit-scrollbar { width: 8px; height: 8px; }
+.dark ::-webkit-scrollbar-track { background: #0f172a; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* --- Recharts (charts) --- */
+.dark .recharts-cartesian-grid line { stroke: #334155 !important; }
+.dark .recharts-cartesian-axis-tick-value { fill: #94a3b8 !important; }
+.dark .recharts-cartesian-axis-line { stroke: #475569 !important; }
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: #1e293b !important;
+  border: 1px solid #475569 !important;
+  border-radius: 8px !important;
+}
+.dark .recharts-tooltip-label { color: #f1f5f9 !important; }
+.dark .recharts-tooltip-item { color: #cbd5e1 !important; }
+.dark .recharts-legend-item-text { color: #94a3b8 !important; fill: #94a3b8 !important; }
+/* Reference line labels — brighten for dark mode */
+.dark .recharts-reference-line text { fill: #fbbf24 !important; }
+
+/* --- Recharts brush --- */
+.dark .recharts-brush-slide { fill: rgba(99, 102, 241, 0.15) !important; }
+.dark .recharts-brush-traveller rect { fill: #475569 !important; }
+
+/* --- Rounded badges/pills --- */
+.dark .rounded-full.bg-gray-100 { background-color: #334155 !important; }
+.dark .rounded-full.text-gray-600 { color: #94a3b8 !important; }
+.dark .rounded.bg-gray-100 { background-color: #334155 !important; }
+
+/* --- Shadow adjustments --- */
+.dark .shadow-sm { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important; }
+.dark .shadow { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important; }
+.dark .shadow-lg { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important; }
+
+/* --- Dividers --- */
+.dark .border-t.border-gray-100 { border-color: #334155 !important; }
+.dark .border-b.border-gray-100 { border-color: #334155 !important; }
+
+/* --- Gradient for spread indicators --- */
+.dark .bg-gradient-to-r.from-emerald-400 {
+  background-image: linear-gradient(to right, #34d399, #475569, #f87171) !important;
+}
+
+/* --- Progress bars --- */
+.dark .bg-gray-100.rounded-full { background-color: #334155 !important; }
+
+/* --- Stacked bar (cost split) --- */
+.dark .bg-indigo-500 { background-color: #6366f1 !important; }
+.dark .bg-amber-400 { background-color: #f59e0b !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
 
 @keyframes progress-indeterminate {
   0% { transform: translateX(-100%); }

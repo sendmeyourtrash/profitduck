@@ -26,6 +26,7 @@ export const SETTING_KEYS = {
   PLAID_LAST_SYNC_AT: "plaid_last_sync_at",
   // Business
   RESTAURANT_OPEN_DATE: "restaurant_open_date",
+  TIMEZONE: "timezone",
 } as const;
 
 // Sensitive keys whose values should be masked when returned to the client

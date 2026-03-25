@@ -99,6 +99,24 @@ export async function GET(request: NextRequest) {
       endDate: endDate || undefined,
     });
 
+    // Cash summary — quick query for cash payment totals
+    const { querySales: queryCash } = require("@/lib/db/sales-db");
+    const cashResult = queryCash({
+      platforms: allPlatforms.length > 0 ? allPlatforms : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      limit: 0,
+      offset: 0,
+      paymentMethod: "Cash",
+    });
+    const cashSummary = {
+      orderCount: cashResult.summary.order_count || 0,
+      grossSales: cashResult.summary.gross_sales || 0,
+      tax: cashResult.summary.tax || 0,
+      tip: cashResult.summary.tip || 0,
+      netSales: cashResult.summary.net_sales || 0,
+    };
+
     return NextResponse.json({
       transactions,
       total,
@@ -106,6 +124,7 @@ export async function GET(request: NextRequest) {
       offset,
       platformSummary,
       platformBreakdown: breakdown,
+      cashSummary,
     });
   } catch (error) {
     console.error("Sales query error:", error);

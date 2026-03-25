@@ -31,15 +31,6 @@ const VendorAliasesPanel = dynamic(
   { loading: loadingSpinner }
 );
 
-const MenuItemAliasesPanel = dynamic(
-  () => import("@/components/panels/MenuItemAliasesPanel"),
-  { loading: loadingSpinner }
-);
-
-const MenuCategoryAliasesPanel = dynamic(
-  () => import("@/components/panels/MenuCategoryAliasesPanel"),
-  { loading: loadingSpinner }
-);
 
 const ClosedDaysPanel = dynamic(
   () => import("@/components/panels/ClosedDaysPanel"),
@@ -105,13 +96,10 @@ interface DuplicateInfo {
 
 interface SyncResult {
   totalPayments: number;
-  matched: number;
-  enriched: number;
-  skipped: number;
-  unmatched: number;
-  created: number;
-  totalFeesAdded: number;
-  importId: string;
+  newOrders: number;
+  skippedDuplicates: number;
+  enrichedOrders: number;
+  errors: number;
 }
 
 interface SyncHistory {
@@ -186,9 +174,18 @@ export default function SettingsPage() {
   const [openDate, setOpenDate] = useState("");
   const [openDateSaving, setOpenDateSaving] = useState(false);
   const [openDateSaved, setOpenDateSaved] = useState(false);
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [timezoneSaved, setTimezoneSaved] = useState(false);
 
   // History
   const [syncHistory, setSyncHistory] = useState<SyncHistory[]>([]);
+
+  // Uber Eats scraper state
+  const [ueScraperActive, setUeScraperActive] = useState(false);
+  const [ueScraperStatus, setUeScraperStatus] = useState<{
+    stage: string; message: string; ordersScraped?: number;
+  } | null>(null);
 
   // Tab & import history
   const [activeTab, setActiveTab] = useState<SettingsTab>("settings");
@@ -259,6 +256,9 @@ export default function SettingsPage() {
       if (data.settings?.restaurant_open_date) {
         setOpenDate(data.settings.restaurant_open_date);
       }
+      if (data.settings?.timezone) {
+        setTimezone(data.settings.timezone);
+      }
     } catch {
       // ignore
     }
@@ -279,6 +279,24 @@ export default function SettingsPage() {
       // ignore
     } finally {
       setOpenDateSaving(false);
+    }
+  }
+
+  async function saveTimezone() {
+    setTimezoneSaving(true);
+    setTimezoneSaved(false);
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "timezone", value: timezone }),
+      });
+      setTimezoneSaved(true);
+      setTimeout(() => setTimezoneSaved(false), 2000);
+    } catch {
+      // ignore
+    } finally {
+      setTimezoneSaving(false);
     }
   }
 
@@ -528,26 +546,6 @@ export default function SettingsPage() {
           Vendor Aliases
         </button>
         <button
-          onClick={() => setActiveTab("menu-aliases")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "menu-aliases"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-          }`}
-        >
-          Menu Aliases
-        </button>
-        <button
-          onClick={() => setActiveTab("category-aliases")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === "category-aliases"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-          }`}
-        >
-          Category Aliases
-        </button>
-        <button
           onClick={() => setActiveTab("closed-days")}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "closed-days"
@@ -566,8 +564,6 @@ export default function SettingsPage() {
       {activeTab === "manual-entry" && <ManualEntryPanel />}
       {activeTab === "categories" && <CategoriesPanel />}
       {activeTab === "vendor-aliases" && <VendorAliasesPanel />}
-      {activeTab === "menu-aliases" && <MenuItemAliasesPanel />}
-      {activeTab === "category-aliases" && <MenuCategoryAliasesPanel />}
       {activeTab === "closed-days" && <ClosedDaysPanel />}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -685,6 +681,39 @@ export default function SettingsPage() {
         </div>
         <p className="text-xs text-gray-400">
           Used in reports to provide context for profit calculations.
+        </p>
+
+        {/* Timezone */}
+        <div className="flex items-end gap-3 pt-3 border-t border-gray-100">
+          <div className="flex-1 max-w-xs">
+            <label htmlFor="timezone" className="block text-xs font-medium text-gray-600 mb-1">
+              Timezone
+            </label>
+            <select
+              id="timezone"
+              value={timezone}
+              onChange={(e) => { setTimezone(e.target.value); setTimezoneSaved(false); }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option value="America/New_York">Eastern Time (New York)</option>
+              <option value="America/Chicago">Central Time (Chicago)</option>
+              <option value="America/Denver">Mountain Time (Denver)</option>
+              <option value="America/Los_Angeles">Pacific Time (Los Angeles)</option>
+              <option value="America/Anchorage">Alaska Time</option>
+              <option value="Pacific/Honolulu">Hawaii Time</option>
+              <option value="UTC">UTC</option>
+            </select>
+          </div>
+          <button
+            onClick={saveTimezone}
+            disabled={timezoneSaving}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+          >
+            {timezoneSaving ? "Saving..." : timezoneSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">
+          All dates and times are displayed in this timezone. Affects charts, reports, and date filtering.
         </p>
       </div>
 
@@ -887,12 +916,84 @@ export default function SettingsPage() {
               <span className="text-lg">{p.icon}</span>
               <div>
                 <p className="text-sm font-medium text-gray-800">{p.name}</p>
-                <p className="text-xs text-gray-500">CSV import only &mdash; no API available</p>
+                <p className="text-xs text-gray-500">
+                  {p.key === "ubereats" ? "CSV import or auto-scrape" : "CSV import only — no API available"}
+                </p>
               </div>
             </div>
-            <span className="text-xs text-gray-400 px-2.5 py-1 bg-gray-100 rounded-full">CSV Only</span>
+            {p.key === "ubereats" ? (
+              <button
+                onClick={async () => {
+                  if (ueScraperActive) {
+                    // Abort
+                    await fetch("/api/scrape/ubereats", { method: "DELETE" });
+                    setUeScraperActive(false);
+                    setUeScraperStatus(null);
+                    return;
+                  }
+                  setUeScraperActive(true);
+                  setUeScraperStatus({ stage: "launching", message: "Launching Chrome..." });
+                  try {
+                    await fetch("/api/scrape/ubereats", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({}),
+                    });
+                    // Poll for status
+                    const poll = setInterval(async () => {
+                      try {
+                        const res = await fetch("/api/scrape/ubereats");
+                        const data = await res.json();
+                        setUeScraperStatus(data);
+                        if (data.stage === "done" || data.stage === "error" || !data.active) {
+                          clearInterval(poll);
+                          setUeScraperActive(false);
+                        }
+                      } catch { /* ignore */ }
+                    }, 2000);
+                  } catch {
+                    setUeScraperActive(false);
+                    setUeScraperStatus({ stage: "error", message: "Failed to start scraper" });
+                  }
+                }}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  ueScraperActive
+                    ? "bg-red-100 text-red-700 hover:bg-red-200"
+                    : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                }`}
+              >
+                {ueScraperActive ? "Stop Scraper" : "Scrape Orders"}
+              </button>
+            ) : (
+              <span className="text-xs text-gray-400 px-2.5 py-1 bg-gray-100 rounded-full">CSV Only</span>
+            )}
           </div>
         ))}
+        {/* Uber Eats Scraper Status */}
+        {ueScraperStatus && ueScraperStatus.stage !== "done" && (
+          <div className={`rounded-lg p-3 text-sm ${
+            ueScraperStatus.stage === "error"
+              ? "bg-red-50 border border-red-100 text-red-700"
+              : "bg-blue-50 border border-blue-100 text-blue-700"
+          }`}>
+            <div className="flex items-center gap-2">
+              {ueScraperStatus.stage !== "error" && (
+                <div className="animate-spin h-3.5 w-3.5 border-2 border-blue-400 border-t-transparent rounded-full" />
+              )}
+              <span className="text-xs">{ueScraperStatus.message}</span>
+            </div>
+            {ueScraperStatus.ordersScraped != null && ueScraperStatus.ordersScraped > 0 && (
+              <p className="text-xs mt-1 ml-5">
+                {ueScraperStatus.ordersScraped} orders found
+              </p>
+            )}
+          </div>
+        )}
+        {ueScraperStatus && ueScraperStatus.stage === "done" && ueScraperStatus.message !== "Ready" && (
+          <div className="rounded-lg p-3 text-xs bg-emerald-50 border border-emerald-100 text-emerald-700">
+            {ueScraperStatus.message}
+          </div>
+        )}
 
         {/* ── Sync History ────────────────────────────────────────── */}
         {syncHistory.length > 0 && (

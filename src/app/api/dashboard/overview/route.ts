@@ -166,6 +166,101 @@ export async function GET(request: NextRequest) {
       ORDER BY date DESC LIMIT 10
     `).all(...recentParams) as { date: string; name: string; custom_name: string; description: string; amount: string; category: string; account_type: string; account_name: string }[];
 
+    // ── NEW METRICS ──────────────────────────────────────────────────
+
+    // WoW / MoM change %
+    const subDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() - n); return r; };
+    const lastWeekStart = format(startOfWeek(subDays(now, 7), { weekStartsOn: 1 }), "yyyy-MM-dd");
+    const lastWeekEnd = format(subDays(startOfWeek(now, { weekStartsOn: 1 }), 1), "yyyy-MM-dd");
+    const lastMonthStart = format(new Date(now.getFullYear(), now.getMonth() - 1, 1), "yyyy-MM-dd");
+    const lastMonthEnd = format(new Date(now.getFullYear(), now.getMonth(), 0), "yyyy-MM-dd");
+
+    const lastWeekRevenue = sumRevenue(lastWeekStart, lastWeekEnd);
+    const lastMonthRevenue = sumRevenue(lastMonthStart, lastMonthEnd);
+
+    const pctChange = (cur: number, prev: number) =>
+      prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / prev) * 1000) / 10;
+
+    const weekChange = { value: pctChange(weekRevenue, lastWeekRevenue), label: "vs last week" };
+    const monthChange = { value: pctChange(monthRevenue, lastMonthRevenue), label: "vs last month" };
+
+    // Yesterday comparison
+    const yesterdayStr = format(subDays(now, 1), "yyyy-MM-dd");
+    const yesterdayRevenue = sumRevenue(yesterdayStr, yesterdayStr);
+    const todayChange = { value: pctChange(todayRevenue, yesterdayRevenue), label: "vs yesterday" };
+
+    // Daily averages
+    const avgQuery = hasDateRange
+      ? salesDb.prepare(`SELECT COUNT(DISTINCT date) as days, COUNT(*) as orders, ROUND(SUM(gross_sales), 2) as revenue FROM orders WHERE order_status='completed' AND date >= ? AND date <= ?`).get(startDate, endDate)
+      : salesDb.prepare(`SELECT COUNT(DISTINCT date) as days, COUNT(*) as orders, ROUND(SUM(gross_sales), 2) as revenue FROM orders WHERE order_status='completed'`).get();
+    const avgData = avgQuery as { days: number; orders: number; revenue: number };
+    const dailyAvg = {
+      revenue: avgData.days > 0 ? Math.round((avgData.revenue / avgData.days) * 100) / 100 : 0,
+      orders: avgData.days > 0 ? Math.round((avgData.orders / avgData.days) * 10) / 10 : 0,
+      orderValue: avgData.orders > 0 ? Math.round((avgData.revenue / avgData.orders) * 100) / 100 : 0,
+    };
+
+    // Profit margin & expense ratio
+    const profitMargin = totalRevenue > 0
+      ? Math.round(((totalRevenue - totalFees - totalExpenses) / totalRevenue) * 1000) / 10
+      : 0;
+    const expenseRatio = totalRevenue > 0
+      ? Math.round(((totalFees + totalExpenses) / totalRevenue) * 1000) / 10
+      : 0;
+
+    // Cash flow from bank.db
+    const cashFlowConds: string[] = [];
+    const cashFlowParams: string[] = [];
+    if (hasDateRange) {
+      cashFlowConds.push("date >= ?", "date <= ?");
+      cashFlowParams.push(startDate, endDate);
+    }
+    const cashFlowWhere = cashFlowConds.length > 0 ? `WHERE ${cashFlowConds.join(" AND ")}` : "";
+    const cashFlowRow = bankDb.prepare(`
+      SELECT
+        ROUND(SUM(CASE WHEN CAST(amount AS REAL) < 0 THEN ABS(CAST(amount AS REAL)) ELSE 0 END), 2) as deposits,
+        ROUND(SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN CAST(amount AS REAL) ELSE 0 END), 2) as outflows
+      FROM rocketmoney ${cashFlowWhere}
+    `).get(...cashFlowParams) as { deposits: number; outflows: number };
+    const cashFlow = {
+      deposits: cashFlowRow.deposits || 0,
+      outflows: cashFlowRow.outflows || 0,
+      net: (cashFlowRow.deposits || 0) - (cashFlowRow.outflows || 0),
+    };
+
+    // Busiest day of week
+    const dowConds = ["order_status = 'completed'"];
+    const dowParams: string[] = [];
+    if (hasDateRange) {
+      dowConds.push("date >= ?", "date <= ?");
+      dowParams.push(startDate, endDate);
+    }
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dowRows = salesDb.prepare(`
+      SELECT CAST(strftime('%w', date) AS INTEGER) as dow, COUNT(*) as orders, ROUND(SUM(gross_sales), 2) as revenue
+      FROM orders WHERE ${dowConds.join(" AND ")}
+      GROUP BY dow ORDER BY dow
+    `).all(...dowParams) as { dow: number; orders: number; revenue: number }[];
+
+    const dayOfWeekRevenue = dayNames.map((day, i) => {
+      const row = dowRows.find((r) => r.dow === i);
+      return { day, orders: row?.orders || 0, revenue: row?.revenue || 0 };
+    });
+
+    // Top 5 selling items from order_items
+    const itemConds = ["oi.event_type NOT IN ('discount', 'refund')", "o.order_status = 'completed'"];
+    const itemParams: string[] = [];
+    if (hasDateRange) {
+      itemConds.push("o.date >= ?", "o.date <= ?");
+      itemParams.push(startDate, endDate);
+    }
+    const topItems = salesDb.prepare(`
+      SELECT oi.display_name as name, SUM(oi.qty) as qty, ROUND(SUM(oi.gross_sales), 2) as revenue
+      FROM order_items oi JOIN orders o ON oi.order_id = o.order_id
+      WHERE ${itemConds.join(" AND ")}
+      GROUP BY oi.display_name ORDER BY revenue DESC LIMIT 5
+    `).all(...itemParams) as { name: string; qty: number; revenue: number }[];
+
     return NextResponse.json({
       hasDateRange: !!hasDateRange,
       period: hasDateRange ? {
@@ -212,6 +307,20 @@ export async function GET(request: NextRequest) {
         category: e.category,
         total: Number(e.total),
         count: Number(e.cnt),
+      })),
+      // New metrics
+      todayChange,
+      weekChange,
+      monthChange,
+      dailyAvg,
+      profitMargin,
+      expenseRatio,
+      cashFlow,
+      dayOfWeekRevenue,
+      topItems: topItems.map((item) => ({
+        name: item.name,
+        qty: Number(item.qty),
+        revenue: Number(item.revenue),
       })),
       recentTransactions: recentTransactions.map((t) => {
         const displayName = resolveVendorFromRecord(t.name, t.custom_name, t.description);

@@ -14,15 +14,15 @@ interface PeriodStats {
   netProfit: number;
 }
 
+interface TrendChange { value: number; label: string }
 interface OverviewData {
   hasDateRange?: boolean;
   period?: PeriodStats | null;
   today: PeriodStats;
   week: PeriodStats;
   month: PeriodStats;
-  total: PeriodStats & { netProfitSinceFirstSale?: number };
+  total: PeriodStats;
   platformBreakdown: { platform: string; revenue: number; orders: number }[];
-  transfers?: { count: number; total: number; label: string };
   expensesByCategory?: { category: string; total: number; count: number }[];
   recentTransactions: {
     id: string;
@@ -32,19 +32,20 @@ interface OverviewData {
     sourcePlatform: string;
     description: string;
   }[];
+  todayChange?: TrendChange;
+  weekChange?: TrendChange;
+  monthChange?: TrendChange;
+  dailyAvg?: { revenue: number; orders: number; orderValue: number };
+  profitMargin?: number;
+  expenseRatio?: number;
+  cashFlow?: { deposits: number; outflows: number; net: number };
+  dayOfWeekRevenue?: { day: string; orders: number; revenue: number }[];
+  topItems?: { name: string; qty: number; revenue: number }[];
 }
 
 interface RevenueData {
   dailyRevenue: { date: string; total: number; count: number }[];
 }
-
-const PLATFORM_LABELS: Record<string, string> = {
-  square: "Square",
-  doordash: "DoorDash",
-  ubereats: "Uber Eats",
-  grubhub: "Grubhub",
-  rocketmoney: "Rocket Money",
-};
 
 export default function DashboardPage() {
   const { startDate, endDate } = useDateRange();
@@ -52,14 +53,6 @@ export default function DashboardPage() {
   const [revenueData, setRevenueData] = useState<RevenueData | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [reconSummary, setReconSummary] = useState<{
-    reconciledChains: number;
-    discrepancyChains: number;
-    activeAlerts: number;
-    totalPayoutAmount: number;
-    totalBankDeposits: number;
-  } | null>(null);
 
   useEffect(() => {
     if (overview) setRefreshing(true);
@@ -69,12 +62,10 @@ export default function DashboardPage() {
     Promise.all([
       fetch(`/api/dashboard/overview?${params}`).then((r) => r.json()),
       fetch(`/api/dashboard/revenue?${params}`).then((r) => r.json()),
-      fetch("/api/reconciliation/chains").then((r) => r.json()).catch(() => null),
     ])
-      .then(([ov, rev, recon]) => {
+      .then(([ov, rev]) => {
         setOverview(ov);
         setRevenueData(rev);
-        if (recon?.summary) setReconSummary(recon.summary);
       })
       .finally(() => { setInitialLoading(false); setRefreshing(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,284 +83,272 @@ export default function DashboardPage() {
     return (
       <div className="text-center py-12 text-gray-500">
         <p className="text-lg">No data yet</p>
-        <p className="mt-2">
-          Import your first file to see dashboard analytics.
-        </p>
+        <p className="mt-2">Import your first file to see dashboard analytics.</p>
       </div>
     );
   }
 
+  // Pick the active period stats
+  const ps = overview.hasDateRange && overview.period ? overview.period : overview.month;
+  const periodLabel = overview.hasDateRange ? "Selected Period" : "This Month";
+  const trendProp = overview.hasDateRange ? undefined : overview.monthChange;
+
   return (
-    <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
-      {/* Period Stats */}
-      {overview.hasDateRange && overview.period ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Selected Period Revenue"
-            value={formatCurrency(overview.period.revenue)}
-            subtitle={`Gross sales in date range`}
-          />
-          <StatCard
-            title="Period Fees"
-            value={formatCurrency(overview.period.fees)}
-            variant="warning"
-            subtitle="Platform commissions & fees"
-          />
-          <StatCard
-            title="Period Expenses"
-            value={formatCurrency(overview.period.expenses)}
-            variant="danger"
-            subtitle="Business operating costs"
-          />
-          <StatCard
-            title="Period Net Profit"
-            value={formatCurrency(overview.period.netProfit)}
-            variant={overview.period.netProfit >= 0 ? "success" : "danger"}
-            subtitle={`Fees: ${formatCurrency(overview.period.fees)} | Expenses: ${formatCurrency(overview.period.expenses)}`}
-          />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Today Revenue"
-            value={formatCurrency(overview.today.revenue)}
-            subtitle={`Net: ${formatCurrency(overview.today.netProfit)}`}
-          />
-          <StatCard
-            title="This Week"
-            value={formatCurrency(overview.week.revenue)}
-            subtitle={`Net: ${formatCurrency(overview.week.netProfit)}`}
-          />
-          <StatCard
-            title="This Month"
-            value={formatCurrency(overview.month.revenue)}
-            subtitle={`Net: ${formatCurrency(overview.month.netProfit)}`}
-          />
-          <StatCard
-            title="Net Profit (Month)"
-            value={formatCurrency(overview.month.netProfit)}
-            variant={overview.month.netProfit >= 0 ? "success" : "danger"}
-            subtitle={`Fees: ${formatCurrency(overview.month.fees)} | Expenses: ${formatCurrency(overview.month.expenses)}`}
-          />
-        </div>
-      )}
+    <div className={`space-y-5 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RevenueChart
-          data={revenueData?.dailyRevenue || []}
-          title="Daily Revenue"
-        />
-        <PlatformPieChart
-          data={overview.platformBreakdown}
-          title="Revenue by Platform"
-        />
-      </div>
-
-      {/* All-Time Summary + Transfer Info */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* ── ZONE 1: How are we doing? ──────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
-          title="Total Revenue"
-          value={formatCurrency(overview.total.revenue)}
-          subtitle="Platform payouts deposited"
-        />
-        <StatCard
-          title="Total Fees"
-          value={formatCurrency(overview.total.fees)}
-          variant="warning"
-          subtitle="Platform commissions & fees"
-        />
-        <StatCard
-          title="Total Expenses"
-          value={formatCurrency(overview.total.expenses)}
-          variant="danger"
-          subtitle="Business operating costs"
+          title={`${periodLabel} Revenue`}
+          value={formatCurrency(ps.revenue)}
+          subtitle={`Fees: ${formatCurrency(ps.fees)}`}
+          trend={trendProp}
         />
         <StatCard
           title="Net Profit"
-          value={formatCurrency(overview.total.netProfit)}
-          variant={overview.total.netProfit >= 0 ? "success" : "danger"}
-          subtitle={overview.total.netProfitSinceFirstSale != null
-            ? `Since first sale: ${formatCurrency(overview.total.netProfitSinceFirstSale)}`
-            : undefined}
+          value={formatCurrency(ps.netProfit)}
+          variant={ps.netProfit >= 0 ? "success" : "danger"}
+          subtitle={`Revenue - Fees - Expenses`}
+        />
+        <StatCard
+          title="Profit Margin"
+          value={`${overview.profitMargin?.toFixed(1) ?? 0}%`}
+          variant={(overview.profitMargin ?? 0) >= 10 ? "success" : (overview.profitMargin ?? 0) >= 0 ? "warning" : "danger"}
+          subtitle="All-time margin"
+        />
+        <StatCard
+          title="Avg Order"
+          value={formatCurrency(overview.dailyAvg?.orderValue ?? 0)}
+          subtitle={`${overview.dailyAvg?.orders ?? 0} orders/day`}
         />
       </div>
 
-      {/* Expense Breakdown + Transfer Notice */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Expense Categories */}
-        {overview.expensesByCategory && overview.expensesByCategory.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-gray-500">Top Expense Categories</h3>
-              <a href="/dashboard/expenses" className="text-xs text-indigo-600 hover:text-indigo-700">
-                View All →
-              </a>
-            </div>
-            <div className="space-y-3">
-              {overview.expensesByCategory.slice(0, 8).map((cat) => {
-                const pct = overview.total.expenses > 0
-                  ? (cat.total / overview.total.expenses) * 100
-                  : 0;
+      {/* ── ZONE 2: Revenue Trend + Top Items ─────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2">
+          <RevenueChart
+            data={revenueData?.dailyRevenue || []}
+            title="Revenue Trend"
+          />
+        </div>
+
+        {/* Top Selling Items */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-medium text-gray-500 mb-3">Top Sellers</h3>
+          {overview.topItems && overview.topItems.length > 0 ? (
+            <div className="space-y-2.5">
+              {overview.topItems.map((item, i) => {
+                const maxRev = overview.topItems![0].revenue;
+                const pct = maxRev > 0 ? (item.revenue / maxRev) * 100 : 0;
                 return (
-                  <div key={cat.category} className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-700 truncate">{cat.category}</span>
-                        <span className="text-gray-500 font-medium ml-2">{formatCurrency(cat.total)}</span>
-                      </div>
-                      <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div key={item.name}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700 truncate">
+                        <span className="text-gray-400 mr-1.5">{i + 1}.</span>
+                        {item.name}
+                      </span>
+                      <span className="text-gray-800 font-medium ml-2 whitespace-nowrap">
+                        {formatCurrency(item.revenue)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{item.qty.toLocaleString()} sold</p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No item data available</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── ZONE 3: Busiest Days + Top Expenses ───────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Busiest Days */}
+        {overview.dayOfWeekRevenue && overview.dayOfWeekRevenue.length > 0 && (() => {
+          const sorted = [...overview.dayOfWeekRevenue!].sort((a, b) => b.revenue - a.revenue);
+          const maxRev = sorted[0]?.revenue || 1;
+          return (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-medium text-gray-500 mb-3">Busiest Days</h3>
+              <div className="space-y-2">
+                {sorted.map((d) => {
+                  const pct = (d.revenue / maxRev) * 100;
+                  const isBusiest = d.revenue === maxRev;
+                  return (
+                    <div key={d.day} className="flex items-center gap-2.5">
+                      <span className={`text-xs font-semibold w-7 ${isBusiest ? "text-emerald-600" : "text-gray-500"}`}>
+                        {d.day}
+                      </span>
+                      <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
                         <div
-                          className="h-full bg-red-400 rounded-full"
-                          style={{ width: `${Math.min(pct, 100)}%` }}
+                          className={`h-full rounded ${isBusiest ? "bg-emerald-400" : "bg-indigo-200"}`}
+                          style={{ width: `${pct}%` }}
                         />
                       </div>
+                      <span className={`text-xs font-medium w-16 text-right ${isBusiest ? "text-emerald-600" : "text-gray-600"}`}>
+                        {formatCurrency(d.revenue)}
+                      </span>
                     </div>
-                    <span className="text-xs text-gray-400 w-10 text-right">{pct.toFixed(0)}%</span>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Top Expense Categories */}
+        {overview.expensesByCategory && overview.expensesByCategory.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-500">Top Expenses</h3>
+              <a href="/dashboard/expenses" className="text-xs text-indigo-600 hover:text-indigo-700">
+                View All &rarr;
+              </a>
+            </div>
+            <div className="space-y-2">
+              {overview.expensesByCategory.slice(0, 6).map((cat) => {
+                const maxExp = overview.expensesByCategory![0].total;
+                const pct = maxExp > 0 ? (cat.total / maxExp) * 100 : 0;
+                return (
+                  <div key={cat.category}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700 truncate">{cat.category}</span>
+                      <span className="text-gray-600 font-medium ml-2">{formatCurrency(cat.total)}</span>
+                    </div>
+                    <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-300 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
                   </div>
                 );
               })}
             </div>
           </div>
         )}
+      </div>
 
-        {/* Internal Transfers + Data Source Info */}
-        <div className="space-y-4">
-          {overview.transfers && overview.transfers.count > 0 && (
-            <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
-              <h3 className="text-sm font-medium text-amber-700 mb-2">
-                Internal Transfers (Excluded)
-              </h3>
-              <p className="text-xs text-amber-600 mb-3">
-                {overview.transfers.count} CC auto-payment records totaling{" "}
-                {formatCurrency(overview.transfers.total)} are excluded from revenue.
-                These are internal transfers between checking and credit card accounts.
-              </p>
-              <div className="flex items-center gap-2 text-xs text-amber-500">
-                <span className="px-2 py-0.5 bg-amber-100 rounded-full font-medium">
-                  Not counted as income
+      {/* ── ZONE 4: Cash Flow + Platform Revenue + Quick Stats ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Cash Flow */}
+        {overview.cashFlow && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-medium text-gray-500 mb-3">Cash Flow</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Deposits In</span>
+                <span className="text-sm font-semibold text-emerald-600">{formatCurrency(overview.cashFlow.deposits)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Cash Out</span>
+                <span className="text-sm font-semibold text-red-600">{formatCurrency(overview.cashFlow.outflows)}</span>
+              </div>
+              <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-800">Net Cash Flow</span>
+                <span className={`text-sm font-bold ${overview.cashFlow.net >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {formatCurrency(overview.cashFlow.net)}
+                </span>
+              </div>
+              {overview.expenseRatio != null && (
+                <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
+                  <span className="text-xs text-gray-400">Expense Ratio</span>
+                  <span className={`text-xs font-medium ${(overview.expenseRatio ?? 0) <= 85 ? "text-emerald-600" : "text-red-600"}`}>
+                    {overview.expenseRatio.toFixed(1)}%
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Platform Revenue — compact bars instead of pie chart */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-medium text-gray-500 mb-3">Platform Revenue</h3>
+          {(() => {
+            const PLAT_LABELS: Record<string, string> = { square: "Square", doordash: "DoorDash", ubereats: "Uber Eats", grubhub: "Grubhub" };
+            const PLAT_COLORS: Record<string, string> = { square: "bg-indigo-400", doordash: "bg-amber-400", ubereats: "bg-emerald-400", grubhub: "bg-red-400" };
+            const totalRev = overview.platformBreakdown.reduce((s, p) => s + p.revenue, 0);
+            const sorted = [...overview.platformBreakdown].sort((a, b) => b.revenue - a.revenue);
+            return (
+              <div className="space-y-2.5">
+                {sorted.map((p) => {
+                  const pct = totalRev > 0 ? (p.revenue / totalRev) * 100 : 0;
+                  return (
+                    <div key={p.platform}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-700">{PLAT_LABELS[p.platform] || p.platform}</span>
+                        <span className="text-gray-600 font-medium">{formatCurrency(p.revenue)} <span className="text-gray-400 text-xs">({pct.toFixed(0)}%)</span></span>
+                      </div>
+                      <div className="mt-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${PLAT_COLORS[p.platform] || "bg-gray-400"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{p.orders.toLocaleString()} orders</p>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Today + This Week snapshot */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="text-sm font-medium text-gray-500 mb-3">Quick Snapshot</h3>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Today</span>
+                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.today.revenue)}</span>
+              </div>
+              {overview.todayChange && (
+                <p className={`text-[10px] text-right ${overview.todayChange.value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                  {overview.todayChange.value >= 0 ? "\u2191" : "\u2193"} {Math.abs(overview.todayChange.value)}% {overview.todayChange.label}
+                </p>
+              )}
+            </div>
+            <div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">This Week</span>
+                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.week.revenue)}</span>
+              </div>
+              {overview.weekChange && (
+                <p className={`text-[10px] text-right ${overview.weekChange.value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                  {overview.weekChange.value >= 0 ? "\u2191" : "\u2193"} {Math.abs(overview.weekChange.value)}% {overview.weekChange.label}
+                </p>
+              )}
+            </div>
+            <div className="border-t border-gray-100 pt-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Avg Daily</span>
+                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.dailyAvg?.revenue ?? 0)}</span>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Revenue</span>
+                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.total.revenue)}</span>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Expenses</span>
+                <span className="text-sm font-semibold text-red-600">{formatCurrency(overview.total.expenses)}</span>
+              </div>
+            </div>
+            <div className="border-t border-gray-100 pt-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-800">All-Time Profit</span>
+                <span className={`text-sm font-bold ${overview.total.netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {formatCurrency(overview.total.netProfit)}
                 </span>
               </div>
             </div>
-          )}
-
-          <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
-            <h3 className="text-sm font-medium text-blue-700 mb-2">
-              Data Source
-            </h3>
-            <p className="text-xs text-blue-600">
-              All financial data flows through <strong>Rocket Money</strong> as the
-              single source of truth. Chase bank records are verified duplicates and
-              excluded from totals. Platform API data (Square, DoorDash, Uber Eats,
-              Grubhub) powers the Sales page with order-level detail.
-            </p>
           </div>
         </div>
       </div>
 
-      {/* Reconciliation Status */}
-      {reconSummary && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-500">
-              Reconciliation Status
-            </h3>
-            <a
-              href="/reconciliation"
-              className="text-xs text-indigo-600 hover:text-indigo-700"
-            >
-              View Details →
-            </a>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-400">Reconciled Chains</p>
-              <p className="text-lg font-bold text-emerald-600">
-                {reconSummary.reconciledChains}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Discrepancies</p>
-              <p className={`text-lg font-bold ${reconSummary.discrepancyChains > 0 ? "text-red-600" : "text-gray-400"}`}>
-                {reconSummary.discrepancyChains}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Active Alerts</p>
-              <p className={`text-lg font-bold ${reconSummary.activeAlerts > 0 ? "text-amber-600" : "text-gray-400"}`}>
-                {reconSummary.activeAlerts}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recent Transactions */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
-          Recent Transactions
-        </h3>
-        {overview.recentTransactions.length === 0 ? (
-          <p className="text-gray-400 text-sm">No transactions yet</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-400 border-b">
-                  <th className="pb-2 font-medium">Date</th>
-                  <th className="pb-2 font-medium">Description</th>
-                  <th className="pb-2 font-medium">Platform</th>
-                  <th className="pb-2 font-medium">Type</th>
-                  <th className="pb-2 font-medium text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.recentTransactions.map((tx, idx) => (
-                  <tr key={`${tx.id}-${idx}`} className="border-b border-gray-50">
-                    <td className="py-2 text-gray-600">
-                      {new Date(tx.date).toLocaleDateString()}
-                    </td>
-                    <td className="py-2 text-gray-800">
-                      {tx.description || "-"}
-                    </td>
-                    <td className="py-2">
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
-                        {PLATFORM_LABELS[tx.sourcePlatform] || tx.sourcePlatform}
-                      </span>
-                    </td>
-                    <td className="py-2">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs ${
-                          tx.type === "payout"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : tx.type === "fee"
-                              ? "bg-amber-100 text-amber-700"
-                              : tx.type === "expense"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-blue-100 text-blue-700"
-                        }`}
-                      >
-                        {tx.type}
-                      </span>
-                    </td>
-                    <td
-                      className={`py-2 text-right font-medium ${
-                        tx.type === "payout"
-                          ? "text-emerald-600"
-                          : tx.type === "expense"
-                            ? "text-red-600"
-                            : "text-gray-800"
-                      }`}
-                    >
-                      {formatCurrency(tx.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

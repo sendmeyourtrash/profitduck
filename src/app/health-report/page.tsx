@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
-import BarChartCard from "@/components/charts/BarChartCard";
+
 import { formatCurrency } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
 
@@ -41,6 +41,8 @@ interface HealthReportData {
   };
   projection: {
     dailySeries: { date: string; total: number; count: number }[];
+    dailyExpenses?: { date: string; total: number }[];
+    breakEvenDaily?: number;
     trend: {
       slope: number;
       intercept: number;
@@ -72,27 +74,24 @@ interface HealthReportData {
     topCategories: {
       category: string;
       amount: number;
+      prevAmount: number;
       pctOfRevenue: number;
+      change: number;
     }[];
   };
-  reconciliation: {
-    totalPayouts: number;
-    reconciledPayouts: number;
-    reconciliationRate: number;
-    alertCounts: {
-      error: number;
-      warning: number;
-      info: number;
-      total: number;
-    };
-    recentAlerts: {
-      id: string;
-      type: string;
-      severity: string;
-      message: string;
-      platform: string | null;
-      createdAt: string;
-    }[];
+  menuPerformance: {
+    name: string;
+    qty: number;
+    revenue: number;
+    prevRevenue: number;
+    change: number;
+  }[];
+  labor: {
+    current: number;
+    previous: number;
+    ratio: number;
+    prevRatio: number;
+    change: number;
   };
   insights: string[];
   meta: {
@@ -122,11 +121,6 @@ function feeRateClass(rate: number): string {
   return "bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded text-xs font-medium";
 }
 
-function severityBadgeClass(severity: string): string {
-  if (severity === "error") return "bg-red-100 text-red-700";
-  if (severity === "warning") return "bg-amber-100 text-amber-700";
-  return "bg-blue-100 text-blue-700";
-}
 
 // ---------- Component ----------
 
@@ -134,7 +128,28 @@ export default function HealthReportPage() {
   const [data, setData] = useState<HealthReportData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [seasonalOn, setSeasonalOn] = useState(false);
+  const [showTrend, setShowTrend] = useState(false);
+  const [forecastRange, setForecastRange] = useState<"1m" | "3m" | "6m" | "1y" | "2y">("3m");
   const [compareMode, setCompareMode] = useState<"prior" | "yoy">("prior");
+  const [projInfo, setProjInfo] = useState<{
+    forecastLabel: string;
+    projectedRevenue: number;
+    trendRevenue: number;
+    seasonalRevenue: number;
+    unadjustedRevenue?: number;
+    monthlyAvg?: number;
+    isSeasonallyAdjusted: boolean;
+    dailyTrend: string;
+    confidence: string;
+    r2: number;
+    lookbackDays: number;
+    seasonalCallout?: string;
+    scenarios?: {
+      worst: { trend: number; seasonal: number };
+      mid: { trend: number; seasonal: number };
+      best: { trend: number; seasonal: number };
+    };
+  } | null>(null);
   const { startDate, endDate } = useDateRange();
 
   const fetchReport = useCallback(() => {
@@ -189,7 +204,7 @@ export default function HealthReportPage() {
     );
   }
 
-  const { kpis, projection, platforms, expenses, reconciliation, insights, meta } =
+  const { kpis, projection, platforms, expenses, menuPerformance, insights, meta } =
     data;
 
   return (
@@ -233,6 +248,23 @@ export default function HealthReportPage() {
           </button>
         </div>
       </div>
+
+      {/* Key Insights — the headline of the health report */}
+      {insights.length > 0 && (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
+          <h3 className="text-sm font-medium text-indigo-700 mb-3">
+            Key Insights
+          </h3>
+          <ul className="columns-1 md:columns-2 gap-x-8 space-y-1.5">
+            {insights.map((insight, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-indigo-900 break-inside-avoid">
+                <span className="text-indigo-400 mt-0.5 shrink-0">&bull;</span>
+                <span>{insight}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Section 1: Executive Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -290,20 +322,39 @@ export default function HealthReportPage() {
         <div className="lg:col-span-2">
           <RevenueChart
             data={projection.dailySeries}
-            title={`${meta.periodLabel} Revenue Trend + Projection`}
+            title={`${meta.periodLabel} Revenue vs Expenses`}
             showControls={true}
             projectionDays={forecastDays}
             seasonalProjectionPoints={seasonalProjectionPoints}
             seasonalOn={seasonalOn}
             onSeasonalToggle={setSeasonalOn}
+            seasonalIndices={projection.trend.seasonalIndices}
+            expenseData={projection.dailyExpenses}
+            breakEvenDaily={projection.breakEvenDaily}
+            externalForecastRange={forecastRange}
+            onProjectionChange={setProjInfo}
+            regressionR2={projection.trend.r2}
+            chartLookbackDays={projection.trend.chartLookbackDays}
           />
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-          <h3 className="text-sm font-medium text-gray-500">
-            Income Projection
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-500">Income Projection</h3>
+            <select
+              value={forecastRange}
+              onChange={(e) => setForecastRange(e.target.value as typeof forecastRange)}
+              className="text-[11px] border border-gray-200 rounded-md px-1.5 py-0.5 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            >
+              <option value="1m">1m</option>
+              <option value="3m">3m</option>
+              <option value="6m">6m</option>
+              <option value="1y">1y</option>
+              <option value="2y">2y</option>
+            </select>
+          </div>
+
           <div>
-            <p className="text-xs text-gray-400">Daily Trend</p>
+            <p className="text-xs text-gray-400">Trend</p>
             <p
               className={`text-2xl font-bold ${
                 projection.trend.slope >= 0
@@ -311,48 +362,99 @@ export default function HealthReportPage() {
                   : "text-red-600"
               }`}
             >
-              {projection.trend.dailyChangeLabel}
+              {projInfo?.dailyTrend || projection.trend.dailyChangeLabel}
             </p>
           </div>
           <div>
-            <p className="text-xs text-gray-400">
-              Projected Revenue ({forecastLabel(forecastDays)})
-              {seasonalOn && (
-                <span className="ml-1 text-violet-500">
-                  &middot; Seasonally Adjusted
-                </span>
-              )}
+            <p className="text-xs text-gray-400 mb-2">
+              Projected Revenue ({projInfo?.forecastLabel || forecastLabel(forecastDays)})
             </p>
-            <p className="text-xl font-bold text-gray-900">
-              {formatCurrency(projection.trend.projectedHorizonRevenue)}
+            {projInfo?.scenarios ? (
+              <div className="space-y-0.5">
+                {/* Header row */}
+                <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-400 uppercase tracking-wide pb-1 border-b border-gray-100">
+                  <span></span>
+                  <span className="text-right">Trend</span>
+                  <span className="text-right text-violet-400">Seasonal</span>
+                </div>
+                {/* Best case */}
+                <div className="grid grid-cols-3 gap-1 items-baseline py-1">
+                  <span className="text-[10px] text-emerald-500 font-medium">Best</span>
+                  <span className="text-sm font-bold text-right text-gray-700">{formatCurrency(projInfo.scenarios.best.trend)}</span>
+                  <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.best.seasonal)}</span>
+                </div>
+                {/* Mid case */}
+                <div className="grid grid-cols-3 gap-1 items-baseline py-1 bg-gray-50 -mx-2 px-2 rounded">
+                  <span className="text-[10px] text-gray-500 font-medium">Expected</span>
+                  <span className="text-base font-bold text-right text-gray-900">{formatCurrency(projInfo.scenarios.mid.trend)}</span>
+                  <span className="text-base font-bold text-right text-violet-700">{formatCurrency(projInfo.scenarios.mid.seasonal)}</span>
+                </div>
+                {/* Worst case */}
+                <div className="grid grid-cols-3 gap-1 items-baseline py-1">
+                  <span className="text-[10px] text-red-500 font-medium">Worst</span>
+                  <span className="text-sm font-bold text-right text-gray-700">{formatCurrency(projInfo.scenarios.worst.trend)}</span>
+                  <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.worst.seasonal)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-gray-500">Trend</span>
+                  <span className="text-lg font-bold text-gray-900">
+                    {formatCurrency(projInfo?.trendRevenue ?? projection.trend.projectedHorizonRevenue)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-violet-500">Seasonal</span>
+                  <span className="text-lg font-bold text-violet-700">
+                    {formatCurrency(projInfo?.seasonalRevenue ?? projection.trend.projectedHorizonRevenue)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-2">
+              Period to date: {formatCurrency(kpis.current.revenue)}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Current period to date: {formatCurrency(kpis.current.revenue)}
-            </p>
+            {projInfo?.monthlyAvg != null && projInfo.monthlyAvg > 0 && (
+              <p className="text-xs text-gray-500 mt-1 font-medium">
+                ~{formatCurrency(projInfo.monthlyAvg)}/mo avg
+              </p>
+            )}
           </div>
           <div>
             <p className="text-xs text-gray-400">Forecast Confidence</p>
-            <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                projection.trend.r2 >= 0.7
-                  ? "bg-emerald-50 text-emerald-700"
-                  : projection.trend.r2 >= 0.4
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-red-50 text-red-600"
-              }`}
-            >
-              {projection.trend.confidenceLabel}
-            </span>
-            <p className="text-xs text-gray-400 mt-1.5">
-              Based on {projection.trend.chartLookbackDays} days of data
-              &middot; linear regression
+            {(() => {
+              const r2 = projInfo?.r2 ?? projection.trend.r2;
+              const pct = Math.round(r2 * 100);
+              return (
+                <div className="flex items-baseline gap-2 mt-0.5">
+                  <span
+                    className={`text-lg font-bold ${
+                      r2 >= 0.7 ? "text-emerald-600" : r2 >= 0.4 ? "text-amber-600" : "text-red-600"
+                    }`}
+                  >
+                    {pct}%
+                  </span>
+                  <span className="text-xs text-gray-400">R²={r2.toFixed(2)}</span>
+                </div>
+              );
+            })()}
+            <p className="text-xs text-gray-400 mt-1">
+              Based on {projInfo?.lookbackDays ?? projection.trend.chartLookbackDays} days &middot; linear regression
             </p>
-            {seasonalOn && !projection.trend.hasSeasonalData && (
+            {projInfo?.isSeasonallyAdjusted && !projection.trend.hasSeasonalData && (
               <p className="text-xs text-amber-500 mt-1">
                 Seasonal: limited historical data (&lt;12 months)
               </p>
             )}
           </div>
+          {projInfo?.seasonalCallout && (
+            <div className="bg-violet-50 rounded-lg p-2.5">
+              <p className="text-xs text-violet-700">
+                {projInfo.seasonalCallout}
+              </p>
+            </div>
+          )}
           {projection.dailySeries.length < 7 && (
             <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
               Limited data available — projections may be unreliable.
@@ -415,211 +517,118 @@ export default function HealthReportPage() {
         </div>
       </div>
 
-      {/* Section 4: Expense Health */}
+      {/* Section 4: Menu Performance + Expense Breakdown (side by side) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {expenses.topCategories.length > 0 && (
-          <BarChartCard
-            title="Top Expense Categories"
-            data={expenses.topCategories.map((c) => ({
-              name: c.category,
-              value: c.amount,
-            }))}
-            color="#ef4444"
-          />
-        )}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <h3 className="text-sm font-medium text-gray-500">Expense Summary</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-xs text-gray-400">Current Period</p>
-              <p className="text-xl font-bold text-gray-900">
-                {formatCurrency(expenses.currentTotal)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Previous Period</p>
-              <p className="text-xl font-bold text-gray-500">
-                {formatCurrency(expenses.previousTotal)}
-              </p>
-            </div>
-          </div>
-          <div
-            className={`flex items-center gap-2 text-sm font-medium ${
-              expenses.trendDirection === "up"
-                ? "text-red-600"
-                : expenses.trendDirection === "down"
-                  ? "text-emerald-600"
-                  : "text-gray-500"
-            }`}
-          >
-            {expenses.trendDirection === "up"
-              ? "\u2191"
-              : expenses.trendDirection === "down"
-                ? "\u2193"
-                : "\u2192"}
-            <span>
-              {expenses.trendPct.toFixed(1)}% {meta.comparisonLabel}
-            </span>
-          </div>
-          {expenses.topCategories.length > 0 && (
-            <div className="pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-400 mb-2">
-                Top Categories as % of Revenue
-              </p>
-              <div className="space-y-1.5">
-                {expenses.topCategories.slice(0, 5).map((c) => (
-                  <div
-                    key={c.category}
-                    className="flex items-center justify-between text-xs"
-                  >
-                    <span className="text-gray-600 truncate max-w-[60%]">
-                      {c.category}
-                    </span>
-                    <span className="text-gray-500 font-medium">
-                      {c.pctOfRevenue.toFixed(1)}%
-                    </span>
-                  </div>
+        {/* Menu Performance */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-sm font-medium text-gray-500 mb-4">
+            Menu Performance
+            <span className="text-xs text-gray-400 font-normal ml-2">{meta.comparisonLabel}</span>
+          </h3>
+          {menuPerformance.length === 0 ? (
+            <p className="text-sm text-gray-400">No item data available for this period.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-400 border-b">
+                  <th className="pb-2 font-medium">Item</th>
+                  <th className="pb-2 font-medium text-right">Qty</th>
+                  <th className="pb-2 font-medium text-right">Revenue</th>
+                  <th className="pb-2 font-medium text-right">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {menuPerformance.map((item) => (
+                  <tr key={item.name} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2 text-gray-800 font-medium truncate max-w-[140px]">{item.name}</td>
+                    <td className="py-2 text-right text-gray-600">{item.qty.toLocaleString()}</td>
+                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(item.revenue)}</td>
+                    <td className="py-2 text-right">
+                      {item.prevRevenue > 0 ? (
+                        <span className={`text-xs font-medium ${item.change >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {item.change >= 0 ? "↑" : "↓"} {Math.abs(item.change)}%
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">new</span>
+                      )}
+                    </td>
+                  </tr>
                 ))}
-              </div>
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Expense Breakdown */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-gray-500">Expense Breakdown</h3>
+            <div className={`flex items-center gap-1 text-xs font-medium ${
+              expenses.trendDirection === "up" ? "text-red-600"
+                : expenses.trendDirection === "down" ? "text-emerald-600"
+                : "text-gray-500"
+            }`}>
+              {expenses.trendDirection === "up" ? "↑" : expenses.trendDirection === "down" ? "↓" : "→"}
+              <span>{expenses.trendPct.toFixed(1)}% {meta.comparisonLabel}</span>
             </div>
+          </div>
+          {expenses.topCategories.length === 0 ? (
+            <p className="text-sm text-gray-400">No expense data for this period.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-400 border-b">
+                  <th className="pb-2 font-medium">Category</th>
+                  <th className="pb-2 font-medium text-right">Amount</th>
+                  <th className="pb-2 font-medium text-right">% Rev</th>
+                  <th className="pb-2 font-medium text-right">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses.topCategories.map((c) => (
+                  <tr key={c.category} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2 text-gray-800 font-medium truncate max-w-[140px]">{c.category}</td>
+                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.amount)}</td>
+                    <td className="py-2 text-right">
+                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                        c.pctOfRevenue > 20 ? "bg-red-50 text-red-700"
+                          : c.pctOfRevenue > 10 ? "bg-amber-50 text-amber-700"
+                          : "bg-gray-50 text-gray-600"
+                      }`}>
+                        {c.pctOfRevenue.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-2 text-right">
+                      {c.prevAmount > 0 ? (
+                        <span className={`text-xs font-medium ${c.change <= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {c.change > 0 ? "↑" : "↓"} {Math.abs(c.change)}%
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-200 font-medium">
+                  <td className="py-2 text-gray-800">Total</td>
+                  <td className="py-2 text-right text-gray-800">{formatCurrency(expenses.currentTotal)}</td>
+                  <td className="py-2 text-right">
+                    <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
+                      {kpis.current.revenue > 0 ? ((expenses.currentTotal / kpis.current.revenue) * 100).toFixed(1) : 0}%
+                    </span>
+                  </td>
+                  <td className="py-2 text-right">
+                    <span className={`text-xs font-medium ${expenses.trendDirection === "down" ? "text-emerald-600" : expenses.trendDirection === "up" ? "text-red-600" : "text-gray-500"}`}>
+                      {expenses.trendDirection === "up" ? "↑" : expenses.trendDirection === "down" ? "↓" : "→"} {expenses.trendPct.toFixed(1)}%
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           )}
         </div>
       </div>
 
-      {/* Section 5: Reconciliation Health */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-gray-500">
-            Reconciliation Health
-          </h3>
-          <a
-            href="/reconciliation"
-            className="text-xs text-indigo-600 hover:text-indigo-700"
-          >
-            View Details &rarr;
-          </a>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-400">Reconciliation Rate</p>
-            <p
-              className={`text-xl font-bold ${
-                reconciliation.reconciliationRate >= 80
-                  ? "text-emerald-600"
-                  : reconciliation.reconciliationRate >= 50
-                    ? "text-amber-600"
-                    : "text-red-600"
-              }`}
-            >
-              {reconciliation.reconciliationRate}%
-            </p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-400">Reconciled Payouts</p>
-            <p className="text-xl font-bold text-gray-800">
-              {reconciliation.reconciledPayouts} /{" "}
-              {reconciliation.totalPayouts}
-            </p>
-          </div>
-          <div
-            className={`rounded-lg p-3 ${
-              reconciliation.alertCounts.error > 0
-                ? "bg-red-50"
-                : "bg-gray-50"
-            }`}
-          >
-            <p className="text-xs text-gray-400">Error Alerts</p>
-            <p
-              className={`text-xl font-bold ${
-                reconciliation.alertCounts.error > 0
-                  ? "text-red-600"
-                  : "text-gray-400"
-              }`}
-            >
-              {reconciliation.alertCounts.error}
-            </p>
-          </div>
-          <div
-            className={`rounded-lg p-3 ${
-              reconciliation.alertCounts.warning > 0
-                ? "bg-amber-50"
-                : "bg-gray-50"
-            }`}
-          >
-            <p className="text-xs text-gray-400">Warning Alerts</p>
-            <p
-              className={`text-xl font-bold ${
-                reconciliation.alertCounts.warning > 0
-                  ? "text-amber-600"
-                  : "text-gray-400"
-              }`}
-            >
-              {reconciliation.alertCounts.warning}
-            </p>
-          </div>
-        </div>
-        {reconciliation.recentAlerts.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-gray-500 mb-2">
-              Recent Unresolved Alerts
-            </p>
-            {reconciliation.recentAlerts.map((alert) => (
-              <div
-                key={alert.id}
-                className={`flex items-start gap-3 p-3 rounded-lg text-sm ${
-                  alert.severity === "error"
-                    ? "bg-red-50"
-                    : alert.severity === "warning"
-                      ? "bg-amber-50"
-                      : "bg-blue-50"
-                }`}
-              >
-                <span
-                  className={`text-xs font-medium px-1.5 py-0.5 rounded ${severityBadgeClass(
-                    alert.severity
-                  )}`}
-                >
-                  {alert.severity}
-                </span>
-                <div>
-                  <p className="text-gray-800">{alert.message}</p>
-                  {alert.platform && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {PLATFORM_LABELS[alert.platform] || alert.platform}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Section 6: Key Insights */}
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
-        <h3 className="text-sm font-medium text-indigo-700 mb-4">
-          Key Insights
-        </h3>
-        {insights.length === 0 ? (
-          <p className="text-sm text-indigo-400">
-            No significant signals detected.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {insights.map((insight, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-2 text-sm text-indigo-900"
-              >
-                <span className="text-indigo-400 mt-0.5 shrink-0">
-                  &bull;
-                </span>
-                <span>{insight}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </div>
   );
 }

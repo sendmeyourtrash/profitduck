@@ -80,6 +80,7 @@ interface QueryParams {
   endDate?: string;
   search?: string;
   categories?: string[];
+  paymentMethod?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
   limit?: number;
@@ -106,10 +107,21 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
     params.push(p.endDate);
   }
 
-  // Search
+  // Payment method filter
+  if (p.paymentMethod) {
+    conditions.push("payment_method = ?");
+    params.push(p.paymentMethod);
+  }
+
+  // Smart search — supports amounts, ranges, dates, and text
   if (p.search) {
-    conditions.push("(items LIKE ? OR order_id LIKE ? OR customer_name LIKE ?)");
-    params.push(`%${p.search}%`, `%${p.search}%`, `%${p.search}%`);
+    const { parseSearch, buildSalesSearchSQL } = require("@/lib/utils/search-parser");
+    const parsed = parseSearch(p.search);
+    const searchSQL = buildSalesSearchSQL(parsed);
+    if (searchSQL.conditions.length > 0) {
+      conditions.push(`(${searchSQL.conditions.join(" AND ")})`);
+      params.push(...searchSQL.params);
+    }
   }
 
   // Status filter (default: completed only)

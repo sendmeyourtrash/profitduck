@@ -287,11 +287,15 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
     }
   }
 
-  // Search
+  // Smart search — supports amounts, ranges, dates, and text
   if (p.search) {
-    conditions.push("(name LIKE ? OR description LIKE ? OR custom_name LIKE ?)");
-    const searchTerm = `%${p.search}%`;
-    params.push(searchTerm, searchTerm, searchTerm);
+    const { parseSearch, buildBankSearchSQL } = require("@/lib/utils/search-parser");
+    const parsed = parseSearch(p.search);
+    const searchSQL = buildBankSearchSQL(parsed);
+    if (searchSQL.conditions.length > 0) {
+      conditions.push(`(${searchSQL.conditions.join(" AND ")})`);
+      params.push(...searchSQL.params);
+    }
   }
 
   // NOTE: Ignored categories are no longer excluded from queries.
