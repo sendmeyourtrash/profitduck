@@ -136,7 +136,7 @@ export default function CategoryDetailPage({
       {/* Min / Max / Median row */}
       {data.count > 1 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="grid grid-cols-4 gap-4 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wide">Min</p>
               <p className="text-sm font-bold text-emerald-600">{formatCurrency(data.stats.min)}</p>
@@ -211,7 +211,8 @@ export default function CategoryDetailPage({
           </div>
         ) : (
           <>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr className="text-left text-gray-500">
                   <th className="px-4 py-3 font-medium">Date</th>
@@ -236,7 +237,8 @@ export default function CategoryDetailPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
             {data.totalPages > 1 && (
               <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-sm text-gray-500">Page {page + 1} of {data.totalPages}</span>

@@ -174,8 +174,8 @@ export default function AnalyticsPage() {
       <PlatformFilter selected={selectedPlatforms} onChange={setSelectedPlatforms} />
 
       {/* Tabs + Exclude toggle */}
-      <div className="flex items-center gap-4">
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit">
+      <div className="flex items-center gap-4 overflow-x-auto scrollbar-hide">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit shrink-0">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -367,7 +367,7 @@ export default function AnalyticsPage() {
                 );
               })()}
               {/* Summary cards */}
-              <div className="mt-4 grid grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {(() => {
                   const d = hourlyShowAvg ? hourlyDaysInSample : 1;
                   const sorted = [...hourlyData].sort(
@@ -946,7 +946,7 @@ export default function AnalyticsPage() {
                 </ResponsiveContainer>
               </div>
               {/* Summary stats */}
-              <div className="mt-4 grid grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {(() => {
                   const totalRev = aggregated.reduce(
                     (s, d) => s + d.revenue,

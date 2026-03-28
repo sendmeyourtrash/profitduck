@@ -31,12 +31,12 @@ export default function MenuAliasesPage() {
     <div className="space-y-4">
       {/* Tab bar */}
       <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="flex gap-6">
+        <nav className="flex gap-6 overflow-x-auto scrollbar-hide">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`shrink-0 whitespace-nowrap pb-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.key
                   ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400"
                   : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300"
