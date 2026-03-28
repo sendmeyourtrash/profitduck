@@ -8,6 +8,17 @@ function openBankDb() {
   return new Database(path.join(DB_DIR, "bank.db"));
 }
 
+function ensureManualEntriesTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS manual_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
+    account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
+    amount TEXT, description TEXT, category TEXT, note TEXT,
+    ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
+    source TEXT DEFAULT 'manual'
+  )`);
+}
+
 /**
  * POST /api/manual-entry
  * Create a manual transaction entry in bank.db.
@@ -40,22 +51,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert into bank.db rocketmoney table
+    // Insert into bank.db manual_entries table
     // Expenses are positive amounts, income/deposits are negative
     const bankAmount = type === "expense" ? Math.abs(parsedAmount) : -Math.abs(parsedAmount);
     const db = openBankDb();
+    ensureManualEntriesTable(db);
     try {
       const result = db.prepare(
-        `INSERT INTO rocketmoney (date, name, description, amount, category, account_name, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO manual_entries (date, name, description, amount, category, account_name, note, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         date,
         description || "Manual Entry",
         description || "Manual Entry",
         String(bankAmount),
         category || "Manual",
-        "Manual",
-        `manual_entry:${type}`
+        "Manual Entry",
+        `manual_entry:${type}`,
+        "manual"
       );
       return NextResponse.json({
         transaction: {
@@ -86,18 +99,19 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get("limit") || "50");
   const offset = parseInt(searchParams.get("offset") || "0");
 
-  const db = new Database(path.join(DB_DIR, "bank.db"), { readonly: true });
+  const db = openBankDb();
+  ensureManualEntriesTable(db);
   try {
     const transactions = db.prepare(
       `SELECT id, date, name as description, amount, category, note
-       FROM rocketmoney WHERE account_name = 'Manual'
+       FROM manual_entries
        ORDER BY date DESC LIMIT ? OFFSET ?`
     ).all(limit, offset) as {
       id: number; date: string; description: string; amount: string; category: string; note: string;
     }[];
 
     const countRow = db.prepare(
-      `SELECT COUNT(*) as cnt FROM rocketmoney WHERE account_name = 'Manual'`
+      `SELECT COUNT(*) as cnt FROM manual_entries`
     ).get() as { cnt: number };
 
     return NextResponse.json({
@@ -130,10 +144,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   const db = openBankDb();
+  ensureManualEntriesTable(db);
   try {
-    // Only delete if it's a manual entry
     const row = db.prepare(
-      "SELECT id FROM rocketmoney WHERE id = ? AND account_name = 'Manual'"
+      "SELECT id FROM manual_entries WHERE id = ?"
     ).get(Number(id));
 
     if (!row) {
@@ -143,7 +157,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    db.prepare("DELETE FROM rocketmoney WHERE id = ?").run(Number(id));
+    db.prepare("DELETE FROM manual_entries WHERE id = ?").run(Number(id));
     return NextResponse.json({ success: true });
   } finally {
     db.close();

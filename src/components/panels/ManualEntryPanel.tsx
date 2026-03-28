@@ -29,6 +29,13 @@ const PLATFORMS = [
   { value: "chase", label: "Chase" },
 ];
 
+const TYPE_COLORS: Record<string, string> = {
+  income: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400",
+  expense: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400",
+  fee: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
+  adjustment: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
+};
+
 export default function ManualEntryPanel() {
   const [entries, setEntries] = useState<ManualTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +45,7 @@ export default function ManualEntryPanel() {
   const [form, setForm] = useState({
     date: new Date().toISOString().split("T")[0],
     amount: "",
-    type: "income",
+    type: "expense",
     sourcePlatform: "manual",
     category: "",
     description: "",
@@ -78,7 +85,7 @@ export default function ManualEntryPanel() {
         setForm({
           date: new Date().toISOString().split("T")[0],
           amount: "",
-          type: "income",
+          type: "expense",
           sourcePlatform: "manual",
           category: "",
           description: "",
@@ -86,7 +93,7 @@ export default function ManualEntryPanel() {
         fetchEntries();
       }
     } catch {
-      setMessage({ type: "error", text: "Network error" });
+      setMessage({ type: "error", text: "Failed to add entry" });
     } finally {
       setSaving(false);
     }
@@ -94,215 +101,159 @@ export default function ManualEntryPanel() {
 
   const handleDelete = async (id: string) => {
     try {
-      const response = await fetch(`/api/manual-entry?id=${id}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        fetchEntries();
-      }
+      await fetch(`/api/manual-entry?id=${id}`, { method: "DELETE" });
+      fetchEntries();
     } catch {
-      // ignore
+      setMessage({ type: "error", text: "Failed to delete entry" });
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Entry Form */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">
-          Add Manual Entry
-        </h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Date *
-              </label>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Amount *
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                required
-                placeholder="0.00"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Type *
-              </label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                {TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Platform
-              </label>
-              <select
-                value={form.sourcePlatform}
-                onChange={(e) =>
-                  setForm({ ...form, sourcePlatform: e.target.value })
-                }
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                {PLATFORMS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Category
-              </label>
-              <input
-                type="text"
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                placeholder="e.g., Food Cost, Equipment"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Description
-              </label>
-              <input
-                type="text"
-                value={form.description}
-                onChange={(e) =>
-                  setForm({ ...form, description: e.target.value })
-                }
-                placeholder="What is this entry for?"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={saving || !form.amount}
-              className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
-            >
-              {saving ? "Saving..." : "Add Entry"}
-            </button>
-            {message && (
-              <p
-                className={`text-sm ${
-                  message.type === "success"
-                    ? "text-emerald-600"
-                    : "text-red-600"
-                }`}
-              >
-                {message.text}
-              </p>
-            )}
-          </div>
-        </form>
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Add Manual Transaction</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          Add bank transactions that weren&apos;t captured by CSV imports.
+        </p>
       </div>
 
-      {/* Recent Manual Entries */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-medium text-gray-500">
-            Recent Manual Entries
-          </h3>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date</label>
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Amount</label>
+            <input
+              type="number"
+              step="0.01"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              placeholder="0.00"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Source</label>
+            <select
+              value={form.sourcePlatform}
+              onChange={(e) => setForm({ ...form, sourcePlatform: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {PLATFORMS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Category</label>
+            <input
+              type="text"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              placeholder="e.g. Groceries, Equipment"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
+            <input
+              type="text"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="What is this transaction for?"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving || !form.amount}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {saving ? "Adding..." : "Add Entry"}
+          </button>
+          {message && (
+            <span className={`text-sm ${message.type === "success" ? "text-emerald-600" : "text-red-600"}`}>
+              {message.text}
+            </span>
+          )}
+        </div>
+      </form>
+
+      {/* Recent entries */}
+      <div>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Recent Manual Entries ({entries.length})
+        </h4>
         {loading ? (
           <div className="flex items-center justify-center h-24">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
           </div>
         ) : entries.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm">
-            No manual entries yet
-          </div>
+          <p className="text-gray-400 dark:text-gray-500 text-sm py-4 text-center">
+            No manual entries yet.
+          </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-gray-500">
-                  <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Description</th>
-                  <th className="px-4 py-3 font-medium">Platform</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  <th className="px-4 py-3 font-medium"></th>
+              <thead className="bg-gray-50 dark:bg-gray-800/50">
+                <tr className="text-left text-gray-500 dark:text-gray-400">
+                  <th className="px-3 py-2 font-medium">Date</th>
+                  <th className="px-3 py-2 font-medium">Description</th>
+                  <th className="px-3 py-2 font-medium">Type</th>
+                  <th className="px-3 py-2 font-medium">Category</th>
+                  <th className="px-3 py-2 font-medium text-right">Amount</th>
+                  <th className="px-3 py-2 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-2.5 text-gray-600">
-                      {new Date(tx.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-800">
+                  <tr key={tx.id} className="border-t border-gray-100 dark:border-gray-700/50">
+                    <td className="px-3 py-2 text-gray-800 dark:text-gray-200">{tx.date}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 max-w-[200px] truncate">
                       {tx.description || "-"}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
-                        {tx.sourcePlatform}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs ${
-                          tx.type === "income"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : tx.type === "expense"
-                              ? "bg-red-100 text-red-700"
-                              : tx.type === "adjustment"
-                                ? "bg-purple-100 text-purple-700"
-                                : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${TYPE_COLORS[tx.type] || "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"}`}>
                         {tx.type}
                       </span>
                     </td>
-                    <td
-                      className={`px-4 py-2.5 text-right font-medium ${
-                        tx.type === "income"
-                          ? "text-emerald-600"
-                          : "text-gray-800"
-                      }`}
-                    >
-                      {formatCurrency(tx.amount)}
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{tx.category || "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={tx.type === "income" ? "text-emerald-600" : "text-red-600"}>
+                        {formatCurrency(Math.abs(tx.amount))}
+                      </span>
                     </td>
-                    <td className="px-4 py-2.5 text-right">
+                    <td className="px-3 py-2 text-right">
                       <button
                         onClick={() => handleDelete(tx.id)}
-                        className="text-xs text-red-500 hover:text-red-700"
+                        className="text-xs px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded hover:bg-red-200 dark:hover:bg-red-900/50"
                       >
                         Delete
                       </button>

@@ -12,7 +12,28 @@ import Database from "better-sqlite3";
 import path from "path";
 
 function getDb() {
-  return new Database(path.join(process.cwd(), "databases", "bank.db"));
+  const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
+  ensureManualEntriesTable(db);
+  return db;
+}
+
+export function ensureManualEntriesTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS manual_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
+    account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
+    amount TEXT, description TEXT, category TEXT, note TEXT,
+    ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
+    source TEXT DEFAULT 'manual'
+  )`);
+  // View that unions rocketmoney + manual_entries for read queries
+  // Drop and recreate to fix any stale/circular definitions
+  db.exec(`DROP VIEW IF EXISTS all_bank_transactions`);
+  db.exec(`CREATE VIEW all_bank_transactions AS
+    SELECT *, 'rocketmoney' as _source_table FROM rocketmoney
+    UNION ALL
+    SELECT *, 'manual_entries' as _source_table FROM manual_entries
+  `);
 }
 
 function getVendorAliasDb() {
@@ -305,7 +326,7 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   if (mode === "count") {
-    return { sql: `SELECT COUNT(*) as cnt FROM rocketmoney ${where}`, params };
+    return { sql: `SELECT COUNT(*) as cnt FROM all_bank_transactions ${where}`, params };
   }
 
   if (mode === "summary") {
@@ -317,7 +338,7 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
         COALESCE(SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN CAST(amount AS REAL) ELSE 0 END), 0) as total_expenses,
         SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN 1 ELSE 0 END) as expenses_count,
         COALESCE(SUM(CAST(amount AS REAL)), 0) as net
-      FROM rocketmoney ${where}`,
+      FROM all_bank_transactions ${where}`,
       params,
     };
   }
@@ -332,7 +353,7 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
   const offset = p.offset || 0;
 
   return {
-    sql: `SELECT * FROM rocketmoney ${where} ORDER BY ${sortExpr} LIMIT ? OFFSET ?`,
+    sql: `SELECT * FROM all_bank_transactions ${where} ORDER BY ${sortExpr} LIMIT ? OFFSET ?`,
     params: [...params, limit, offset],
   };
 }
@@ -396,7 +417,7 @@ export function queryBankCategories() {
     const db = getDb();
     try {
       const rows = db.prepare(`
-        SELECT DISTINCT category FROM rocketmoney
+        SELECT DISTINCT category FROM all_bank_transactions
         WHERE category IS NOT NULL AND category != ''
         ORDER BY category
       `).all() as { category: string }[];
@@ -411,7 +432,7 @@ export function queryBankAccounts() {
   const db = getDb();
   try {
     const rows = db.prepare(`
-      SELECT DISTINCT account_name FROM rocketmoney
+      SELECT DISTINCT account_name FROM all_bank_transactions
       WHERE account_name IS NOT NULL AND account_name != ''
       ORDER BY account_name
     `).all() as { account_name: string }[];
@@ -440,7 +461,7 @@ export function queryBankVendors() {
     const rows = db.prepare(`
       SELECT CASE WHEN custom_name IS NOT NULL AND custom_name != '' THEN custom_name ELSE name END as raw_name,
              COUNT(*) as cnt
-      FROM rocketmoney
+      FROM all_bank_transactions
       WHERE name IS NOT NULL AND name != ''
       GROUP BY raw_name
       ORDER BY cnt DESC
@@ -483,7 +504,7 @@ export function queryBankVendors() {
 export function queryBankDateRange() {
   const db = getDb();
   try {
-    const row = db.prepare("SELECT MIN(date) as min_date, MAX(date) as max_date FROM rocketmoney").get() as { min_date: string; max_date: string };
+    const row = db.prepare("SELECT MIN(date) as min_date, MAX(date) as max_date FROM all_bank_transactions").get() as { min_date: string; max_date: string };
     return { min: row.min_date, max: row.max_date };
   } finally {
     db.close();
