@@ -13,6 +13,7 @@ const pageTitles: Record<string, string> = {
   "/sales": "Sales",
   "/bank": "Bank Activity",
   "/settings": "Import & Settings",
+  "/menu-aliases": "Menu Aliases",
 };
 
 const DATE_PICKER_PATHS = new Set([
@@ -21,7 +22,6 @@ const DATE_PICKER_PATHS = new Set([
   "/dashboard/expenses",
   "/dashboard/platforms",
   "/dashboard/menu",
-  "/analytics",
   "/health-report",
   "/sales",
   "/bank",

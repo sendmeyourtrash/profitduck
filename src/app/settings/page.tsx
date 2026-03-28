@@ -51,7 +51,7 @@ interface ImportRecord {
   errorMessage: string | null;
 }
 
-type SettingsTab = "settings" | "history" | "reconciliation" | "manual-entry" | "categories" | "vendor-aliases" | "menu-aliases" | "category-aliases" | "closed-days";
+type SettingsTab = "settings" | "history" | "reconciliation" | "manual-entry" | "categories" | "vendor-aliases" | "closed-days";
 
 type SourcePlatform =
   | "square"

@@ -74,3 +74,4 @@ All docs in `docs/`:
 - `docs/pipeline.md` — 3-step data pipeline detail
 - `docs/transactions.md` — Transaction system, dedup, reconciliation
 - `docs/agents.md` — 19 Claude Code agents: roles, triggers, execution order
+- `docs/sitemap.md` — Complete site map with all routes, pages, and API endpoints
