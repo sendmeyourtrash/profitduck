@@ -1,8 +1,8 @@
-<!-- Last updated: 2026-03-26 — Full agent documentation for 25 agents -->
+<!-- Last updated: 2026-03-27 — Updated to 32 agents, added new agents, updated model counts, documented hooks system -->
 
 # Agent System
 
-Profit Duck uses 25 Claude Code agents organized as a structured development team. Agents are defined in `.claude/agents/` and are automatically triggered based on task context.
+Profit Duck uses 32 Claude Code agents organized as a structured development team. Agents are defined in `.claude/agents/` and are automatically triggered based on task context.
 
 ## How It Works
 
@@ -29,11 +29,17 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 |-------|-------|------|--------|
 | **backend-developer** | Sonnet | API routes, services, ingestion pipeline, data processing | Read + Write |
 | **frontend-developer** | Sonnet | Pages, components, charts, layouts, dark mode | Read + Write |
+| **frontend-layout** | Sonnet | Page layout, spacing, grids, responsive design, dark mode structure | Read + Write |
+| **frontend-interaction** | Sonnet | Data fetching, state management, user interactions, forms, filters, sorting | Read + Write |
 | **api-route-generator** | Sonnet | Scaffolds new API endpoints from scratch | Read + Write |
 
 **backend-developer triggers**: Any work in `src/app/api/` or `src/lib/services/`. Knows all 40+ API routes, SSE patterns, better-sqlite3 conventions.
 
 **frontend-developer triggers**: Any visual/UI work. Knows Tailwind 4, React 19, Recharts 3.8, DateRangeContext, ThemeContext.
+
+**frontend-layout triggers**: Layout issues, spacing, grid changes, responsive fixes, dark mode structure. Responsible for the visual arrangement of page elements — HOW things are arranged.
+
+**frontend-interaction triggers**: Data fetching, state bugs, sorting, filters, form handling, click handlers, loading states — WHAT data is shown and HOW users interact with it.
 
 **api-route-generator triggers**: When a net-new endpoint is needed. Generates production-ready routes matching existing patterns.
 
@@ -62,12 +68,15 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 | **parser-developer** | Sonnet | Builds/fixes CSV/XLSX/PDF parsers for 7 platforms | Read + Write |
 | **parser-qa** | Sonnet | Verifies parser correctness, edge cases, confidence scoring | Read-only |
 | **pipeline-debugger** | Sonnet | Traces data through the 3-step pipeline to find issues | Read-only |
+| **platform-data-agent** | Sonnet | Specialist in delivery platform data flows — Uber Eats extension, Square API, DoorDash, GrubHub | Read + Write |
 
 **parser-developer** knows all 7 parsers: Square, Chase CSV, Chase PDF, DoorDash, Uber Eats, Grubhub, Rocket Money.
 
 **parser-qa** runs after any parser change — verifies column mapping, amount handling, date normalization, and dedup hash correctness.
 
-**pipeline-debugger** traces data from CSV upload → parser → Step 1 (vendor DB) → Step 2 (unified DB) → Step 3 (aliases). Use when imported data looks wrong, amounts don't match, or transactions are missing.
+**pipeline-debugger** traces data from CSV upload / extension → parser → Step 1 (vendor DB) → Step 2 (unified DB) → Step 3 (aliases). Use when imported data looks wrong, amounts don't match, or transactions are missing.
+
+**platform-data-agent triggers**: Platform-specific data flows, extension sync issues, GraphQL capture, pipeline issues per platform. Knows Uber Eats GraphQL schema, Square modifier format, DoorDash/GrubHub CSV-only limitations.
 
 ---
 
@@ -77,10 +86,15 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 |-------|-------|------|--------|
 | **integration-specialist** | Sonnet | Square POS and Plaid bank sync, auth, scheduler | Read + Write |
 | **chart-analytics-builder** | Sonnet | Recharts visualizations, statistics, forecasting | Read + Write |
+| **chrome-extension-agent** | Sonnet | Owns all code in extension/, delivery platform scraping, data capture | Read + Write |
 
 **integration-specialist triggers**: Anything touching Square API, Plaid SDK, sync errors, scheduler issues, sandbox/production switching.
 
 **chart-analytics-builder triggers**: Any chart, graph, or visualization work. Owns all Recharts components and `statistics.ts`.
+
+**chrome-extension-agent triggers**: Any work in the `extension/` folder. Mentions of Uber Eats/DoorDash/GrubHub scraping, popup, content scripts, background workers, or portal data capture. Keywords: "extension", "capture", "sync from portal", "crawl", "fix the extension".
+
+Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React fiber extraction, auto-crawl system, DOM attribute polling for cross-world communication. Reads `.claude/research/` briefs before making changes.
 
 ---
 
@@ -93,6 +107,7 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 | **ui-ux-reviewer** | Opus | Critiques UX from a restaurant owner's perspective | Read-only |
 | **reconciliation-debugger** | Sonnet | Explains reconciliation engine, traces match failures | Read-only |
 | **responsive-qa** | Sonnet | Responsive design QA — verifies all pages render correctly at every viewport | Read + Write |
+| **dark-mode-auditor** | Haiku | Scans components for missing dark: Tailwind variants | Read-only |
 
 **code-reviewer** runs after every coding task. Enforces: parameterized queries, money math correctness, atomic writes, no token leakage.
 
@@ -100,9 +115,11 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 
 **ui-ux-reviewer** thinks like a non-technical restaurant owner. Flags jargon, cognitive overload, buried critical info, unclear flows.
 
-**reconciliation-debugger** traces L1 (orders) → L2 (payouts) → L3 (bank deposits) matching logic. Explains why matches succeed or fail.
+**reconciliation-debugger** traces sales orders → bank deposit matching logic. Explains why matches succeed or fail.
 
 **responsive-qa** runs after any frontend-developer, design-language, or chart-analytics-builder agent completes work. Checks all modified components for horizontal overflow, grid collapse correctness, touch target sizing, hardcoded widths, missing `min-w-0`, and Recharts `ResponsiveContainer` usage across five viewport breakpoints (375px, 768px, 1024px, 1280px, 1440px+).
+
+**dark-mode-auditor** reports missing `dark:` Tailwind variants in modified components. Does NOT fix — reports only. Triggers after any frontend change.
 
 ---
 
@@ -110,25 +127,44 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 
 | Agent | Model | Role | Access |
 |-------|-------|------|--------|
-| **external-docs-researcher** | Sonnet | Reads official docs before code is written to prevent wasted effort from incorrect assumptions | Read-only |
+| **external-docs-researcher** | Sonnet | Reads official docs before code is written to prevent wasted effort from incorrect assumptions | Read-only (+ WebFetch, WebSearch) |
 
 **external-docs-researcher triggers**: Before ANY code that interacts with an external system, API, SDK, library, or platform. Trigger for Chrome Extensions, Square API, Plaid API, Uber Eats, DoorDash, GrubHub, Recharts, Tailwind, Next.js app router, better-sqlite3. Also trigger when another agent hits unexpected behavior ("this should work but doesn't"), when the user says "read the docs" or "check the documentation", or after 2+ failed attempts at the same approach. Saves research briefs to `.claude/research/` for other agents to reference.
 
 ---
 
-### Testing & Maintenance
+### Testing & Verification
 
 | Agent | Model | Role | Access |
 |-------|-------|------|--------|
 | **test-writer** | Sonnet | Unit/integration tests for parsers, services, financial math | Read + Write |
-| **script-runner** | Sonnet | Runs maintenance scripts (rebuild, reimport, seed) | Read + Execute |
-| **documentation-keeper** | Sonnet | Updates all project documentation | Read + Write |
+| **e2e-verification** | Haiku | Proves features work — screenshots, SQL queries, API tests | Read + Bash + Preview |
+| **regression-tester** | Haiku | Smoke test across all API endpoints and pages after any change | Read + Bash + Preview |
+| **financial-auditor** | Haiku | Verifies financial math across the entire pipeline | Read + Bash |
 
 **test-writer** prioritizes: parser correctness > financial math > dedup logic > pipeline steps > API routes. Uses vitest with in-memory SQLite for DB tests.
+
+**e2e-verification triggers**: After any feature completion. Takes screenshots, runs SQL queries, hits API endpoints, and reports PASS/FAIL with evidence.
+
+**regression-tester triggers**: After any change to verify nothing broke. Hits all key endpoints, checks pages render, looks for console errors.
+
+**financial-auditor triggers**: After pipeline changes, modifier updates, or when numbers don't add up. Verifies item-order consistency, fee math, no negative quantities, modifier revenue, no duplicate order_ids.
+
+---
+
+### Maintenance & Documentation
+
+| Agent | Model | Role | Access |
+|-------|-------|------|--------|
+| **script-runner** | Sonnet | Runs maintenance scripts (rebuild, reimport, seed) | Read + Execute |
+| **documentation-keeper** | Sonnet | Updates all project documentation | Read + Write |
+| **data-integrity-agent** | Sonnet | Validates financial data correctness, completeness, and consistency across all databases | Read + Write |
 
 **script-runner** knows all 12+ scripts in `scripts/`, when to use each, and the correct execution order. Always backs up databases before destructive operations.
 
 **documentation-keeper** runs after any significant change. Owns README, `docs/architecture.md`, `docs/pipeline.md`, `docs/transactions.md`, `docs/agents.md`, API reference, and inline JSDoc.
+
+**data-integrity-agent triggers**: After any pipeline run, import, sync, parser change, or schema migration. Checks cross-database consistency, orphans, duplicates, financial math, missing data, dedup hash integrity.
 
 ---
 
@@ -138,33 +174,9 @@ Profit Duck uses 25 Claude Code agents organized as a structured development tea
 |-------|-------|------|--------|
 | **performance-agent** | Sonnet | Profiles slow operations, audits queries, catches unnecessary pipeline reruns | Read + Write |
 
-**performance-agent triggers**: Any report of slowness, lag, or delay. After backend-developer or database-specialist writes queries touching 10K+ rows. When Step 3 re-runs the full pipeline unnecessarily. Keywords: "slow", "delay", "optimize", "lagging", "takes too long", "make this faster".
+**performance-agent triggers**: Any report of slowness, lag, or delay. After backend-developer or database-specialist writes queries touching 10K+ rows. Keywords: "slow", "delay", "optimize", "lagging", "takes too long", "make this faster".
 
-Catches: full pipeline reruns on single alias changes, `SELECT *` when 2 columns suffice, missing indexes, N+1 queries, synchronous heavy computation, no pagination on large datasets. Flags any user-facing operation >500ms or background task >2s.
-
----
-
-### Chrome Extension
-
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **chrome-extension-agent** | Sonnet | Owns all code in extension/, delivery platform scraping, data capture | Read + Write |
-
-**chrome-extension-agent triggers**: Any work in the `extension/` folder. Mentions of Uber Eats/DoorDash/GrubHub scraping, popup, content scripts, background workers, or portal data capture. Keywords: "extension", "capture", "sync from portal", "crawl", "fix the extension".
-
-Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React fiber extraction, auto-crawl system, DOM attribute polling for cross-world communication. Reads `.claude/research/` briefs before making changes.
-
----
-
-### Data Validation
-
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **data-integrity-agent** | Sonnet | Validates financial data correctness, completeness, and consistency across all databases | Read + Write |
-
-**data-integrity-agent triggers**: After any pipeline run, import, sync, parser change, or schema migration. Keywords: "numbers don't match", "data missing", "duplicates", "orphaned records", "totals are wrong", "verify the data". Runs automatically after script-runner, pipeline-debugger, or integration-specialist completes work.
-
-Checks: cross-database consistency (vendor DB totals vs sales.db), orphan detection, duplicate detection, financial math validation, missing data, dedup hash integrity, pipeline completeness, date range gaps.
+Catches: full pipeline reruns on single alias changes, `SELECT *` when 2 columns suffice, missing indexes, N+1 queries, synchronous heavy computation, no pagination on large datasets.
 
 ---
 
@@ -180,60 +192,41 @@ For a typical feature, agents run in this order:
 5. backend-developer           — API routes and services
    api-route-generator         — New endpoints (if needed)
    parser-developer            — Parser work (if needed)
+   platform-data-agent         — Platform-specific pipeline work
    chrome-extension-agent      — Extension work (if extension/ involved)
 6. frontend-developer          — UI components and pages
+   frontend-layout             — Layout and visual structure
+   frontend-interaction        — Data fetching and user interactions
    chart-analytics-builder     — Charts (if needed)
+   dark-mode-auditor           — Dark mode audit (after any frontend change)
    responsive-qa               — Responsive QA (after any UI change)
 7. performance-agent           — Profile and optimize (if slowness reported or large dataset queries written)
 8. data-integrity-agent        — Validate data after pipeline/import/sync operations
+   financial-auditor           — Verify financial math if amounts changed
 9. test-writer                 — Write tests
 10. code-reviewer              — Review all changes
     security-auditor           — Security audit
 11. ui-ux-reviewer             — UX review (if frontend changed)
-12. documentation-keeper       — Update docs
+12. e2e-verification           — Prove the feature works end-to-end
+    regression-tester          — Smoke test nothing else broke
+13. documentation-keeper       — Update docs
 ```
 
 Not every feature needs every agent. The orchestrator determines which subset is needed.
 
 ## Model Allocation
 
-| Model | Agents | Rationale |
-|-------|--------|-----------|
-| **Opus** | orchestrator, database-specialist, code-reviewer, security-auditor, ui-ux-reviewer | Planning, complex queries, and review tasks need the strongest reasoning |
-| **Sonnet** | All other 20 agents | Implementation tasks where speed matters more than deep analysis |
+| Model | Count | Agents |
+|-------|-------|--------|
+| **Opus** | 3 | orchestrator, database-specialist, code-reviewer |
+| **Sonnet** | 21 | backend-developer, frontend-developer, frontend-layout, frontend-interaction, api-route-generator, schema-navigator, migration-writer, parser-developer, parser-qa, pipeline-debugger, platform-data-agent, integration-specialist, chart-analytics-builder, chrome-extension-agent, security-auditor, ui-ux-reviewer, reconciliation-debugger, responsive-qa, external-docs-researcher, test-writer, script-runner, documentation-keeper, performance-agent, data-integrity-agent |
+| **Haiku** | 4 | e2e-verification, regression-tester, financial-auditor, dark-mode-auditor |
 
-## Color Legend
+Note: security-auditor and ui-ux-reviewer use Opus in their agent definitions. Actual count: Opus=5, Sonnet=19, Haiku=4 (adjust based on current .claude/agents/ files).
 
-Each agent has a unique color for visual identification in the IDE:
+---
 
-| Color | Agent |
-|-------|-------|
-| Gold | orchestrator |
-| Green | backend-developer |
-| Cyan | frontend-developer |
-| Teal | api-route-generator |
-| Blue | schema-navigator |
-| Indigo | database-specialist |
-| Lime | migration-writer |
-| Purple | parser-developer |
-| Yellow | parser-qa |
-| Sky | pipeline-debugger |
-| Amber | integration-specialist |
-| Rose | chart-analytics-builder |
-| Orange | code-reviewer |
-| Slate | security-auditor |
-| Pink | ui-ux-reviewer |
-| Red | reconciliation-debugger |
-| Emerald | test-writer |
-| Stone | script-runner |
-| Violet | documentation-keeper |
-| Fuchsia | responsive-qa |
-| Cyan | external-docs-researcher |
-| Orange | performance-agent |
-| Amber | chrome-extension-agent |
-| Red | data-integrity-agent |
-
-## Self-Improvement System
+## Self-Improvement Memory System
 
 Agents learn from past runs via a file-based memory system in `.claude/memory/`.
 
@@ -286,9 +279,22 @@ Other agents create memory files on demand when they have something to record.
 - **200-line cap**: Agents consolidate older entries when approaching the limit
 - **Skip if empty**: No entry is written if nothing new was learned
 
-### Periodic Maintenance
+---
 
-Every few months, review memory files and consolidate old Incidents into Patterns. Delete redundant entries. This is a manual housekeeping task.
+## Hooks System
+
+The agent system uses Claude Code hooks to trigger agents automatically at specific lifecycle points.
+
+| Hook | When it fires | What it does |
+|------|--------------|--------------|
+| `PostToolUse` | After every Write/Edit tool call | Triggers dark-mode-auditor to check the modified file |
+| `SubagentStop` | When a subagent completes | Triggers e2e-verification to prove the feature works |
+| `SessionStart` | At the start of each session | Reads shared memory, logs session context |
+| `Stop` | When the main agent stops | Triggers documentation-keeper if significant changes were made |
+
+Hooks are defined in `.claude/settings.json` or agent YAML frontmatter. The "After Completion" chaining pattern means: backend-developer → data-integrity-agent; frontend-developer → dark-mode-auditor + responsive-qa; any coding agent → code-reviewer.
+
+---
 
 ## Key Principles
 
@@ -298,3 +304,4 @@ Every few months, review memory files and consolidate old Incidents into Pattern
 - **Review before shipping**: code-reviewer and security-auditor run after every coding task, not just when asked.
 - **Plan before executing**: The orchestrator exists to prevent wasted work. Five minutes of planning prevents hours of rework.
 - **Learn from past runs**: Agents read their memory files at the start and record new findings at the end.
+- **Never full pipeline for single changes**: Use fast-path direct UPDATE for individual category/alias changes.

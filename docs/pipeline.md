@@ -1,70 +1,106 @@
-<!-- Last updated: 2026-03-25 — Moved to docs/, verified current with multi-DB architecture -->
+<!-- Last updated: 2026-03-27 — Added extension ingest path, real Uber Eats items, structured JSON modifiers, menu_item_category_map in Step 3, Square catalog sync side process -->
 
 # Data Pipeline
 
 ## Overview
 
-All data flows through a 3-step pipeline before reaching the website. Every source — CSV or API — goes through Step 1 first (vendor DB), then Step 2 (unified DB), then Step 3 (aliases). No source writes directly to the unified databases.
+All data flows through a 3-step pipeline before reaching the website. Every source — CSV, API, or Chrome extension — goes through Step 1 first (vendor DB), then Step 2 (unified DB), then Step 3 (aliases + categories). No source writes directly to the unified databases.
 
 ```
              STEP 1                    STEP 2                         STEP 3
-        Source → Vendor DB        Vendor DB → Unified DB         Apply Aliases
+        Source → Vendor DB        Vendor DB → Unified DB         Apply Aliases + Categories
         (raw + cleanup)           (normalize)                    (categories.db → sales.db)
 
 API     ──→ squareup.db     ──→ sales.db (orders + order_items) ──→ order_items.display_name
 CSV     ──→ grubhub.db      ──→ sales.db (orders + order_items)     order_items.display_category
 CSV     ──→ doordash.db     ──→ sales.db (orders + order_items)
 CSV     ──→ ubereats.db     ──→ sales.db (orders + order_items)
+EXT     ──→ ubereats.db     ──→ sales.db (orders + order_items)  (with real item rows + modifiers_json)
 CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 ```
 
 **Key principles:**
 - The vendor DBs are the source of truth for raw data
 - The unified DBs (sales.db, bank.db) can be rebuilt at any time by re-running Step 2
-- Alias rules live in categories.db and vendor-aliases.db (user configuration)
-- Step 3 can be re-run independently when alias rules change (no re-import needed)
+- Alias and category rules live in categories.db (user configuration)
+- Step 3 can be re-run independently when alias or category rules change (no re-import needed)
+- Quick category updates bypass the full pipeline by directly updating matching `order_items` rows
 
 ---
 
 ## Step 1: Source → Vendor DB
 
-**Purpose:** Store raw data with basic cleanup. Each data source gets its own SQLite database that preserves all original columns from the CSV or API.
+**Purpose:** Store raw data with basic cleanup. Each data source gets its own SQLite database that preserves all original columns from the CSV, API, or extension.
 
 **Files:**
-- `src/lib/services/pipeline-step1-ingest.ts` — CSV ingest for GrubHub, DoorDash, Uber Eats, Rocket Money
+- `src/lib/services/pipeline-step1-ingest.ts` — CSV and extension data ingest for GrubHub, DoorDash, Uber Eats, Rocket Money
 - `src/lib/services/square-sync.ts` — Square API sync (API → squareup.db → sales.db)
-
-### Cleanup operations:
-
-| Operation | Description |
-|-----------|-------------|
-| **Dedup** | Remove duplicate records within the same source (overlapping CSV exports, re-imports) |
-| **Date normalization** | All dates converted to YYYY-MM-DD (Uber Eats M/D/YYYY, ISO datetimes, etc.) |
-| **Amount normalization** | Handle $, commas, parentheses for negatives, string→number |
-| **Status filtering** | Flag cancelled/unfulfilled orders vs completed |
-| **Fill missing data** | Square API orders include item-level detail (names, modifiers, quantities, payment method) |
-
-### Vendor databases:
-
-| Database | Table | Records | Source | Dedup Key |
-|----------|-------|---------|--------|-----------|
-| `squareup.db` | `items` | 23,726 | API | transaction_id (payment_id) |
-| `squareup.db` | `payouts` | 786 | API | payout_id |
-| `squareup.db` | `payout_entries` | 13,749 | API | entry_id |
-| `grubhub.db` | `orders` | 390 | CSV | transaction_id |
-| `doordash.db` | `detailed_transactions` | 86 | CSV | doordash_order_id |
-| `doordash.db` | `payouts` | 13 | CSV | payout_id |
-| `ubereats.db` | `orders` | 113 | CSV | order_id |
-| `rocketmoney.db` | `transactions` | 2,111 | CSV | date + name + amount |
 
 ### Entry points:
 
 | Trigger | Route | Step 1 Target |
 |---------|-------|---------------|
 | CSV Upload (Settings page) | `POST /api/upload` → parser → `step1Ingest()` | vendor DB for detected platform (not Square) |
+| Chrome Extension | `POST /api/ingest/extension` → `ingestUberEatsOrders()` | ubereats.db (orders + items tables) |
 | Square API Sync (Settings page) | `POST /api/square/sync` → `syncSquareFees()` | squareup.db |
 | Manual script | `npx tsx scripts/reimport-rocketmoney.ts` | rocketmoney.db |
 | Pipeline rebuild | `npx tsx scripts/rebuild-pipeline.ts` | Rebuild sales.db + bank.db from all vendor DBs |
+
+### Cleanup operations:
+
+| Operation | Description |
+|-----------|-------------|
+| **Dedup** | Remove duplicate records within the same source (overlapping CSV exports, re-imports, extension re-syncs) |
+| **Date normalization** | All dates converted to YYYY-MM-DD (Uber Eats M/D/YYYY, ISO datetimes, etc.) |
+| **Amount normalization** | Handle $, commas, parentheses for negatives, string→number |
+| **Status filtering** | Flag cancelled/unfulfilled orders vs completed |
+| **Fill missing data** | Square API orders include item-level detail; extension data includes items + structured modifiers |
+
+### Vendor databases:
+
+| Database | Table | Source | Dedup Key |
+|----------|-------|--------|-----------|
+| `squareup.db` | `items` | API | transaction_id + item + qty |
+| `squareup.db` | `payouts` | API | payout_id |
+| `squareup.db` | `payout_entries` | API | entry_id |
+| `grubhub.db` | `orders` | CSV | transaction_id |
+| `doordash.db` | `detailed_transactions` | CSV | doordash_order_id |
+| `doordash.db` | `payouts` | CSV | payout_id |
+| `ubereats.db` | `orders` | CSV or Extension | order_id |
+| `ubereats.db` | `items` | Extension only | order_id (FK) |
+| `rocketmoney.db` | `transactions` | CSV | date + name + amount |
+
+### ubereats.db items table schema (extension data only):
+```
+order_id            TEXT   FK → orders.order_id
+item_uuid           TEXT   UUID from Uber Eats GraphQL
+item_name           TEXT   Menu item name
+quantity            INTEGER
+price               REAL   Line total (price × quantity)
+modifiers           TEXT   Flat string: "Group: Option1 (price), Option2"
+modifiers_json      TEXT   JSON array: [{"group":"...","name":"...","price":0.00}]
+special_instructions TEXT
+```
+
+### Extension ingest detail (Uber Eats):
+
+The Chrome extension intercepts GraphQL `OrderDetails` responses from `merchants.ubereats.com`, extracts order and item data, and POSTs to `/api/ingest/extension`. The route runs the full 3-step pipeline:
+
+```
+Extension captures GraphQL response
+   ↓
+background.js normalizes + deduplicates
+   ↓
+POST /api/ingest/extension { platform: "ubereats", orders: [...] }
+   ↓
+Step 1: ingestUberEatsOrders() — write to ubereats.db orders + items tables
+   ↓
+Step 2: unifyUberEats() — read real items from ubereats.db items table
+   ↓
+Step 3: step3ApplyAliases() — apply aliases and category mappings
+```
+
+Smart-sync dedup: before crawling, the extension fetches known order IDs via `GET /api/ingest/extension?action=known_ids&platform=ubereats` to skip already-imported orders.
 
 ### Square API sync detail:
 
@@ -73,10 +109,10 @@ All Square data comes exclusively from the API (no CSV imports). The sync follow
 ```
 1. Fetch payments from Square API (cursor-paginated)
 2. For each payment, resolve real order_id
-3. Batch-retrieve order details (line items, modifiers, tax, dining option)
+3. Batch-retrieve order details (line items, modifiers with prices, tax, dining option)
 4. STEP 1: Dedup against squareup.db by payment_id, write items to squareup.db
 5. STEP 2: Call shared unifySquare() — aggregate items by transaction_id,
-           write to sales.db orders + order_items
+           write to sales.db orders + order_items (with modifiers_json from API)
 6. STEP 3: Call shared step3ApplyAliases() — apply menu/category aliases
 ```
 
@@ -106,13 +142,14 @@ The `getLastSyncDate()` function reads from `squareup.db` (Step 1 source of trut
 | **Sign normalization** | All fees/deductions stored as negative values |
 | **Cross-source dedup** | Dedup by `order_id + platform` |
 | **Aggregation** | Square items grouped by `transaction_id` into order-level records |
+| **Real item rows** | Uber Eats extension data: real items from `ubereats.db items` table used; CSV fallback uses synthetic "Uber Eats Order" row |
 
 ### Unified databases:
 
 | Database | Table | Purpose | Powers |
 |----------|-------|---------|--------|
 | `sales.db` | `orders` | All platform orders, normalized | Sales page |
-| `sales.db` | `order_items` | Individual items, all platforms | Item analytics, drilldowns |
+| `sales.db` | `order_items` | Individual items, all platforms | Item analytics, drilldowns, menu performance |
 | `bank.db` | `rocketmoney` | All bank transactions | Bank Activity page |
 | `bank.db` | `chase_statements` | Chase PDF imports | Bank Activity page |
 
@@ -129,9 +166,9 @@ tax               REAL     Sales tax collected
 total_fees        REAL     Sum of all deductions (negative)
 net_sales         REAL     What you actually receive
 order_status      TEXT     completed / cancelled / refund / adjustment / other
-items             TEXT     "Fruitella Crêpe x1 | Coffee x2" (Square only)
+items             TEXT     "Fruitella Crêpe x1 | Coffee x2" (Square + Uber Eats extension)
 item_count        INTEGER  Number of items in order
-modifiers         TEXT     "Fruitella Crêpe: No walnuts" (Square only)
+modifiers         TEXT     "Item: Modifier1, Modifier2 | ..." (Square + Uber Eats extension)
 tip               REAL     Tip amount
 discounts         REAL     Discount amount (negative)
 dining_option     TEXT     For Here / To Go / Delivery / Pickup / Storefront
@@ -148,33 +185,27 @@ marketing_total   REAL     Promos, loyalty, marketing fees (negative)
 refunds_total     REAL     Refunds only (negative)
 adjustments_total REAL     Error charges, order charges, adjustments
 other_total       REAL     Anything that doesn't fit above
+display_categories TEXT    Denormalized: comma-joined display_categories from order_items
 ```
 
 ### Column availability by platform:
 
-| Column | Square | GrubHub | DoorDash | Uber Eats |
-|--------|--------|---------|----------|-----------|
-| date | ✅ | ✅ | ✅ | ✅ |
-| time | ✅ | ✅ | ✅ | ❌ |
-| items | ✅ per item | ❌ | ❌ | ❌ |
-| modifiers | ✅ | ❌ | ❌ | ❌ |
-| tip | ✅ | ✅ | ❌ | ❌ |
-| dining_option | ✅ For Here/To Go | ✅ Delivery/Pickup | ✅ Delivery/Storefront | ✅ Delivery |
-| customer_name | ✅ | ❌ | ❌ | ✅ |
-| payment_method | ✅ Visa/MC/Amex | ❌ | ❌ | ❌ |
-| commission_fee | ❌ | ✅ | ✅ | ✅ (marketplace_fee) |
-| processing_fee | ✅ | ✅ | ✅ | ❌ |
-| delivery_fee | ❌ | ✅ | ❌ | ❌ |
-| marketing_fee | ❌ | ❌ | ✅ | ❌ |
-
-### Math verification:
-
-```
-net_sales = gross_sales + discounts + tax + tip + fees_total + marketing_total
-            + refunds_total + adjustments_total + other_total
-```
-
-All platforms verified ✅ (4 DoorDash edge cases with $5 marketing credit discrepancy, 1 Uber Eats first-payout threshold — source data issues, not formula errors).
+| Column | Square | GrubHub | DoorDash | Uber Eats (Extension) | Uber Eats (CSV) |
+|--------|--------|---------|----------|-----------------------|-----------------|
+| date | ✅ | ✅ | ✅ | ✅ | ✅ |
+| time | ✅ | ✅ | ✅ | ✅ | ❌ |
+| items (order-level summary) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| modifiers (order-level summary) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| item rows in order_items | ✅ per item | ❌ order only | ❌ order only | ✅ per item | ❌ order only |
+| modifiers_json in order_items | ✅ JSON | ❌ | ❌ | ✅ JSON | ❌ |
+| tip | ✅ | ✅ | ❌ | ❌ | ❌ |
+| dining_option | ✅ For Here/To Go | ✅ Delivery/Pickup | ✅ Delivery/Storefront | ✅ Delivery/Pickup | ✅ Delivery |
+| customer_name | ✅ | ❌ | ❌ | ✅ | ✅ |
+| payment_method | ✅ Visa/MC/Amex | ❌ | ❌ | ❌ | ❌ |
+| commission_fee | ❌ | ✅ | ✅ | ✅ | ✅ |
+| processing_fee | ✅ | ✅ | ✅ | ❌ | ❌ |
+| delivery_fee | ❌ | ✅ | ❌ | ❌ | ❌ |
+| marketing_fee | ❌ | ❌ | ✅ | ❌ | ❌ |
 
 ### Unified `order_items` table schema:
 
@@ -186,76 +217,117 @@ date              TEXT     YYYY-MM-DD
 time              TEXT     HH:MM:SS
 
 ── Raw from source ──
-item_name         TEXT     Raw item name from CSV/API
-category          TEXT     Raw category from source
+item_name         TEXT     Raw item name from CSV/API/extension
+category          TEXT     Raw category from source (mostly empty for third-party platforms)
 qty               REAL     Quantity ordered
 unit_price        REAL     Price per unit
-gross_sales       REAL     qty × unit_price
+gross_sales       REAL     qty × unit_price (or line total for Uber Eats)
 discounts         REAL     Item-level discounts
 net_sales         REAL     gross - discounts
-modifiers         TEXT     "No walnuts, Banana" (Square only)
+modifiers         TEXT     JSON array for Square/UE extension; flat string for legacy CSV Square
 event_type        TEXT     Payment / Refund
 dining_option     TEXT     For Here / To Go / Delivery / Pickup
 
 ── After alias (Step 3) ──
 display_name      TEXT     After menu item alias applied
-display_category  TEXT     After menu category alias applied
+display_category  TEXT     After menu category mapping applied (or "Uncategorized")
 ```
 
 **Item detail by platform:**
 
 | Platform | Item detail | What order_items contains |
 |----------|-------------|--------------------------|
-| Square | ✅ Per item | Individual items with names, qty, price, modifiers, category |
+| Square | ✅ Per item | Individual items with names, qty, price, modifiers_json, category |
 | GrubHub | ❌ Order only | 1 row per order: "GrubHub Order" with order total |
 | DoorDash | ❌ Order only | 1 row per order: "DoorDash Order" with order total |
-| Uber Eats | ❌ Order only | 1 row per order: "Uber Eats Order" with order total |
+| Uber Eats (Extension) | ✅ Per item | Individual items with names, qty, price, modifiers_json |
+| Uber Eats (CSV) | ❌ Order only | 1 row per order: "Uber Eats Order" with order total |
+
+### Math verification:
+
+```
+net_sales = gross_sales + discounts + tax + tip + fees_total + marketing_total
+            + refunds_total + adjustments_total + other_total
+```
+
+All platforms verified. 4 DoorDash edge cases with $5 marketing credit discrepancy and 1 Uber Eats first-payout threshold are source data issues, not formula errors.
 
 ---
 
-## Step 3: Apply Aliases
+## Step 3: Apply Aliases + Category Mappings
 
-**Purpose:** Apply user-configured alias rules from `categories.db` to the `order_items` table in `sales.db`. Populates `display_name` and `display_category` columns.
+**Purpose:** Apply user-configured alias rules and category mappings from `categories.db` to the `order_items` table in `sales.db`. Populates `display_name` and `display_category` columns. Also denormalizes `display_categories` onto the `orders` table for fast filtering.
 
 **File:** `src/lib/services/pipeline-step3-aliases.ts`
 
 ### How it works:
 
 1. Reset all `display_name` to `item_name` and `display_category` to `category`
-2. Read `menu_item_aliases` from `categories.db`
-3. For each alias, UPDATE matching rows in `order_items` (exact, starts_with, or contains)
-4. Read `menu_category_aliases` from `categories.db`
-5. For each alias, UPDATE matching rows in `order_items`
+2. Apply `menu_item_aliases` from categories.db (pattern match on item_name → display_name)
+3. Apply category mapping (two modes, see below)
+4. Denormalize: update `orders.display_categories` = comma-joined distinct display_categories from matching order_items
+
+### Category mapping modes (Step 3):
+
+**New system (menu_item_category_map has rows):**
+1. Set all `display_category` to "Uncategorized"
+2. JOIN `menu_item_category_map` + `menu_categories` to get display_name → category_name pairs
+3. UPDATE `order_items.display_category` for each mapped item
+
+**Legacy fallback (menu_item_category_map is empty):**
+- Apply `menu_category_aliases` pattern matching (same exact/starts_with/contains logic as item aliases)
 
 ### When to re-run:
 
 | Trigger | Action |
 |---------|--------|
 | New CSV import | Runs automatically as part of ingestion pipeline |
+| Extension data import | Runs automatically after extension ingest |
 | Square API sync | Runs automatically after sync |
 | Alias added/changed in Settings | Should re-run Step 3 only (no re-import) |
+| Category assigned in Menu page | Fast path: update only affected rows directly (no full Step 3) |
 | Full rebuild | Re-run Step 2 + Step 3 |
 
-### Configuration databases:
+**Performance note:** Never call `step3ApplyAliases()` for single-item category changes. Use the direct UPDATE path in `/api/menu-categories` (`quickCategoryUpdate()`).
 
-| Database | Table | Records | Purpose |
-|----------|-------|---------|---------|
-| `categories.db` | `menu_item_aliases` | 46 | "Mushroom Crêpe" → "FunGuy Crêpe" |
-| `categories.db` | `menu_item_ignores` | 37 | Items excluded from analytics |
-| `categories.db` | `menu_category_aliases` | 8 | "Menu - Sweet Crêpes" → "Sweet Crêpes" |
-| `categories.db` | `expense_categories` | 16 | Expense category definitions |
-| `categories.db` | `categorization_rules` | 82 | Auto-categorization rules |
-| `vendor-aliases.db` | `vendor_aliases` | 42 | Bank vendor name mappings |
-| `vendor-aliases.db` | `vendor_ignores` | 9 | Vendors excluded from reports |
+---
 
-### Entry points:
+## Side Process: Square Catalog Sync
 
-| Function | What it does |
-|----------|-------------|
-| `step2Unify("grubhub")` | Single platform: read grubhub.db → write to sales.db |
-| `step2UnifyAll(rebuild: false)` | All platforms: insert new records only (incremental) |
-| `step2UnifyAll(rebuild: true)` | All platforms: wipe sales.db + bank.db, rebuild from scratch |
-| `step3ApplyAliases()` | Re-apply all item/category aliases to order_items |
+The Square catalog sync is NOT part of the 3-step pipeline. It runs independently as a way to bootstrap the menu categories system.
+
+**File:** `src/lib/services/square-catalog-sync.ts`
+**Endpoint:** `POST /api/square/catalog`
+
+```
+Square Catalog API
+   ↓
+fetchCatalog() — fetch all CatalogCategories + CatalogItems
+   ↓
+Filter to real menu categories (type=MENU_CATEGORY or isTopLevel=true)
+   ↓
+Create menu_categories records (skips existing, links by square_catalog_id)
+   ↓
+Match catalog items to display_names in order_items
+   ↓
+Populate menu_item_category_map (skips already-mapped items)
+   ↓
+Next Step 3 run will use new mappings
+```
+
+This is a one-time or occasional operation. After catalog sync, Step 3 automatically uses the new mappings. It does not overwrite manually assigned categories.
+
+---
+
+## Modifier Backfill Scripts
+
+When the structured modifiers format was introduced, existing data in squareup.db lacked `modifiers_json`. Two backfill scripts exist for this:
+
+- `scripts/backfill-square-modifiers.ts` — Original Square backfill
+- `scripts/backfill-square-modifiers-v2.ts` — Updated version with improved parsing
+- `scripts/backfill-modifiers.js` — General modifier backfill utility
+
+These re-fetch modifier data from the Square API and update squareup.db, then a pipeline rebuild re-runs Step 2 to populate order_items.modifiers with the JSON format.
 
 ---
 
@@ -281,15 +353,35 @@ display_category  TEXT     After menu category alias applied
       - Map: fulfillment_type → dining_option (Delivery/Pickup)
       - Map: transaction_type → order_status
       - Dedup by order_id + platform in sales.db
-      - Insert into unified orders table + order_items table
+      - Insert into unified orders table + order_items table (1 row: "GrubHub Order")
 6. ingestion.ts calls step3ApplyAliases()
    └─ pipeline-step3-aliases.ts:
       - Read menu_item_aliases from categories.db
       - Update order_items.display_name for matching items
-      - Read menu_category_aliases from categories.db
-      - Update order_items.display_category for matching categories
+      - Apply category mappings (menu_item_category_map or menu_category_aliases)
+      - Update order_items.display_category
+      - Denormalize display_categories onto orders table
 7. ingestion.ts records import in categories.db for history tracking
 8. Sales page shows new orders immediately
+```
+
+### Syncing Uber Eats via Chrome extension:
+
+```
+1. User opens extension popup, clicks "Smart Sync"
+2. Extension fetches known order IDs from GET /api/ingest/extension?action=known_ids&platform=ubereats
+3. Extension crawls merchants.ubereats.com — content-main.js intercepts GraphQL OrderDetails
+4. For each new order, background.js normalizes data (normalize.js)
+5. background.js POSTs to POST /api/ingest/extension
+6. Route calls ingestUberEatsOrders(orders)
+   └─ Writes to ubereats.db orders table (financials)
+   └─ Writes to ubereats.db items table (item_name, quantity, price, modifiers_json)
+7. Route calls unifyUberEats()
+   └─ For each order: check ubereats.db items table
+   └─ If items exist: insert real item rows to sales.db order_items (one per item)
+   └─ If no items: insert synthetic "Uber Eats Order" row (CSV fallback)
+8. Route calls step3ApplyAliases()
+9. Sales page shows new orders with real item names and modifier data
 ```
 
 ### Running a Square API sync:
@@ -300,10 +392,10 @@ display_category  TEXT     After menu category alias applied
 3. square-sync.ts (follows full 3-step pipeline):
    a. Fetch payments from Square API (cursor-paginated)
    b. For each payment, resolve real order_id
-   c. Batch-retrieve order details (line items, modifiers, tax, dining option)
-   d. Step 1: Dedup by payment_id → write new items to squareup.db
+   c. Batch-retrieve order details (line items, modifiers with prices, tax, dining option)
+   d. Step 1: Dedup by payment_id → write new items to squareup.db (with modifiers_json)
    e. Step 2: Call shared unifySquare() → aggregate items by transaction_id
-              → write to sales.db orders + order_items
+              → write to sales.db orders + order_items (modifiers_json preserved)
    f. Step 3: Call shared step3ApplyAliases() → apply menu/category aliases
 4. Sales page shows new orders with full item names, modifiers, and payment method
 ```
@@ -316,9 +408,10 @@ display_category  TEXT     After menu category alias applied
 3. Clears bank.db rocketmoney table
 4. Re-reads ALL vendor DBs (squareup, grubhub, doordash, ubereats, rocketmoney)
 5. Re-applies normalization, schema mapping, summary rollups
-6. Call step3ApplyAliases()
-7. All pages reflect updated rules
-8. No data loss — vendor DBs and config DBs are untouched
+6. For ubereats: uses real items from ubereats.db items table if available
+7. Call step3ApplyAliases()
+8. All pages reflect updated rules
+9. No data loss — vendor DBs and config DBs are untouched
 ```
 
 ### Re-applying aliases only (after changing alias rules):
@@ -327,8 +420,10 @@ display_category  TEXT     After menu category alias applied
 1. Call step3ApplyAliases()
 2. Resets all display_name/display_category to raw values
 3. Re-reads ALL alias rules from categories.db
-4. Updates order_items with new display names
-5. No re-import needed
+4. Applies menu_item_aliases (pattern match → display_name)
+5. Applies menu_item_category_map OR menu_category_aliases (depending on which is populated)
+6. Updates orders.display_categories (denormalized)
+7. No re-import needed
 ```
 
 ---
@@ -340,48 +435,57 @@ display_category  TEXT     After menu category alias applied
 │
 │  ── Source databases (Step 1) ──
 │
-├── squareup.db        (14.4MB)  Source: Square POS (API only)
-│   ├── items          (23,726)  Item-level sales (API)
-│   ├── payouts          (786)  Deposit records (API)
-│   └── payout_entries (13,749)  Order→deposit links (API)
+├── squareup.db        Source: Square POS (API only)
+│   ├── items          Item-level sales with modifiers_json
+│   ├── payouts        Deposit records
+│   └── payout_entries Order→deposit links
 │
-├── grubhub.db          (204KB)  Source: GrubHub
-│   └── orders            (390)  Order-level (CSV)
+├── grubhub.db         Source: GrubHub
+│   └── orders         Order-level (CSV)
 │
-├── doordash.db          (56KB)  Source: DoorDash
-│   ├── detailed_transactions (86)  Order-level (CSV)
-│   └── payouts            (13)  Deposit records (CSV)
+├── doordash.db        Source: DoorDash
+│   ├── detailed_transactions  Order-level (CSV)
+│   └── payouts        Deposit records (CSV)
 │
-├── ubereats.db          (24KB)  Source: Uber Eats
-│   └── orders            (113)  Order-level (CSV)
+├── ubereats.db        Source: Uber Eats
+│   ├── orders         Order-level financials (CSV or Extension)
+│   └── items          Item-level detail with modifiers_json (Extension only)
 │
-├── rocketmoney.db      (1.3MB)  Source: Rocket Money
-│   └── transactions    (2,111)  Bank activity (CSV)
+├── rocketmoney.db     Source: Rocket Money
+│   └── transactions   Bank activity (CSV)
 │
 │  ── Unified databases (Step 2) ──
 │
-├── sales.db           (17MB)    Unified: Sales page
-│   ├── orders        (14,949)  All platforms, normalized (financials)
-│   └── order_items   (24,314)  Individual items, all platforms (analytics)
+├── sales.db           Unified: Sales page + Menu Performance
+│   ├── orders         All platforms, normalized (financials)
+│   └── order_items    Individual items, all platforms (analytics)
 │
-├── bank.db             (692KB)  Unified: Bank Activity page
-│   ├── rocketmoney    (2,111)  All bank transactions
-│   └── chase_statements    (0)  Chase PDF imports (TBD)
+├── bank.db            Unified: Bank Activity page
+│   ├── rocketmoney    All bank transactions
+│   └── chase_statements  Chase PDF imports
 │
 │  ── Config databases (Step 3 + Settings) ──
 │
-├── categories.db                User configuration: aliases + categories
-│   ├── menu_item_aliases   (46)  "Mushroom Crêpe" → "FunGuy Crêpe"
-│   ├── menu_item_ignores   (37)  Items excluded from analytics
-│   ├── menu_category_aliases (8)  "Menu - Sweet Crêpes" → "Sweet Crêpes"
-│   ├── expense_categories  (16)  Expense category definitions
-│   └── categorization_rules (82)  Auto-categorization rules
+├── categories.db      User configuration: aliases + categories + settings
+│   ├── menu_item_aliases       Item name display mappings
+│   ├── menu_item_ignores       Items excluded from analytics
+│   ├── menu_category_aliases   Category name mappings (legacy)
+│   ├── menu_categories         User-defined category groups
+│   ├── menu_item_category_map  Item → category assignments
+│   ├── menu_modifier_aliases   Modifier name mappings
+│   ├── menu_modifier_ignores   Modifiers excluded from analytics
+│   ├── expense_categories      Expense category definitions
+│   ├── categorization_rules    Auto-categorization rules
+│   ├── category_ignores        Categories excluded from reports
+│   ├── closed_days             Days the restaurant was closed
+│   ├── imports                 Import history with file hashes
+│   ├── settings                Key-value store (tokens, config)
+│   ├── reconciliation_matches  Sales-to-bank deposit pairings
+│   └── reconciliation_alerts   Reconciliation discrepancy alerts
 │
-├── vendor-aliases.db            User configuration: vendor mappings
-│   ├── vendor_aliases      (42)  Bank vendor name mappings
-│   └── vendor_ignores       (9)  Vendors excluded from reports
-│
-│  Note: Import history and settings are stored in categories.db (no separate app database)
+├── vendor-aliases.db  User configuration: vendor mappings
+│   ├── vendor_aliases  Bank vendor name mappings
+│   └── vendor_ignores  Vendors excluded from reports
 ```
 
 ---
@@ -391,50 +495,14 @@ display_category  TEXT     After menu category alias applied
 | File | Purpose | Pipeline Role |
 |------|---------|---------------|
 | `src/lib/services/ingestion.ts` | CSV upload orchestrator | Calls Step 1 → Step 2 → Step 3 sequentially |
-| `src/lib/services/pipeline-step1-ingest.ts` | Step 1: CSV rows → Vendor DB | Dedup, date/amount normalization |
-| `src/lib/services/pipeline-step2-unify.ts` | Step 2: Vendor DB → Unified DB | Schema mapping, fee rollups, order_items |
-| `src/lib/services/pipeline-step3-aliases.ts` | Step 3: Apply aliases | menu/category aliases → order_items |
+| `src/app/api/ingest/extension/route.ts` | Extension ingest endpoint | Calls Step 1 → Step 2 → Step 3 for extension data |
+| `src/lib/services/pipeline-step1-ingest.ts` | Step 1: CSV/extension rows → Vendor DB | Dedup, date/amount normalization, items table |
+| `src/lib/services/pipeline-step2-unify.ts` | Step 2: Vendor DB → Unified DB | Schema mapping, fee rollups, real item rows |
+| `src/lib/services/pipeline-step3-aliases.ts` | Step 3: Apply aliases + categories | menu/category aliases + category mappings → order_items |
 | `src/lib/services/square-sync.ts` | Square API sync | Full pipeline: API → squareup.db → sales.db |
+| `src/lib/services/square-catalog-sync.ts` | Square catalog sync | Side process: catalog → menu_categories + menu_item_category_map |
 | `scripts/rebuild-pipeline.ts` | Full pipeline rebuild | Step 2 + Step 3 from scratch |
-| `src/lib/services/square-api.ts` | Square API client | Fetch payments, batch retrieve orders |
+| `src/lib/services/square-api.ts` | Square API client | Fetch payments, orders, catalog |
 | `src/lib/parsers/*.ts` | Platform-specific CSV parsers | Detect file type + parse headers |
 | `src/lib/services/dedup.ts` | Deduplication utilities | File hash + row-level dedup |
-| `src/app/api/upload/route.ts` | File upload API endpoint | Receives files, triggers ingestion |
-| `src/app/api/square/sync/route.ts` | Square sync API endpoint | Triggers API sync |
-| `src/app/settings/page.tsx` | Settings page UI | Upload, sync, import history |
-
-### Deprecated files (no longer used in pipeline):
-
-| File | Status |
-|------|--------|
-| `src/lib/services/sales-db-writer.ts` | Deprecated — was legacy dual-write, replaced by Step 1 + Step 2 |
-
----
-
-## Data Coverage
-
-| Platform | Date Range | Orders | Source |
-|----------|-----------|--------|--------|
-| Square | Aug 2023 → present | 14,361 | API (full history) |
-| GrubHub | Oct 2023 → Mar 2026 | 390 | CSV (3 exports) |
-| DoorDash | Dec 2025 → Mar 2026 | 86 | CSV (1 export) |
-| Uber Eats | May 2025 → Mar 2026 | 113 | CSV (1 export) |
-| Rocket Money | May 2023 → Mar 2026 | 2,111 | CSV (bank activity) |
-
-### Known gaps:
-- **DoorDash**: Only 3 months of data. Older exports needed.
-- **GrubHub**: No payout/deposit data in CSV exports.
-- **Uber Eats**: No payout/deposit data in CSV exports.
-- **Chase statements**: Not yet imported into bank.db.
-
----
-
-## Financials Summary (All Time)
-
-| Platform | Gross Sales | Fees | Marketing | Net Sales |
-|----------|------------|------|-----------|-----------|
-| Square | $211,005 | -$7,323 | $0 | $219,383 |
-| GrubHub | $7,670 | -$1,945 | -$717 | $5,702 |
-| DoorDash | $2,498 | -$595 | -$434 | $1,636 |
-| Uber Eats | $3,103 | -$626 | $0 | $2,213 |
-| **TOTAL** | **$224,277** | **-$10,489** | **-$1,151** | **$228,933** |
+| `extension/` | Chrome extension | Uber Eats merchant portal data capture |
