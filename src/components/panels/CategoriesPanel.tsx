@@ -325,7 +325,7 @@ export default function CategoriesPanel() {
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
                   placeholder="Category name"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
@@ -504,7 +504,7 @@ export default function CategoriesPanel() {
                 <select
                   value={newRuleType}
                   onChange={(e) => setNewRuleType(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="vendor_match">Vendor Match</option>
                   <option value="keyword_match">Keyword Match</option>
@@ -524,7 +524,7 @@ export default function CategoriesPanel() {
                       ? "Exact vendor name"
                       : "Regex pattern"
                   }
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
@@ -534,7 +534,7 @@ export default function CategoriesPanel() {
                 <select
                   value={newRuleCategoryId}
                   onChange={(e) => setNewRuleCategoryId(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">Select...</option>
                   {categories.map((c) => (
@@ -589,7 +589,7 @@ export default function CategoriesPanel() {
                         className="bg-white rounded-xl border border-gray-200 overflow-hidden"
                       >
                         {/* Category header */}
-                        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                        <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
                           <div
                             className="w-3 h-3 rounded-full flex-shrink-0"
                             style={{
@@ -619,7 +619,7 @@ export default function CategoriesPanel() {
                                       <select
                                         value={editType}
                                         onChange={(e) => setEditType(e.target.value)}
-                                        className="border border-gray-300 rounded px-1.5 py-0.5 text-xs w-full"
+                                        className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 text-xs w-full"
                                       >
                                         <option value="vendor_match">vendor match</option>
                                         <option value="keyword_match">keyword match</option>
@@ -637,7 +637,7 @@ export default function CategoriesPanel() {
                                         type="text"
                                         value={editPattern}
                                         onChange={(e) => setEditPattern(e.target.value)}
-                                        className="w-full border border-gray-300 rounded px-2 py-0.5 text-xs font-mono"
+                                        className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs font-mono"
                                         onKeyDown={(e) => {
                                           if (e.key === "Enter") saveRule();
                                           if (e.key === "Escape") cancelEditing();
@@ -653,7 +653,7 @@ export default function CategoriesPanel() {
                                       <select
                                         value={editCategoryId}
                                         onChange={(e) => setEditCategoryId(e.target.value)}
-                                        className="border border-gray-300 rounded px-1.5 py-0.5 text-xs"
+                                        className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 text-xs"
                                       >
                                         {categories.map((c) => (
                                           <option key={c.id} value={c.id}>

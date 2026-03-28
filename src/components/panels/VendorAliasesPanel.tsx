@@ -264,8 +264,8 @@ export default function VendorAliasesPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">Vendor Aliases</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Vendor Aliases</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {aliases.length} rules &middot; {matchedCount} matched &middot; {unmatchedCount} unmatched
           </p>
         </div>
@@ -284,15 +284,15 @@ export default function VendorAliasesPanel() {
           placeholder="Search vendors..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2 pl-9 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          className="w-full px-4 py-2 pl-9 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
         />
-        <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-sm"
+            className="absolute right-3 top-2.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 text-sm"
           >
             Clear
           </button>
@@ -300,34 +300,34 @@ export default function VendorAliasesPanel() {
       </div>
 
       {message && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <p className="text-sm text-blue-700">{message}</p>
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3">
+          <p className="text-sm text-blue-700 dark:text-blue-300">{message}</p>
         </div>
       )}
 
       {/* Warnings */}
       {warnings.length > 0 && (
-        <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
-          <div className="px-4 py-2.5 bg-red-50 border-b border-red-200">
-            <h3 className="text-sm font-medium text-red-800">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-red-200 dark:border-red-900/50 overflow-hidden">
+          <div className="px-4 py-2.5 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-700">
+            <h3 className="text-sm font-medium text-red-800 dark:text-red-300">
               Overlapping Groups ({warnings.length})
             </h3>
-            <p className="text-xs text-red-600 mt-0.5">
+            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
               Vendors matching multiple rules with different groups.
             </p>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {warnings.map((w, idx) => (
               <div key={idx} className="px-4 py-2.5 flex items-start gap-2">
                 <span className="shrink-0 mt-1 w-2 h-2 rounded-full bg-red-500" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-gray-700">{w.aliasDisplayName}</span>
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{w.aliasDisplayName}</span>
                     <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px]">
                       {w.aliasMatchType.replace("_", " ")} &ldquo;{w.aliasPattern}&rdquo;
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600 mt-0.5">{w.message}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{w.message}</p>
                   {w.affectedItems.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {w.affectedItems.slice(0, 6).map((item) => (
@@ -336,7 +336,7 @@ export default function VendorAliasesPanel() {
                         </span>
                       ))}
                       {w.affectedItems.length > 6 && (
-                        <span className="text-[10px] text-gray-400">+{w.affectedItems.length - 6} more</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">+{w.affectedItems.length - 6} more</span>
                       )}
                     </div>
                   )}
@@ -363,7 +363,7 @@ export default function VendorAliasesPanel() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
         {([
           { key: "aliases" as const, label: "Aliases" },
           { key: "review" as const, label: `Review & Match${suggestions.length > 0 ? ` (${suggestions.length})` : ""}` },
@@ -387,15 +387,15 @@ export default function VendorAliasesPanel() {
       {tab === "aliases" && (
         <div className="space-y-4">
           {/* Add Alias Rule */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Add Alias Rule</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Add Alias Rule</h3>
             <div className="flex gap-3 items-end flex-wrap">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Match Type</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Match Type</label>
                 <select
                   value={newMatchType}
                   onChange={(e) => setNewMatchType(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-100"
                 >
                   <option value="starts_with">Starts With</option>
                   <option value="contains">Contains</option>
@@ -403,24 +403,24 @@ export default function VendorAliasesPanel() {
                 </select>
               </div>
               <div className="flex-1 min-w-[200px]">
-                <label className="block text-xs text-gray-500 mb-1">Pattern</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Pattern</label>
                 <input
                   type="text"
                   value={newPattern}
                   onChange={(e) => setNewPattern(e.target.value)}
                   placeholder="e.g. ORIG CO NAME:CON ED"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
-              <span className="text-xs text-gray-400 pb-2.5">maps to</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500 pb-2.5">maps to</span>
               <div className="flex-1 min-w-[150px]">
-                <label className="block text-xs text-gray-500 mb-1">Display Name</label>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Display Name</label>
                 <input
                   type="text"
                   value={newDisplayName}
                   onChange={(e) => setNewDisplayName(e.target.value)}
                   placeholder="e.g. Con Edison"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <button
@@ -435,7 +435,7 @@ export default function VendorAliasesPanel() {
 
           {/* Aliases Table — grouped by displayName */}
           {sortedGroups.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
               No alias rules yet. Add a rule above or accept suggestions in the Review tab.
             </div>
           ) : (
@@ -443,9 +443,9 @@ export default function VendorAliasesPanel() {
               {sortedGroups.map(([displayName, group]) => (
                 <div key={displayName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   {/* Group header */}
-                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200">
-                    <h4 className="text-sm font-medium text-gray-700">{displayName}</h4>
-                    <span className="text-xs text-gray-400 ml-auto">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-700">
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">{displayName}</h4>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
                       {group.length} {group.length === 1 ? "rule" : "rules"}
                     </span>
                   </div>
@@ -458,7 +458,7 @@ export default function VendorAliasesPanel() {
                           <tr
                             key={alias.id}
                             id={`alias-${alias.id}`}
-                            className="border-t border-gray-100 first:border-t-0 hover:bg-gray-50"
+                            className="border-t border-gray-100 dark:border-gray-700 first:border-t-0 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                           >
                             {isEditing ? (
                               <td colSpan={4} className="px-4 py-2">
@@ -466,7 +466,7 @@ export default function VendorAliasesPanel() {
                                   <select
                                     value={editMatchType}
                                     onChange={(e) => setEditMatchType(e.target.value)}
-                                    className="border border-gray-300 rounded px-1.5 py-0.5 text-xs shrink-0"
+                                    className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-0.5 text-xs shrink-0"
                                   >
                                     <option value="starts_with">starts with</option>
                                     <option value="contains">contains</option>
@@ -476,7 +476,7 @@ export default function VendorAliasesPanel() {
                                     type="text"
                                     value={editPattern}
                                     onChange={(e) => setEditPattern(e.target.value)}
-                                    className="flex-1 min-w-0 border border-gray-300 rounded px-2 py-0.5 text-xs font-mono"
+                                    className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs font-mono"
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter") saveEdit();
                                       if (e.key === "Escape") cancelEdit();
@@ -489,7 +489,7 @@ export default function VendorAliasesPanel() {
                                     value={editDisplayName}
                                     onChange={(e) => setEditDisplayName(e.target.value)}
                                     placeholder="Display Name"
-                                    className="w-48 shrink-0 border border-gray-300 rounded px-2 py-0.5 text-xs"
+                                    className="w-48 shrink-0 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs"
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter") saveEdit();
                                       if (e.key === "Escape") cancelEdit();
@@ -512,11 +512,11 @@ export default function VendorAliasesPanel() {
                             ) : (
                               <>
                                 <td className="px-4 py-2 w-28 whitespace-nowrap">
-                                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
+                                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
                                     {alias.matchType.replace("_", " ")}
                                   </span>
                                 </td>
-                                <td className="px-4 py-2 text-gray-800 font-mono text-xs">
+                                <td className="px-4 py-2 text-gray-800 dark:text-gray-200 font-mono text-xs">
                                   {alias.pattern.length > 60
                                     ? alias.pattern.slice(0, 60) + "..."
                                     : alias.pattern}
@@ -563,8 +563,8 @@ export default function VendorAliasesPanel() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-medium text-gray-700">Review & Match</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Review & Match</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {filteredSuggestions.length} suggestion{filteredSuggestions.length !== 1 ? "s" : ""} to review.
               </p>
             </div>
@@ -581,19 +581,19 @@ export default function VendorAliasesPanel() {
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
             </div>
           ) : filteredSuggestions.length === 0 && unmatchedCount === 0 ? (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
-              <p className="text-emerald-700 font-medium">All vendors matched!</p>
-              <p className="text-xs text-emerald-600 mt-1">No unmatched vendor names found.</p>
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/50 rounded-xl p-6 text-center">
+              <p className="text-emerald-700 dark:text-emerald-400 font-medium">All vendors matched!</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">No unmatched vendor names found.</p>
             </div>
           ) : filteredSuggestions.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
               No suggestions available. Try refreshing or add aliases manually.
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr className="text-left text-gray-500 text-xs">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-gray-500 dark:text-gray-400 text-xs">
                     <th className="px-4 py-2.5">Vendor(s)</th>
                     <th className="px-4 py-2.5 text-right">Txns</th>
                     <th className="px-4 py-2.5 text-right">Amount</th>
@@ -610,7 +610,7 @@ export default function VendorAliasesPanel() {
                     const isExpanded = expandedSuggestion === idx;
 
                     return (
-                      <tr key={idx} className="border-t border-gray-100 hover:bg-gray-50 align-top">
+                      <tr key={idx} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 align-top">
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1.5">
                             {s.members.length > 1 && (
@@ -624,11 +624,11 @@ export default function VendorAliasesPanel() {
                               </button>
                             )}
                             <div>
-                              <span className="text-xs font-medium text-gray-800">
+                              <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
                                 {s.members[0]?.name || s.groupName}
                               </span>
                               {s.members.length > 1 && (
-                                <span className="text-[10px] text-gray-400 ml-1">
+                                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
                                   +{s.members.length - 1} more
                                 </span>
                               )}
@@ -636,9 +636,9 @@ export default function VendorAliasesPanel() {
                                 <div className="mt-1 space-y-0.5 pl-1">
                                   {s.members.slice(1).map((m, mi) => (
                                     <div key={mi} className="text-[11px] text-gray-500 flex items-center gap-1.5">
-                                      <span className="text-gray-300">&#8226;</span>
+                                      <span className="text-gray-300 dark:text-gray-600">&#8226;</span>
                                       <span className="truncate max-w-[250px]" title={m.name}>{m.name}</span>
-                                      <span className="text-gray-400">({m.count})</span>
+                                      <span className="text-gray-400 dark:text-gray-500">({m.count})</span>
                                     </div>
                                   ))}
                                 </div>
@@ -646,7 +646,7 @@ export default function VendorAliasesPanel() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-right text-gray-600 text-xs">{s.totalCount}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 text-xs">{s.totalCount}</td>
                         <td className={`px-4 py-2.5 text-right text-xs ${s.totalAmount < 0 ? "text-emerald-600" : "text-gray-600"}`}>
                           {formatCurrency(s.totalAmount)}
                         </td>
@@ -664,7 +664,7 @@ export default function VendorAliasesPanel() {
                               onBlur={() => setTimeout(() => setSuggestions((prev) =>
                                 prev.map((p) => ({ ...p, _showDropdown: false }))
                               ), 200)}
-                              className="border border-gray-300 rounded px-2 py-1 text-xs font-medium w-full"
+                              className="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs font-medium w-full"
                             />
                             {s._showDropdown && (() => {
                               const existingNames = [...new Set(aliases.map((a) => a.displayName))].filter((name) =>
@@ -672,7 +672,7 @@ export default function VendorAliasesPanel() {
                               ).slice(0, 6);
                               if (existingNames.length === 0) return null;
                               return (
-                                <div className="absolute z-10 top-full left-0 mt-0.5 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                <div className="absolute z-10 top-full left-0 mt-0.5 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
                                   {existingNames.map((name) => (
                                     <button
                                       key={name}
@@ -699,7 +699,7 @@ export default function VendorAliasesPanel() {
                               onChange={(e) => setSuggestions((prev) =>
                                 prev.map((p, i) => i === idx ? { ...p, editedMatchType: e.target.value } : p)
                               )}
-                              className="border border-gray-300 rounded px-1.5 py-1 text-[11px] w-20"
+                              className="border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 text-[11px] w-20"
                             >
                               <option value="exact">exact</option>
                               <option value="starts_with">starts with</option>
@@ -743,14 +743,14 @@ export default function VendorAliasesPanel() {
       {tab === "ignored" && (
         <div className="space-y-4">
           {ignoredCount === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400 dark:text-gray-500 text-sm">
               No ignored vendors.
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr className="text-left text-gray-500">
+                <thead className="bg-gray-50 dark:bg-gray-800">
+                  <tr className="text-left text-gray-500 dark:text-gray-400">
                     <th className="px-4 py-2.5 font-medium">Vendor Name</th>
                     <th className="px-4 py-2.5 font-medium text-right">Expenses</th>
                     <th className="px-4 py-2.5 font-medium text-right">Total</th>
@@ -759,14 +759,14 @@ export default function VendorAliasesPanel() {
                 </thead>
                 <tbody>
                   {filteredIgnored.slice(0, ignoredVisible).map((v) => (
-                    <tr key={v.id} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-2 text-gray-600 max-w-[300px]">
+                    <tr key={v.id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                      <td className="px-4 py-2 text-gray-600 dark:text-gray-400 max-w-[300px]">
                         <span className="block truncate" title={v.name}>
                           {v.name}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-500">{v.expenseCount}</td>
-                      <td className="px-4 py-2 text-right text-gray-500">
+                      <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">{v.expenseCount}</td>
+                      <td className="px-4 py-2 text-right text-gray-500 dark:text-gray-400">
                         {formatCurrency(v.totalSpent)}
                       </td>
                       <td className="px-4 py-2 text-right">

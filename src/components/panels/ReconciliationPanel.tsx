@@ -275,20 +275,20 @@ export default function ReconciliationPanel() {
   return (
     <div className="space-y-6">
       {/* Tab Bar */}
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === t.key
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
             {t.label}
             {t.key === "alerts" && unresolvedAlerts.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
+              <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full text-xs">
                 {unresolvedAlerts.length}
               </span>
             )}
@@ -379,7 +379,7 @@ function OverviewTab({
       )}
 
       {runResult && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700/50 rounded-lg p-3 text-sm text-blue-800 dark:text-blue-300">
           {runResult}
         </div>
       )}
@@ -478,7 +478,7 @@ function MatchingTab({
 
       {/* Suggestions */}
       {data.suggestions.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 dark:border-gray-700 p-6">
           <h3 className="text-sm font-medium text-gray-700 mb-4">
             Suggested Matches ({data.suggestions.length})
           </h3>
@@ -490,22 +490,22 @@ function MatchingTab({
               >
                 <div className="flex-1 grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
                       Platform Payout
                     </p>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 dark:text-gray-200">
                       {s.payoutPlatform} - {formatCurrency(s.payoutAmount)}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {new Date(s.payoutDate).toLocaleDateString()}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Bank Deposit</p>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Bank Deposit</p>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200 dark:text-gray-200">
                       {formatCurrency(s.bankAmount)}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {new Date(s.bankDate).toLocaleDateString()} -{" "}
                       {s.bankDescription}
                     </p>
@@ -519,7 +519,7 @@ function MatchingTab({
                           ? "bg-emerald-100 text-emerald-700"
                           : s.confidence >= 0.5
                             ? "bg-amber-100 text-amber-700"
-                            : "bg-gray-100 text-gray-600"
+                            : "bg-gray-100 text-gray-600 dark:text-gray-400"
                       }`}
                     >
                       {Math.round(s.confidence * 100)}%
@@ -556,14 +556,14 @@ function MatchingTab({
 
       {/* Reconciled Pairs */}
       {data.reconciledPairs.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 dark:border-gray-700 p-6">
           <h3 className="text-sm font-medium text-gray-700 mb-4">
             Reconciled Pairs ({data.reconciledPairs.length})
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-400 border-b">
+                <tr className="text-left text-gray-400 dark:text-gray-500 border-b dark:border-gray-700">
                   <th className="pb-2 font-medium">Platform</th>
                   <th className="pb-2 font-medium">Payout Date</th>
                   <th className="pb-2 font-medium text-right">Amount</th>
@@ -576,19 +576,19 @@ function MatchingTab({
               <tbody>
                 {data.reconciledPairs.map((pair) => (
                   <tr key={pair.payoutId} className="border-b border-gray-50">
-                    <td className="py-2 text-gray-800">{pair.platform}</td>
-                    <td className="py-2 text-gray-600">
+                    <td className="py-2 text-gray-800 dark:text-gray-200">{pair.platform}</td>
+                    <td className="py-2 text-gray-600 dark:text-gray-400">
                       {new Date(pair.payoutDate).toLocaleDateString()}
                     </td>
                     <td className="py-2 text-right font-medium">
                       {formatCurrency(pair.payoutAmount)}
                     </td>
-                    <td className="py-2 text-gray-600">
+                    <td className="py-2 text-gray-600 dark:text-gray-400">
                       {pair.bankDate
                         ? new Date(pair.bankDate).toLocaleDateString()
                         : "-"}
                     </td>
-                    <td className="py-2 text-gray-600">
+                    <td className="py-2 text-gray-600 dark:text-gray-400">
                       {pair.bankDescription || "-"}
                     </td>
                     <td className="py-2 text-right font-medium">
@@ -632,7 +632,7 @@ const STATUS_COLORS: Record<string, string> = {
   reconciled: "bg-emerald-100 text-emerald-700",
   partially_reconciled: "bg-amber-100 text-amber-700",
   discrepancy_detected: "bg-red-100 text-red-700",
-  unreconciled: "bg-gray-100 text-gray-600",
+  unreconciled: "bg-gray-100 text-gray-600 dark:text-gray-400",
 };
 
 function ChainsTab({
@@ -664,7 +664,7 @@ function ChainsTab({
         <select
           value={platform}
           onChange={(e) => onPlatformChange(e.target.value)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+          className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5"
         >
           <option value="">All Platforms</option>
           <option value="square">Square</option>
@@ -683,15 +683,15 @@ function ChainsTab({
           {chains.map((chain) => (
             <div
               key={chain.id}
-              className="bg-white rounded-xl border border-gray-200 overflow-hidden"
+              className="bg-white rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
             >
               {/* Chain Header */}
               <button
                 onClick={() => toggle(chain.id)}
-                className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50"
+                className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 dark:hover:bg-gray-700/30"
               >
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium text-gray-800 capitalize">
+                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200 capitalize">
                     {chain.platform}
                   </span>
                   <span className="text-xs text-gray-500">
@@ -704,13 +704,13 @@ function ChainsTab({
                   {/* L1 → L2 → L3 Flow */}
                   <div className="flex items-center gap-1 text-xs">
                     <span
-                      className={`px-2 py-0.5 rounded ${chain.level1.orderCount > 0 ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-400"}`}
+                      className={`px-2 py-0.5 rounded ${chain.level1.orderCount > 0 ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400" : "bg-gray-100 text-gray-400"}`}
                     >
                       L1: {chain.level1.orderCount} orders
                     </span>
                     <span className="text-gray-300">→</span>
                     <span
-                      className={`px-2 py-0.5 rounded ${chain.level2.payout ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-400"}`}
+                      className={`px-2 py-0.5 rounded ${chain.level2.payout ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400" : "bg-gray-100 text-gray-400"}`}
                     >
                       L2:{" "}
                       {chain.level2.payout
@@ -719,7 +719,7 @@ function ChainsTab({
                     </span>
                     <span className="text-gray-300">→</span>
                     <span
-                      className={`px-2 py-0.5 rounded ${chain.level3.bankTransaction ? "bg-teal-100 text-teal-700" : "bg-gray-100 text-gray-400"}`}
+                      className={`px-2 py-0.5 rounded ${chain.level3.bankTransaction ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400" : "bg-gray-100 text-gray-400"}`}
                     >
                       L3:{" "}
                       {chain.level3.bankTransaction
@@ -740,14 +740,14 @@ function ChainsTab({
 
               {/* Expanded Detail */}
               {expanded.has(chain.id) && (
-                <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
+                <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-800">
                   <div className="grid grid-cols-3 gap-4 text-xs">
                     {/* L1 Detail */}
                     <div>
-                      <p className="font-medium text-gray-600 mb-2">
+                      <p className="font-medium text-gray-600 dark:text-gray-400 mb-2">
                         Level 1: Orders ({chain.level1.orderCount})
                       </p>
-                      <p className="text-gray-800 font-medium mb-2">
+                      <p className="text-gray-800 dark:text-gray-200 font-medium mb-2">
                         Total: {formatCurrency(chain.level1.totalAmount)}
                       </p>
                       {chain.level1.orders.length > 0 && (
@@ -755,7 +755,7 @@ function ChainsTab({
                           {chain.level1.orders.slice(0, 20).map((o) => (
                             <div
                               key={o.id}
-                              className="flex justify-between text-gray-600"
+                              className="flex justify-between text-gray-600 dark:text-gray-400"
                             >
                               <span>{o.orderId.slice(0, 12)}...</span>
                               <span>{formatCurrency(o.netPayout)}</span>
@@ -771,18 +771,18 @@ function ChainsTab({
                     </div>
                     {/* L2 Detail */}
                     <div>
-                      <p className="font-medium text-gray-600 mb-2">
+                      <p className="font-medium text-gray-600 dark:text-gray-400 mb-2">
                         Level 2: Payout
                       </p>
                       {chain.level2.payout ? (
                         <>
-                          <p className="text-gray-800">
+                          <p className="text-gray-800 dark:text-gray-200">
                             Gross: {formatCurrency(chain.level2.payout.grossAmount)}
                           </p>
-                          <p className="text-gray-800">
+                          <p className="text-gray-800 dark:text-gray-200">
                             Fees: {formatCurrency(chain.level2.payout.fees)}
                           </p>
-                          <p className="text-gray-800 font-medium">
+                          <p className="text-gray-800 dark:text-gray-200 font-medium">
                             Net: {formatCurrency(chain.level2.payout.netAmount)}
                           </p>
                           <p className="text-gray-500 mt-1">
@@ -803,18 +803,18 @@ function ChainsTab({
                     </div>
                     {/* L3 Detail */}
                     <div>
-                      <p className="font-medium text-gray-600 mb-2">
+                      <p className="font-medium text-gray-600 dark:text-gray-400 mb-2">
                         Level 3: Bank
                       </p>
                       {chain.level3.bankTransaction ? (
                         <>
-                          <p className="text-gray-800 font-medium">
+                          <p className="text-gray-800 dark:text-gray-200 font-medium">
                             {formatCurrency(chain.level3.bankTransaction.amount)}
                           </p>
-                          <p className="text-gray-600 truncate">
+                          <p className="text-gray-600 dark:text-gray-400 truncate">
                             {chain.level3.bankTransaction.description}
                           </p>
-                          <p className="text-gray-500">
+                          <p className="text-gray-500 dark:text-gray-400">
                             {new Date(chain.level3.bankTransaction.date).toLocaleDateString()}
                           </p>
                           {chain.l2L3Variance !== null && (
@@ -865,7 +865,7 @@ function AlertDetailRow({ label, value, highlight }: { label: string; value: str
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-gray-500">{label}:</span>
-      <span className={`text-xs font-medium ${highlight ? "text-red-700" : "text-gray-800"}`}>{value}</span>
+      <span className={`text-xs font-medium ${highlight ? "text-red-700" : "text-gray-800 dark:text-gray-200"}`}>{value}</span>
     </div>
   );
 }
@@ -879,7 +879,7 @@ function AlertSummary({ alert }: { alert: Alert }) {
     switch (alert.type) {
       case "payout_mismatch":
         return (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 dark:bg-gray-700/40 rounded-md px-3 py-2">
             <AlertDetailRow label="Payout" value={`$${Number(d.payoutAmount).toFixed(2)}`} />
             <AlertDetailRow label="Expected (orders)" value={`$${Number(d.expectedAmount).toFixed(2)}`} />
             <AlertDetailRow label="Variance" value={`$${Number(d.variance).toFixed(2)}`} highlight={Math.abs(d.variance) > 10} />
@@ -887,7 +887,7 @@ function AlertSummary({ alert }: { alert: Alert }) {
         );
       case "deposit_mismatch":
         return (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 dark:bg-gray-700/40 rounded-md px-3 py-2">
             <AlertDetailRow label="Payout amount" value={`$${Number(d.payoutAmount).toFixed(2)}`} />
             <AlertDetailRow label="Bank deposit" value={`$${Number(d.bankAmount).toFixed(2)}`} />
             <AlertDetailRow label="Difference" value={`$${Number(d.difference).toFixed(2)}`} highlight={d.difference > 10} />
@@ -895,14 +895,14 @@ function AlertSummary({ alert }: { alert: Alert }) {
         );
       case "missing_payout":
         return (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 dark:bg-gray-700/40 rounded-md px-3 py-2">
             <AlertDetailRow label="Unlinked orders" value={String(d.orderCount)} />
             <AlertDetailRow label="Total amount" value={`$${Number(d.totalAmount).toFixed(2)}`} highlight />
           </div>
         );
       case "missing_deposit":
         return (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 dark:bg-gray-700/40 rounded-md px-3 py-2">
             <AlertDetailRow label="Payout amount" value={`$${Number(d.netAmount).toFixed(2)}`} />
             {d.payoutDate && (
               <AlertDetailRow label="Payout date" value={new Date(d.payoutDate).toLocaleDateString()} />
@@ -912,7 +912,7 @@ function AlertSummary({ alert }: { alert: Alert }) {
         );
       case "duplicate_suspected":
         return (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 bg-white/60 dark:bg-gray-700/40 rounded-md px-3 py-2">
             <AlertDetailRow label="Duplicate count" value={`${d.cnt} orders`} highlight />
             <AlertDetailRow label="Amount (each)" value={`$${Number(d.amount).toFixed(2)}`} />
             <AlertDetailRow label="Date" value={d.date} />
@@ -937,7 +937,7 @@ function MiniTable({ headers, rows, footer }: {
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-gray-200">
+          <tr className="border-b border-gray-200 dark:border-gray-700">
             {headers.map((h) => (
               <th key={h} className="py-1.5 px-2 text-left font-medium text-gray-500 whitespace-nowrap">{h}</th>
             ))}
@@ -945,7 +945,7 @@ function MiniTable({ headers, rows, footer }: {
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className={i % 2 === 0 ? "bg-white/40" : ""}>
+            <tr key={i} className={i % 2 === 0 ? "bg-white/40 dark:bg-gray-700/20" : ""}>
               {row.map((cell, j) => (
                 <td key={j} className="py-1 px-2 text-gray-700 whitespace-nowrap">{cell}</td>
               ))}
@@ -956,7 +956,7 @@ function MiniTable({ headers, rows, footer }: {
           <tfoot>
             <tr className="border-t border-gray-300 font-medium">
               {footer.map((cell, j) => (
-                <td key={j} className="py-1.5 px-2 text-gray-800 whitespace-nowrap">{cell}</td>
+                <td key={j} className="py-1.5 px-2 text-gray-800 dark:text-gray-200 whitespace-nowrap">{cell}</td>
               ))}
             </tr>
           </tfoot>
@@ -983,12 +983,12 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
           {/* Payout info */}
           {payout && (
             <div>
-              <p className="text-xs font-medium text-gray-600 mb-1">Payout</p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 rounded px-3 py-2 text-xs">
-                <span><span className="text-gray-500">Date:</span> {fmtDate(payout.payoutDate)}</span>
-                <span><span className="text-gray-500">Gross:</span> {fmtAmt(payout.grossAmount)}</span>
-                <span><span className="text-gray-500">Fees:</span> {fmtAmt(payout.fees)}</span>
-                <span className="font-medium"><span className="text-gray-500">Net:</span> {fmtAmt(payout.netAmount)}</span>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Payout</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 dark:bg-gray-700/30 rounded px-3 py-2 text-xs">
+                <span><span className="text-gray-500 dark:text-gray-400">Date:</span> {fmtDate(payout.payoutDate)}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Gross:</span> {fmtAmt(payout.grossAmount)}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Fees:</span> {fmtAmt(payout.fees)}</span>
+                <span className="font-medium"><span className="text-gray-500 dark:text-gray-400">Net:</span> {fmtAmt(payout.netAmount)}</span>
                 {payout.amountVariance != null && Math.abs(payout.amountVariance) > 1 && (
                   <span className="text-red-700 font-medium">
                     Variance: {payout.amountVariance > 0 ? "+" : ""}{fmtAmt(payout.amountVariance)}
@@ -1001,11 +1001,11 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
           {/* Bank deposit */}
           {bankTransaction && (
             <div>
-              <p className="text-xs font-medium text-gray-600 mb-1">Bank Deposit</p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 rounded px-3 py-2 text-xs">
-                <span><span className="text-gray-500">Date:</span> {fmtDate(bankTransaction.date)}</span>
-                <span className="font-medium"><span className="text-gray-500">Amount:</span> {fmtAmt(bankTransaction.amount)}</span>
-                <span><span className="text-gray-500">Desc:</span> {(bankTransaction.description || "").slice(0, 60)}</span>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bank Deposit</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 dark:bg-gray-700/30 rounded px-3 py-2 text-xs">
+                <span><span className="text-gray-500 dark:text-gray-400">Date:</span> {fmtDate(bankTransaction.date)}</span>
+                <span className="font-medium"><span className="text-gray-500 dark:text-gray-400">Amount:</span> {fmtAmt(bankTransaction.amount)}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Desc:</span> {(bankTransaction.description || "").slice(0, 60)}</span>
               </div>
             </div>
           )}
@@ -1013,7 +1013,7 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
           {/* Linked orders */}
           {orders && orders.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-600 mb-1">Linked Orders ({orders.length})</p>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Linked Orders ({orders.length})</p>
               <MiniTable
                 headers={["Order ID", "Date", "Subtotal", "Fees", "Tip", "Net Payout"]}
                 rows={orders.map((o: any) => [
@@ -1042,11 +1042,11 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
     case "missing_payout": {
       const { orders } = data;
       if (!orders || orders.length === 0) {
-        return <p className="text-xs text-gray-500">No unlinked orders found.</p>;
+        return <p className="text-xs text-gray-500 dark:text-gray-400">No unlinked orders found.</p>;
       }
       return (
         <div>
-          <p className="text-xs font-medium text-gray-600 mb-1">Unlinked Orders ({orders.length})</p>
+          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Unlinked Orders ({orders.length})</p>
           <MiniTable
             headers={["Order ID", "Date", "Platform", "Subtotal", "Net Payout"]}
             rows={orders.map((o: any) => [
@@ -1074,19 +1074,19 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
         <div className="space-y-3">
           {payout && (
             <div>
-              <p className="text-xs font-medium text-gray-600 mb-1">Payout Awaiting Deposit</p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 rounded px-3 py-2 text-xs">
-                <span><span className="text-gray-500">Platform:</span> {payout.platform}</span>
-                <span><span className="text-gray-500">Date:</span> {fmtDate(payout.payoutDate)}</span>
-                <span><span className="text-gray-500">Gross:</span> {fmtAmt(payout.grossAmount)}</span>
-                <span><span className="text-gray-500">Fees:</span> {fmtAmt(payout.fees)}</span>
-                <span className="font-medium"><span className="text-gray-500">Net:</span> {fmtAmt(payout.netAmount)}</span>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Payout Awaiting Deposit</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 bg-white/50 dark:bg-gray-700/30 rounded px-3 py-2 text-xs">
+                <span><span className="text-gray-500 dark:text-gray-400">Platform:</span> {payout.platform}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Date:</span> {fmtDate(payout.payoutDate)}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Gross:</span> {fmtAmt(payout.grossAmount)}</span>
+                <span><span className="text-gray-500 dark:text-gray-400">Fees:</span> {fmtAmt(payout.fees)}</span>
+                <span className="font-medium"><span className="text-gray-500 dark:text-gray-400">Net:</span> {fmtAmt(payout.netAmount)}</span>
               </div>
             </div>
           )}
 
           <div>
-            <p className="text-xs font-medium text-gray-600 mb-1">
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
               Candidate Bank Deposits ({candidateDeposits?.length || 0})
             </p>
             {candidateDeposits && candidateDeposits.length > 0 ? (
@@ -1100,7 +1100,7 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
                 ])}
               />
             ) : (
-              <p className="text-xs text-gray-500 bg-white/50 rounded px-3 py-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 bg-white/50 dark:bg-gray-700/30 rounded px-3 py-2">
                 No matching bank deposits found within $2 and 5 days of this payout.
               </p>
             )}
@@ -1112,11 +1112,11 @@ function ExpandedAlertContent({ alert, data }: { alert: Alert; data: any }) {
     case "duplicate_suspected": {
       const { orders } = data;
       if (!orders || orders.length === 0) {
-        return <p className="text-xs text-gray-500">No matching orders found.</p>;
+        return <p className="text-xs text-gray-500 dark:text-gray-400">No matching orders found.</p>;
       }
       return (
         <div>
-          <p className="text-xs font-medium text-gray-600 mb-1">Potentially Duplicated Orders ({orders.length})</p>
+          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Potentially Duplicated Orders ({orders.length})</p>
           <MiniTable
             headers={["Order ID", "Date", "Platform", "Net Payout", "Linked Payout?"]}
             rows={orders.map((o: any) => [
@@ -1242,11 +1242,11 @@ function AlertsTab({
                             {new Date(alert.createdAt).toLocaleString()}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-800 pl-5.5">{alert.message}</p>
+                        <p className="text-sm text-gray-800 dark:text-gray-200 pl-5.5">{alert.message}</p>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); onResolve(alert.id); }}
-                        className="px-3 py-1 text-xs border border-gray-300 rounded-lg hover:bg-white shrink-0"
+                        className="px-3 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-white shrink-0"
                       >
                         Resolve
                       </button>
@@ -1260,7 +1260,7 @@ function AlertsTab({
 
                   {/* Expanded detail section */}
                   {isExpanded && (
-                    <div className="border-t border-gray-200/60 px-4 py-3 bg-white/30">
+                    <div className="border-t border-gray-200 dark:border-gray-700/60 px-4 py-3 bg-white/30">
                       {isLoading ? (
                         <div className="flex items-center gap-2 py-4 justify-center">
                           <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500" />
@@ -1269,7 +1269,7 @@ function AlertsTab({
                       ) : cachedData ? (
                         <ExpandedAlertContent alert={alert} data={cachedData} />
                       ) : (
-                        <p className="text-xs text-gray-500 py-2">Unable to load details.</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 py-2">Unable to load details.</p>
                       )}
                     </div>
                   )}

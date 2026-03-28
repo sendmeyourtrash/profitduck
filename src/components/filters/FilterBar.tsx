@@ -143,7 +143,7 @@ export default function FilterBar({
                 onChange={(e) =>
                   onChange({ ...filters, startDate: e.target.value })
                 }
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm"
               />
             </div>
             <div>
@@ -156,7 +156,7 @@ export default function FilterBar({
                 onChange={(e) =>
                   onChange({ ...filters, endDate: e.target.value })
                 }
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm"
               />
             </div>
 
@@ -213,7 +213,7 @@ export default function FilterBar({
                 onChange({ ...filters, search: e.target.value })
               }
               placeholder="Search descriptions..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm"
             />
           </div>
         )}
