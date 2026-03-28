@@ -340,6 +340,29 @@ export function removeClosedDay(date: string): void {
   getCategoriesDb().prepare("DELETE FROM closed_days WHERE date = ?").run(date);
 }
 
+// ── Ignored closed days (dismissed from auto-detect permanently) ──
+
+function ensureClosedDaysIgnoredTable(): void {
+  getCategoriesDb().exec(`CREATE TABLE IF NOT EXISTS closed_days_ignored (
+    date TEXT PRIMARY KEY
+  )`);
+}
+
+export function getIgnoredClosedDates(): string[] {
+  ensureClosedDaysIgnoredTable();
+  return (getCategoriesDb().prepare("SELECT date FROM closed_days_ignored ORDER BY date DESC").all() as { date: string }[]).map((r) => r.date);
+}
+
+export function addIgnoredClosedDate(date: string): void {
+  ensureClosedDaysIgnoredTable();
+  getCategoriesDb().prepare("INSERT OR IGNORE INTO closed_days_ignored (date) VALUES (?)").run(date);
+}
+
+export function removeIgnoredClosedDate(date: string): void {
+  ensureClosedDaysIgnoredTable();
+  getCategoriesDb().prepare("DELETE FROM closed_days_ignored WHERE date = ?").run(date);
+}
+
 export function countClosedDaysInRange(startDate: string, endDate: string): number {
   ensureClosedDaysTable();
   const row = getCategoriesDb().prepare(

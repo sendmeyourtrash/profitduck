@@ -47,6 +47,7 @@ interface HealthReportData {
       slope: number;
       intercept: number;
       r2: number;
+      standardError: number;
       dailyChangeLabel: string;
       projectedMonthlyRevenue: number;
       confidenceLabel: string;
@@ -96,6 +97,7 @@ interface HealthReportData {
   insights: string[];
   meta: {
     closedDays: number;
+    closedDayDates: string[];
     period: string;
     periodLabel: string;
     comparisonLabel: string;
@@ -334,7 +336,11 @@ export default function HealthReportPage() {
             externalForecastRange={forecastRange}
             onProjectionChange={setProjInfo}
             regressionR2={projection.trend.r2}
+            regressionSlope={projection.trend.slope}
+            regressionIntercept={projection.trend.intercept}
+            regressionStandardError={projection.trend.standardError}
             chartLookbackDays={projection.trend.chartLookbackDays}
+            closedDates={meta.closedDayDates}
           />
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-5">

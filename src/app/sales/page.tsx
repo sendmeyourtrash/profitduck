@@ -5,8 +5,15 @@
 import { Fragment } from "react";
 
 import React, { Suspense, useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
+
+const MenuItemAliasesPanel = dynamic(() => import("@/components/panels/MenuItemAliasesPanel"), { ssr: false });
+const MenuCategoriesPanel = dynamic(() => import("@/components/panels/MenuCategoriesPanel"), { ssr: false });
+const MenuModifiersPanel = dynamic(() => import("@/components/panels/MenuModifiersPanel"), { ssr: false });
+
+type SalesTab = "orders" | "menu";
 import FilterBar, {
   FilterState,
   emptyFilters,
@@ -398,15 +405,71 @@ function ExpandedRow({ order }: { order: Order }) {
   );
 }
 
+const MENU_TABS = [
+  { key: "items", label: "Menu Items" },
+  { key: "categories", label: "Categories" },
+  { key: "modifiers", label: "Modifiers" },
+] as const;
+type MenuTab = (typeof MENU_TABS)[number]["key"];
+
 export default function SalesPageWrapper() {
+  const [salesTab, setSalesTab] = useState<SalesTab>("orders");
+  const [menuTab, setMenuTab] = useState<MenuTab>("items");
+
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    <div className="space-y-4">
+      {/* Top-level tab bar */}
+      <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 scrollbar-hide">
+        {([["orders", "Orders"], ["menu", "Menu"]] as [SalesTab, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setSalesTab(key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+              salesTab === key
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-    }>
-      <SalesPage />
-    </Suspense>
+
+      {salesTab === "orders" &&
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+          </div>
+        }>
+          <SalesPage />
+        </Suspense>
+      }
+
+      {salesTab === "menu" &&
+        <div className="space-y-4">
+          {/* Menu sub-tabs */}
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 w-fit">
+            {MENU_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setMenuTab(tab.key)}
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                  menuTab === tab.key
+                    ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {menuTab === "items" && <MenuItemAliasesPanel />}
+          {menuTab === "categories" && <MenuCategoriesPanel />}
+          {menuTab === "modifiers" && <MenuModifiersPanel />}
+        </div>
+      }
+    </div>
   );
 }
 

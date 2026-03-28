@@ -15,7 +15,6 @@ const navItems = [
   { href: "/dashboard/menu", label: "Menu", icon: "🍽️" },
   { href: "/sales", label: "Sales", icon: "🛒" },
   { href: "/bank", label: "Bank Activity", icon: "🏦" },
-  { href: "/menu-aliases", label: "Menu Aliases", icon: "🏷️" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 

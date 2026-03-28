@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { getAllCategoryIgnores, countClosedDaysInRange, getSettingValue } from "@/lib/db/config-db";
-import { setConfiguredTimezone } from "@/lib/utils/format";
+import { getAllCategoryIgnores, countClosedDaysInRange, getClosedDays, getSettingValue } from "@/lib/db/config-db";
+import { setConfiguredTimezone, toLocalDateStr } from "@/lib/utils/format";
 import { linearRegression, computeSeasonalIndices } from "@/lib/utils/statistics";
 import {
   startOfMonth,
@@ -153,8 +153,9 @@ function resolveCustomDates(
   now: Date,
   compare: "prior" | "yoy" = "prior"
 ): PeriodDateRanges {
-  const currentStart = rawStart ? startOfDay(new Date(rawStart)) : startOfDay(new Date(now.getTime() - 30 * 86_400_000));
-  const currentEnd = rawEnd ? endOfDay(new Date(rawEnd)) : endOfDay(now);
+  // Use T12:00:00 to prevent UTC midnight → prior-day shift in local timezones
+  const currentStart = rawStart ? startOfDay(new Date(rawStart + "T12:00:00")) : startOfDay(new Date(now.getTime() - 30 * 86_400_000));
+  const currentEnd = rawEnd ? endOfDay(new Date(rawEnd + "T12:00:00")) : endOfDay(now);
 
   const spanMs = currentEnd.getTime() - currentStart.getTime();
   const spanDays = Math.max(1, Math.round(spanMs / 86_400_000));
@@ -305,11 +306,32 @@ export async function GET(request: NextRequest) {
     // Never show data before the user's selected start date
     const chartStart = dates.currentStart;
 
-    const dailySeries = salesDb.prepare(
+    // Closed day dates (needed before dailySeries to fill in $0 entries)
+    const closedDayDates = getClosedDays().map((cd) => cd.date);
+
+    const dailySeriesRaw = salesDb.prepare(
       `SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as count
        FROM orders WHERE order_status = 'completed' AND date >= ?
        GROUP BY date ORDER BY date ASC`
     ).all(dateStr(chartStart)) as { date: string; total: number; count: number }[];
+
+    // Fill in closed days as explicit $0 entries so they're visible on the chart
+    const closedSet = new Set(closedDayDates);
+    const salesByDate = new Map(dailySeriesRaw.map((d) => [d.date, d]));
+    const dailySeries: { date: string; total: number; count: number }[] = [];
+    const startMs = chartStart.getTime();
+    const endMs = now.getTime();
+    for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
+      const d = new Date(ms);
+      const ds = toLocalDateStr(d);
+      const existing = salesByDate.get(ds);
+      if (existing) {
+        dailySeries.push(existing);
+      } else if (closedSet.has(ds)) {
+        dailySeries.push({ date: ds, total: 0, count: 0 });
+      }
+      // Days with no sales and not marked closed are left out (no data)
+    }
 
     // ---------- Platform aggregates ----------
 
@@ -694,6 +716,7 @@ export async function GET(request: NextRequest) {
           slope: reg.slope,
           intercept: reg.intercept,
           r2: reg.r2,
+          standardError: reg.standardError,
           dailyChangeLabel,
           projectedMonthlyRevenue: Math.round(projectedMonthlyRevenue * 100) / 100,
           confidenceLabel: confidenceLabel(reg.r2),
@@ -734,6 +757,7 @@ export async function GET(request: NextRequest) {
       insights,
       meta: {
         closedDays: closedDaysCount,
+        closedDayDates: closedDayDates,
         period: dates.periodLabel,
         periodLabel: dates.periodLabel,
         comparisonLabel: dates.comparisonLabel,

@@ -12,8 +12,15 @@
 "use client";
 
 import React, { Suspense, useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { formatCurrency, formatDate } from "@/lib/utils/format";
 import { useDateRange } from "@/contexts/DateRangeContext";
+
+const VendorAliasesPanel = dynamic(() => import("@/components/panels/VendorAliasesPanel"), { ssr: false });
+const CategoriesPanel = dynamic(() => import("@/components/panels/CategoriesPanel"), { ssr: false });
+
+type BankTab = "transactions" | "aliases";
+type AliasSubTab = "vendor-aliases" | "categories";
 import FilterBar, {
   FilterState,
   emptyFilters,
@@ -119,14 +126,60 @@ function ExpandedRow({ tx }: { tx: BankTransaction }) {
 }
 
 export default function BankPageWrapper() {
+  const [bankTab, setBankTab] = useState<BankTab>("transactions");
+  const [aliasSubTab, setAliasSubTab] = useState<AliasSubTab>("vendor-aliases");
+
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+    <div className="space-y-4">
+      <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 scrollbar-hide">
+        {([["transactions", "Transactions"], ["aliases", "Transaction Aliases"]] as [BankTab, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setBankTab(key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+              bankTab === key
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-    }>
-      <BankPage />
-    </Suspense>
+
+      {bankTab === "transactions" &&
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+          </div>
+        }>
+          <BankPage />
+        </Suspense>
+      }
+
+      {bankTab === "aliases" &&
+        <div className="space-y-4">
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 w-fit">
+            {([["vendor-aliases", "Vendor Aliases"], ["categories", "Categories"]] as [AliasSubTab, string][]).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setAliasSubTab(key)}
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                  aliasSubTab === key
+                    ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {aliasSubTab === "vendor-aliases" && <VendorAliasesPanel />}
+          {aliasSubTab === "categories" && <CategoriesPanel />}
+        </div>
+      }
+    </div>
   );
 }
 

@@ -21,17 +21,6 @@ const ManualEntryPanel = dynamic(
   { loading: loadingSpinner }
 );
 
-const CategoriesPanel = dynamic(
-  () => import("@/components/panels/CategoriesPanel"),
-  { loading: loadingSpinner }
-);
-
-const VendorAliasesPanel = dynamic(
-  () => import("@/components/panels/VendorAliasesPanel"),
-  { loading: loadingSpinner }
-);
-
-
 const ClosedDaysPanel = dynamic(
   () => import("@/components/panels/ClosedDaysPanel"),
   { loading: loadingSpinner }
@@ -51,7 +40,8 @@ interface ImportRecord {
   errorMessage: string | null;
 }
 
-type SettingsTab = "settings" | "history" | "reconciliation" | "manual-entry" | "categories" | "vendor-aliases" | "closed-days";
+type SettingsTab = "business" | "import" | "manual-entry";
+type ImportSubTab = "upload" | "history" | "reconciliation";
 
 type SourcePlatform =
   | "square"
@@ -188,7 +178,8 @@ export default function SettingsPage() {
   } | null>(null);
 
   // Tab & import history
-  const [activeTab, setActiveTab] = useState<SettingsTab>("settings");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("business");
+  const [importSubTab, setImportSubTab] = useState<ImportSubTab>("upload");
   const [importHistory, setImportHistory] = useState<ImportRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -483,93 +474,142 @@ export default function SettingsPage() {
       {/* ═══════════════════════════════════════════════════════════
           TAB BAR
           ═══════════════════════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════════════════════
+          MAIN TAB BAR
+          ═══════════════════════════════════════════════════════════ */}
       <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 scrollbar-hide">
-        <button
-          onClick={() => setActiveTab("settings")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "settings"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Import & Settings
-        </button>
-        <button
-          onClick={() => { setActiveTab("history"); loadImportHistory(); }}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "history"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Import History
-        </button>
-        <button
-          onClick={() => setActiveTab("reconciliation")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "reconciliation"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Reconciliation
-        </button>
-        <div className="border-l border-gray-200 dark:border-gray-700 mx-2" />
-        <button
-          onClick={() => setActiveTab("manual-entry")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "manual-entry"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Manual Entry
-        </button>
-        <button
-          onClick={() => setActiveTab("categories")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "categories"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Categories
-        </button>
-        <button
-          onClick={() => setActiveTab("vendor-aliases")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "vendor-aliases"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Vendor Aliases
-        </button>
-        <button
-          onClick={() => setActiveTab("closed-days")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
-            activeTab === "closed-days"
-              ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
-          }`}
-        >
-          Closed Days
-        </button>
+        {([
+          ["business", "Business"],
+          ["import", "Import"],
+          ["manual-entry", "Manual Entry"],
+        ] as [SettingsTab, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => {
+              setActiveTab(key);
+              if (key === "import" && importSubTab === "history") loadImportHistory();
+            }}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
+              activeTab === key
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════
-          TAB: Reconciliation
-          ═══════════════════════════════════════════════════════════ */}
-      {activeTab === "reconciliation" && <ReconciliationPanel />}
       {activeTab === "manual-entry" && <ManualEntryPanel />}
-      {activeTab === "categories" && <CategoriesPanel />}
-      {activeTab === "vendor-aliases" && <VendorAliasesPanel />}
-      {activeTab === "closed-days" && <ClosedDaysPanel />}
 
       {/* ═══════════════════════════════════════════════════════════
-          TAB: Import History
+          TAB: Business (Business Info + Closed Days)
           ═══════════════════════════════════════════════════════════ */}
-      {activeTab === "history" && (
+      {activeTab === "business" &&
+      <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* ═══════════════════════════════════════════════════════════
+          CARD 0 — Business Info
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-4 mb-6">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Business Info</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">General information about your restaurant</p>
+        </div>
+
+        <div className="flex items-end gap-3">
+          <div className="flex-1 max-w-xs">
+            <label htmlFor="openDate" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              Restaurant Open Date
+            </label>
+            <input
+              id="openDate"
+              type="date"
+              value={openDate}
+              onChange={(e) => { setOpenDate(e.target.value); setOpenDateSaved(false); }}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={saveOpenDate}
+            disabled={openDateSaving || !openDate}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+          >
+            {openDateSaving ? "Saving..." : openDateSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          Used in reports to provide context for profit calculations.
+        </p>
+
+        {/* Timezone */}
+        <div className="flex items-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex-1 max-w-xs">
+            <label htmlFor="timezone" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              Timezone
+            </label>
+            <select
+              id="timezone"
+              value={timezone}
+              onChange={(e) => { setTimezone(e.target.value); setTimezoneSaved(false); }}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option value="America/New_York">Eastern Time (New York)</option>
+              <option value="America/Chicago">Central Time (Chicago)</option>
+              <option value="America/Denver">Mountain Time (Denver)</option>
+              <option value="America/Los_Angeles">Pacific Time (Los Angeles)</option>
+              <option value="America/Anchorage">Alaska Time</option>
+              <option value="Pacific/Honolulu">Hawaii Time</option>
+              <option value="UTC">UTC</option>
+            </select>
+          </div>
+          <button
+            onClick={saveTimezone}
+            disabled={timezoneSaving}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+          >
+            {timezoneSaving ? "Saving..." : timezoneSaved ? "Saved ✓" : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          All dates and times are displayed in this timezone. Affects charts, reports, and date filtering.
+        </p>
+      </div>
+
+      <ClosedDaysPanel />
+
+      </div>}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TAB: Import (connections + upload + sub-tabs for history/recon)
+          ═══════════════════════════════════════════════════════════ */}
+      {activeTab === "import" && <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* Import sub-tabs */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 w-fit">
+        {([
+          ["upload", "Upload"],
+          ["history", "History"],
+          ["reconciliation", "Reconciliation"],
+        ] as [ImportSubTab, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => {
+              setImportSubTab(key);
+              if (key === "history") loadImportHistory();
+            }}
+            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+              importSubTab === key
+                ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {importSubTab === "history" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
           {historyLoading ? (
             <div className="flex items-center justify-center h-48">
@@ -644,78 +684,9 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          TAB: Import & Settings
-          ═══════════════════════════════════════════════════════════ */}
-      {activeTab === "settings" && <div className="max-w-3xl mx-auto">
+      {importSubTab === "reconciliation" && <ReconciliationPanel />}
 
-      {/* ═══════════════════════════════════════════════════════════
-          CARD 0 — Business Info
-          ═══════════════════════════════════════════════════════════ */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-4 mb-6">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Business Info</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">General information about your restaurant</p>
-        </div>
-
-        <div className="flex items-end gap-3">
-          <div className="flex-1 max-w-xs">
-            <label htmlFor="openDate" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Restaurant Open Date
-            </label>
-            <input
-              id="openDate"
-              type="date"
-              value={openDate}
-              onChange={(e) => { setOpenDate(e.target.value); setOpenDateSaved(false); }}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-          <button
-            onClick={saveOpenDate}
-            disabled={openDateSaving || !openDate}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-          >
-            {openDateSaving ? "Saving..." : openDateSaved ? "Saved ✓" : "Save"}
-          </button>
-        </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          Used in reports to provide context for profit calculations.
-        </p>
-
-        {/* Timezone */}
-        <div className="flex items-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-          <div className="flex-1 max-w-xs">
-            <label htmlFor="timezone" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-              Timezone
-            </label>
-            <select
-              id="timezone"
-              value={timezone}
-              onChange={(e) => { setTimezone(e.target.value); setTimezoneSaved(false); }}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            >
-              <option value="America/New_York">Eastern Time (New York)</option>
-              <option value="America/Chicago">Central Time (Chicago)</option>
-              <option value="America/Denver">Mountain Time (Denver)</option>
-              <option value="America/Los_Angeles">Pacific Time (Los Angeles)</option>
-              <option value="America/Anchorage">Alaska Time</option>
-              <option value="Pacific/Honolulu">Hawaii Time</option>
-              <option value="UTC">UTC</option>
-            </select>
-          </div>
-          <button
-            onClick={saveTimezone}
-            disabled={timezoneSaving}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-          >
-            {timezoneSaving ? "Saving..." : timezoneSaved ? "Saved ✓" : "Save"}
-          </button>
-        </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          All dates and times are displayed in this timezone. Affects charts, reports, and date filtering.
-        </p>
-      </div>
+      {importSubTab === "upload" && <>
 
       {/* ═══════════════════════════════════════════════════════════
           CARD 1 — Platform Connections & Sync
@@ -1254,6 +1225,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+      </>}
 
       </div>}
     </div>

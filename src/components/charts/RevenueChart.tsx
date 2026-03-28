@@ -66,9 +66,14 @@ interface RevenueChartProps {
       best: { trend: number; seasonal: number };
     };
   }) => void;
-  // Regression stats from API (for confidence display)
+  // Canonical daily regression from API (projection model)
+  regressionSlope?: number;
+  regressionIntercept?: number;
   regressionR2?: number;
+  regressionStandardError?: number;
   chartLookbackDays?: number;
+  // Closed day dates to optionally exclude from regression
+  closedDates?: string[];
   // Default period when chart loads (e.g. "monthly" for expense trend)
   defaultPeriod?: "daily" | "weekly" | "monthly" | "quarterly";
 }
@@ -141,8 +146,12 @@ export default function RevenueChart({
   externalShowTrend,
   externalForecastRange,
   onProjectionChange,
+  regressionSlope,
+  regressionIntercept,
   regressionR2,
+  regressionStandardError,
   chartLookbackDays,
+  closedDates,
   defaultPeriod,
 }: RevenueChartProps) {
   const { theme } = useTheme();
@@ -153,6 +162,7 @@ export default function RevenueChart({
   const [showMA, setShowMA] = useState(false);
   const [showExpenses, setShowExpenses] = useState(false);
   const [showBreakEven, setShowBreakEven] = useState(false);
+  const [excludeClosed, setExcludeClosed] = useState(false);
   const defaultPeriodMap: Record<string, Period> = { daily: "1D", weekly: "1W", monthly: "1M", quarterly: "1Q" };
   const [period, setPeriod] = useState<Period>(defaultPeriod ? defaultPeriodMap[defaultPeriod] || "1D" : "1D");
   const [internalForecastRange, setInternalForecastRange] = useState<"1m" | "3m" | "6m" | "1y" | "2y">("1m");
@@ -184,20 +194,39 @@ export default function RevenueChart({
     if (data.length === 0)
       return { chartData: [], trendSlope: 0, trendLabel: "", r2: 0, projectionPoints: [] as Record<string, unknown>[] };
 
-    // Aggregate data by period
-    const aggregated = aggregateByPeriod(data, period);
-    const maWindow = MA_WINDOW[period];
-    // Projection count scaled to active period and user-selected forecast range
-    // Always compute projections when onProjectionChange is provided (for sidebar),
-    // or when trend/seasonal is toggled on (for chart display)
-    const forecastDaysTotal = (showTrend || seasonalOn || onProjectionChange) ? FORECAST_DAYS[forecastRange] : 0;
-    let projCount: number;
-    if (period === "1D") projCount = forecastDaysTotal;
-    else if (period === "1W") projCount = Math.ceil(forecastDaysTotal / 7);
-    else if (period === "1M") projCount = Math.ceil(forecastDaysTotal / 30);
-    else projCount = Math.ceil(forecastDaysTotal / 90);
+    // --- Filter out closed days when toggle is on ---
+    const closedSet = excludeClosed && closedDates ? new Set(closedDates) : null;
+    const filteredData = closedSet
+      ? data.filter((d) => !closedSet.has(d.date))
+      : data;
 
-    // Use label for display, keep key for date arithmetic
+    // --- Canonical daily regression (period-invariant) ---
+    // When excluding closed days, always recompute from filtered data
+    // Otherwise use API-provided params or regress on raw daily data
+    const canonicalReg = (closedSet)
+      ? linearRegression(filteredData.map((d, i) => ({ x: i, y: d.total })))
+      : (regressionSlope != null && regressionIntercept != null)
+        ? {
+            slope: regressionSlope,
+            intercept: regressionIntercept,
+            r2: regressionR2 ?? 0,
+            standardError: regressionStandardError ?? 0,
+          }
+        : linearRegression(data.map((d, i) => ({ x: i, y: d.total })));
+
+    // --- Aggregate data by period for DISPLAY only ---
+    const aggregated = aggregateByPeriod(filteredData, period);
+    const maWindow = MA_WINDOW[period];
+
+    // Build a map from bucket key → list of daily indices for trend line computation
+    const bucketDayIndices = new Map<string, number[]>();
+    for (let i = 0; i < filteredData.length; i++) {
+      const k = bucketKey(filteredData[i].date, period);
+      let arr = bucketDayIndices.get(k);
+      if (!arr) { arr = []; bucketDayIndices.set(k, arr); }
+      arr.push(i);
+    }
+
     const displayData = aggregated.map((d) => ({
       date: period === "1D" ? d.key : d.label,
       key: d.key,
@@ -205,93 +234,94 @@ export default function RevenueChart({
       count: d.count,
     }));
 
-    // Compute regression
-    const points = displayData.map((d, i) => ({ x: i, y: d.total }));
-    const reg = linearRegression(points);
-
-    // Compute moving average
+    // Compute moving average on aggregated data (visual aid, ok to be period-specific)
     const ma = movingAverage(
       displayData.map((d) => d.total),
       maWindow
     );
 
-    // Build chart data with trend + MA fields
-    const enriched: Record<string, unknown>[] = displayData.map((d, i) => ({
-      ...d,
-      trend: reg.slope * i + reg.intercept,
-      ma: ma[i],
-    }));
+    // Build chart data — trend line is sum of daily trend values within each bucket
+    const enriched: Record<string, unknown>[] = displayData.map((d, i) => {
+      const dayIndices = bucketDayIndices.get(d.key);
+      const bucketTrend = dayIndices
+        ? dayIndices.reduce((sum, idx) => sum + (canonicalReg.slope * idx + canonicalReg.intercept), 0)
+        : canonicalReg.slope * i + canonicalReg.intercept;
+      return { ...d, trend: bucketTrend, ma: ma[i] };
+    });
 
-    // Add projection points when trend or seasonal is active
-    // Build projection points (always for sidebar, visually only when toggled)
-    const projectionPoints: Record<string, unknown>[] = [];
-    if (projCount > 0) {
-      const lastKey = displayData.length > 0 ? displayData[displayData.length - 1].key : "";
-      for (let j = 1; j <= projCount; j++) {
-        const idx = displayData.length - 1 + j;
-        let futureLabel = "";
-        if (lastKey) {
-          // Parse from the sortable key (always YYYY-MM-DD or YYYY-MM or YYYY-Q#)
-          const d = period === "1M"
-            ? new Date(lastKey + "-01T12:00:00")
-            : period === "1Q"
-              ? (() => { const [y, q] = lastKey.split("-Q"); return new Date(Number(y), (Number(q) - 1) * 3, 1, 12); })()
-              : new Date(lastKey + "T12:00:00");
-          if (period === "1D") {
-            d.setDate(d.getDate() + j);
-            futureLabel = d.toISOString().slice(0, 10);
-          } else if (period === "1W") {
-            d.setDate(d.getDate() + j * 7);
-            futureLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          } else if (period === "1M") {
-            d.setMonth(d.getMonth() + j);
-            futureLabel = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-          } else {
-            d.setMonth(d.getMonth() + j * 3);
-            futureLabel = `Q${Math.ceil((d.getMonth() + 1) / 3)} ${d.getFullYear()}`;
-          }
+    // --- Projection: always day-by-day, then bucket for display ---
+    const forecastDaysTotal = (showTrend || seasonalOn || onProjectionChange) ? FORECAST_DAYS[forecastRange] : 0;
+    const lastDayIdx = filteredData.length - 1;
+    const lastDate = filteredData.length > 0 ? new Date(filteredData[filteredData.length - 1].date + "T12:00:00") : new Date();
+
+    // Compute daily projection values, then bucket into display periods
+    const projBuckets = new Map<string, {
+      label: string; trend: number; seasonal: number; days: number;
+    }>();
+    // Also accumulate raw daily totals for period-invariant sidebar
+    let dailyTrendSum = 0;
+    let dailySeasonalSum = 0;
+
+    for (let j = 1; j <= forecastDaysTotal; j++) {
+      const dayIdx = lastDayIdx + j;
+      const trendVal = canonicalReg.slope * dayIdx + canonicalReg.intercept;
+      dailyTrendSum += trendVal;
+
+      // Seasonal factor for this future day
+      const futureDate = new Date(lastDate);
+      futureDate.setDate(futureDate.getDate() + j);
+      const futureMonth = futureDate.getMonth() + 1;
+      const factor = seasonalIndices ? (seasonalIndices[futureMonth] ?? 1.0) : 1.0;
+      const seasonalVal = Math.max(0, trendVal * factor);
+      dailySeasonalSum += seasonalVal;
+
+      // Determine which display bucket this day falls into
+      const dateStr = futureDate.toISOString().slice(0, 10);
+      const bk = bucketKey(dateStr, period);
+      let bucket = projBuckets.get(bk);
+      if (!bucket) {
+        // Generate display label for this bucket
+        let label: string;
+        if (period === "1D") {
+          label = dateStr;
+        } else if (period === "1W") {
+          const mon = new Date(bk + "T12:00:00");
+          label = mon.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        } else if (period === "1M") {
+          const [y, m] = bk.split("-");
+          const d = new Date(Number(y), Number(m) - 1);
+          label = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        } else {
+          label = bk; // "2026-Q2"
         }
-        const trendVal = reg.slope * idx + reg.intercept;
-
-        // Compute seasonal factor
-        let seasonalVal = trendVal;
-        if (seasonalIndices) {
-          const sd = period === "1M"
-            ? new Date((lastKey || "2026-01") + "-01T12:00:00")
-            : period === "1Q"
-              ? (() => { const [y, q] = (lastKey || "2026-Q1").split("-Q"); return new Date(Number(y), (Number(q) - 1) * 3, 1, 12); })()
-              : new Date((lastKey || "2026-01-01") + "T12:00:00");
-          if (period === "1D") sd.setDate(sd.getDate() + j);
-          else if (period === "1W") sd.setDate(sd.getDate() + j * 7);
-          else if (period === "1M") sd.setMonth(sd.getMonth() + j);
-          else sd.setMonth(sd.getMonth() + j * 3);
-
-          let factor: number;
-          if (period === "1Q") {
-            const sm = sd.getMonth() + 1;
-            factor = ((seasonalIndices[sm] ?? 1) + (seasonalIndices[((sm) % 12) + 1] ?? 1) + (seasonalIndices[((sm + 1) % 12) + 1] ?? 1)) / 3;
-          } else if (period === "1W") {
-            const mid = new Date(sd); mid.setDate(mid.getDate() + 3);
-            factor = seasonalIndices[mid.getMonth() + 1] ?? 1.0;
-          } else {
-            factor = seasonalIndices[sd.getMonth() + 1] ?? 1.0;
-          }
-          seasonalVal = Math.max(0, trendVal * factor);
-        }
-
-        projectionPoints.push({
-          date: futureLabel,
-          total: undefined,
-          trend: trendVal,
-          _seasonalCalc: seasonalVal,
-          _standardError: reg.standardError,
-          ...(seasonalOn ? { seasonal: seasonalVal } : {}),
-          ma: undefined,
-        });
+        bucket = { label, trend: 0, seasonal: 0, days: 0 };
+        projBuckets.set(bk, bucket);
       }
+      bucket.trend += trendVal;
+      bucket.seasonal += seasonalVal;
+      bucket.days++;
     }
 
-    // Only extend the chart x-axis with projection points when a line is toggled
+    // Convert bucketed projections to chart points
+    const projectionPoints: Record<string, unknown>[] = [];
+    const sortedBucketKeys = Array.from(projBuckets.keys()).sort();
+    for (const bk of sortedBucketKeys) {
+      const bucket = projBuckets.get(bk)!;
+      projectionPoints.push({
+        date: period === "1D" ? bk : bucket.label,
+        key: bk,
+        total: undefined,
+        trend: bucket.trend,
+        _seasonalCalc: bucket.seasonal,
+        _standardError: canonicalReg.standardError,
+        _dailyTrendSum: dailyTrendSum,
+        _dailySeasonalSum: dailySeasonalSum,
+        ...(seasonalOn ? { seasonal: bucket.seasonal } : {}),
+        ma: undefined,
+      });
+    }
+
+    // Extend chart with projection points when trend/seasonal is toggled
     if ((showTrend || seasonalOn) && projectionPoints.length > 0) {
       if (seasonalOn && displayData.length > 0) {
         (enriched[displayData.length - 1] as Record<string, unknown>).seasonal = displayData[displayData.length - 1].total;
@@ -299,12 +329,14 @@ export default function RevenueChart({
       enriched.push(...projectionPoints);
     }
 
-    // Format trend label
+    // Trend label — scale daily slope to the display period
+    const PERIOD_MULTIPLIER: Record<Period, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 90 };
+    const scaledSlope = canonicalReg.slope * PERIOD_MULTIPLIER[period];
     const unit = PERIOD_UNIT[period];
-    const absSlope = Math.abs(reg.slope);
-    const label = absSlope >= 1
-      ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/${unit}`
-      : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/${unit}`;
+    const absScaled = Math.abs(scaledSlope);
+    const label = absScaled >= 1
+      ? `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(0)}/${unit}`
+      : `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(2)}/${unit}`;
 
     // Merge expense data if toggled on
     if (showExpenses && expenseData && expenseData.length > 0) {
@@ -319,8 +351,8 @@ export default function RevenueChart({
       }
     }
 
-    return { chartData: enriched, trendSlope: reg.slope, trendLabel: label, r2: reg.r2, projectionPoints };
-  }, [data, period, showTrend, forecastRange, seasonalOn, seasonalProjectionPoints, seasonalIndices, showExpenses, expenseData]);
+    return { chartData: enriched, trendSlope: canonicalReg.slope, trendLabel: label, r2: canonicalReg.r2, projectionPoints };
+  }, [data, period, showTrend, forecastRange, seasonalOn, seasonalProjectionPoints, seasonalIndices, showExpenses, expenseData, regressionSlope, regressionIntercept, regressionR2, regressionStandardError, excludeClosed, closedDates]);
 
   // Emit projection info to parent for sidebar sync
   const FORECAST_LABELS: Record<string, string> = { "1m": "Next 1 Month", "3m": "Next 3 Months", "6m": "Next 6 Months", "1y": "Next 1 Year", "2y": "Next 2 Years" };
@@ -328,16 +360,14 @@ export default function RevenueChart({
   useEffect(() => {
     if (!onProjectionChange) return;
 
-    // Sum from projectionPoints (always computed, independent of chart toggles)
-    let trendRevenue = 0;
-    let seasonalRevenue = 0;
-    for (const p of projectionPoints) {
-      trendRevenue += (p.trend as number) ?? 0;
-      seasonalRevenue += (p._seasonalCalc as number) ?? (p.trend as number) ?? 0;
-    }
+    // Use period-invariant daily sums stored in projection points
+    // These are the same regardless of which display period is selected
+    const firstProj = projectionPoints[0];
+    const trendRevenue = firstProj ? (firstProj._dailyTrendSum as number) ?? 0 : 0;
+    const seasonalRevenue = firstProj ? (firstProj._dailySeasonalSum as number) ?? 0 : 0;
     const projectedRevenue = seasonalOn ? seasonalRevenue : trendRevenue;
 
-    // Use r2 from useMemo (computed from the active period's aggregated data)
+    // R² from canonical daily regression (period-invariant)
     const confLabel = r2 >= 0.7 ? `High (R²=${r2.toFixed(2)})`
       : r2 >= 0.4 ? `Moderate (R²=${r2.toFixed(2)})`
       : `Low (R²=${r2.toFixed(2)})`;
@@ -370,15 +400,13 @@ export default function RevenueChart({
       }
     }
 
-    // Compute worst/mid/best scenarios using standard error
-    // Worst = trend - 1.5 * SE * sqrt(forecastDays), Best = trend + 1.5 * SE * sqrt(forecastDays)
+    // Scenarios using canonical standard error (period-invariant)
     const forecastDaysCount = FORECAST_DAYS[forecastRange] || 90;
-    const se = (projectionPoints.length > 0 && projectionPoints[0]?._standardError != null)
-      ? (projectionPoints[0]._standardError as number)
+    const se = firstProj?._standardError != null
+      ? (firstProj._standardError as number)
       : 0;
-    const errorMargin = se * Math.sqrt(forecastDaysCount) * 1.0; // 1 standard deviation
+    const errorMargin = se * Math.sqrt(forecastDaysCount);
 
-    // For seasonal, apply the same % adjustment
     const seasonalRatio = trendRevenue > 0 ? seasonalRevenue / trendRevenue : 1;
 
     const scenarios = {
@@ -392,7 +420,7 @@ export default function RevenueChart({
       },
       best: {
         trend: Math.round((trendRevenue + errorMargin) * 100) / 100,
-        seasonal: Math.round((trendRevenue + errorMargin) * seasonalRatio) * 100 / 100,
+        seasonal: Math.round((trendRevenue + errorMargin) * seasonalRatio * 100) / 100,
       },
     };
 
@@ -528,6 +556,16 @@ export default function RevenueChart({
               </button>
             )}
           </div>
+          {closedDates && closedDates.length > 0 && (
+            <button
+              onClick={() => setExcludeClosed((p) => !p)}
+              className={`px-2 py-0.5 text-[11px] font-medium rounded-lg transition-colors ${
+                excludeClosed ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              }`}
+            >
+              Excl. closed
+            </button>
+          )}
         </div>
       )}
 
