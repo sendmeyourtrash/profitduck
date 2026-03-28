@@ -483,74 +483,74 @@ export default function SettingsPage() {
       {/* ═══════════════════════════════════════════════════════════
           TAB BAR
           ═══════════════════════════════════════════════════════════ */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex overflow-x-auto border-b border-gray-200 dark:border-gray-700 scrollbar-hide">
         <button
           onClick={() => setActiveTab("settings")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "settings"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Import & Settings
         </button>
         <button
           onClick={() => { setActiveTab("history"); loadImportHistory(); }}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "history"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Import History
         </button>
         <button
           onClick={() => setActiveTab("reconciliation")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "reconciliation"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Reconciliation
         </button>
-        <div className="border-l border-gray-200 mx-2" />
+        <div className="border-l border-gray-200 dark:border-gray-700 mx-2" />
         <button
           onClick={() => setActiveTab("manual-entry")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "manual-entry"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Manual Entry
         </button>
         <button
           onClick={() => setActiveTab("categories")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "categories"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Categories
         </button>
         <button
           onClick={() => setActiveTab("vendor-aliases")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "vendor-aliases"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Vendor Aliases
         </button>
         <button
           onClick={() => setActiveTab("closed-days")}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "closed-days"
               ? "border-indigo-600 text-indigo-600"
-              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
           }`}
         >
           Closed Days
@@ -570,20 +570,20 @@ export default function SettingsPage() {
           TAB: Import History
           ═══════════════════════════════════════════════════════════ */}
       {activeTab === "history" && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
           {historyLoading ? (
             <div className="flex items-center justify-center h-48">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
             </div>
           ) : importHistory.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <p className="text-lg">No imports yet</p>
               <p className="mt-2 text-sm">Upload your first file to see import history.</p>
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-gray-500">
+              <thead className="bg-gray-50 dark:bg-gray-800/50">
+                <tr className="text-left text-gray-500 dark:text-gray-400">
                   <th className="px-4 py-3 font-medium">Date</th>
                   <th className="px-4 py-3 font-medium">Source</th>
                   <th className="px-4 py-3 font-medium">File Name</th>
@@ -595,43 +595,43 @@ export default function SettingsPage() {
               </thead>
               <tbody>
                 {importHistory.map((imp) => (
-                  <tr key={imp.id} className="border-t border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
+                  <tr key={imp.id} className="border-t border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
                       {new Date(imp.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                      <span className="text-gray-400 ml-1 text-xs">
+                      <span className="text-gray-400 dark:text-gray-500 ml-1 text-xs">
                         {new Date(imp.importedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </span>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                         {imp.source}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-800 max-w-[200px] truncate">{imp.fileName}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-600">{imp.rowsProcessed.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 max-w-[200px] truncate">{imp.fileName}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400">{imp.rowsProcessed.toLocaleString()}</td>
                     <td className="px-4 py-2.5 text-right">
                       {imp.rowsSkipped > 0 ? (
-                        <span className="text-amber-600">{imp.rowsSkipped.toLocaleString()}</span>
+                        <span className="text-amber-600 dark:text-amber-400">{imp.rowsSkipped.toLocaleString()}</span>
                       ) : (
-                        <span className="text-gray-400">0</span>
+                        <span className="text-gray-400 dark:text-gray-500">0</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       {imp.rowsFailed > 0 ? (
-                        <span className="text-red-600">{imp.rowsFailed}</span>
+                        <span className="text-red-600 dark:text-red-400">{imp.rowsFailed}</span>
                       ) : (
-                        <span className="text-gray-400">0</span>
+                        <span className="text-gray-400 dark:text-gray-500">0</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5">
                       <span className={`px-2 py-0.5 rounded-full text-xs ${
                         imp.status === "completed"
-                          ? "bg-emerald-100 text-emerald-700"
+                          ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
                           : imp.status === "failed"
-                            ? "bg-red-100 text-red-700"
+                            ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                             : imp.status === "processing"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-gray-100 text-gray-600"
+                              ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                              : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                       }`}>
                         {imp.status}
                       </span>
@@ -652,15 +652,15 @@ export default function SettingsPage() {
       {/* ═══════════════════════════════════════════════════════════
           CARD 0 — Business Info
           ═══════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-4 mb-6">
         <div>
-          <h3 className="text-sm font-semibold text-gray-800">Business Info</h3>
-          <p className="text-xs text-gray-500 mt-0.5">General information about your restaurant</p>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Business Info</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">General information about your restaurant</p>
         </div>
 
         <div className="flex items-end gap-3">
           <div className="flex-1 max-w-xs">
-            <label htmlFor="openDate" className="block text-xs font-medium text-gray-600 mb-1">
+            <label htmlFor="openDate" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
               Restaurant Open Date
             </label>
             <input
@@ -668,7 +668,7 @@ export default function SettingsPage() {
               type="date"
               value={openDate}
               onChange={(e) => { setOpenDate(e.target.value); setOpenDateSaved(false); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
           <button
@@ -679,21 +679,21 @@ export default function SettingsPage() {
             {openDateSaving ? "Saving..." : openDateSaved ? "Saved ✓" : "Save"}
           </button>
         </div>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-gray-500">
           Used in reports to provide context for profit calculations.
         </p>
 
         {/* Timezone */}
-        <div className="flex items-end gap-3 pt-3 border-t border-gray-100">
+        <div className="flex items-end gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
           <div className="flex-1 max-w-xs">
-            <label htmlFor="timezone" className="block text-xs font-medium text-gray-600 mb-1">
+            <label htmlFor="timezone" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
               Timezone
             </label>
             <select
               id="timezone"
               value={timezone}
               onChange={(e) => { setTimezone(e.target.value); setTimezoneSaved(false); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             >
               <option value="America/New_York">Eastern Time (New York)</option>
               <option value="America/Chicago">Central Time (Chicago)</option>
@@ -712,7 +712,7 @@ export default function SettingsPage() {
             {timezoneSaving ? "Saving..." : timezoneSaved ? "Saved ✓" : "Save"}
           </button>
         </div>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-gray-500">
           All dates and times are displayed in this timezone. Affects charts, reports, and date filtering.
         </p>
       </div>
@@ -720,12 +720,12 @@ export default function SettingsPage() {
       {/* ═══════════════════════════════════════════════════════════
           CARD 1 — Platform Connections & Sync
           ═══════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-5">
         {/* Header with Sync All */}
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-gray-800">Platform Connections</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Connect platform APIs to sync data automatically</p>
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Platform Connections</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Connect platform APIs to sync data automatically</p>
           </div>
           <button
             onClick={triggerSync}
@@ -742,20 +742,20 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Square ─────────────────────────────────────────────── */}
-        <div className="border border-blue-200 bg-blue-50/50 rounded-lg p-4 space-y-3">
+        <div className="border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg p-4 space-y-3">
           {/* Connection header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-lg">🔵</span>
               <div>
-                <p className="text-sm font-medium text-gray-800">Square</p>
-                <p className="text-xs text-gray-500">Sync processing fees via Square Payments API</p>
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Square</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Sync processing fees via Square Payments API</p>
               </div>
             </div>
             {squareConfigured !== null && (
               <div className="flex items-center gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
-                  squareConfigured ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
+                  squareConfigured ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${squareConfigured ? "bg-emerald-500" : "bg-gray-400"}`} />
                   {squareConfigured ? squareMerchant || "Connected" : "Not configured"}
@@ -778,8 +778,8 @@ export default function SettingsPage() {
                   value={tokenInput}
                   onChange={(e) => { setTokenInput(e.target.value); setTokenError(null); }}
                   placeholder="Paste your Square access token"
-                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono bg-white ${
-                    tokenError ? "border-red-300" : "border-gray-300"
+                  className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 ${
+                    tokenError ? "border-red-300 dark:border-red-600" : "border-gray-300 dark:border-gray-600"
                   }`}
                   onKeyDown={(e) => { if (e.key === "Enter") connectSquare(); }}
                 />
@@ -812,12 +812,12 @@ export default function SettingsPage() {
 
           {/* ── Sync controls (inline, when connected) ──────────── */}
           {squareConfigured && (
-            <div className="border-t border-blue-200/60 pt-3 space-y-3">
+            <div className="border-t border-blue-200/60 dark:border-blue-800/40 pt-3 space-y-3">
               {/* Auto-sync toggle */}
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-700">Auto-sync daily</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">Auto-sync daily</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
                     Sync every 24 hours while the app is running
                     {schedulerRunning && <span className="ml-1 text-emerald-600">&bull; Active</span>}
                   </p>
@@ -836,7 +836,7 @@ export default function SettingsPage() {
 
               {/* Last sync info */}
               {lastSyncAt && !syncing && !syncResult && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Last sync: {new Date(lastSyncAt).toLocaleString()} &mdash; next sync will fetch only new data
                 </p>
               )}
@@ -862,8 +862,8 @@ export default function SettingsPage() {
 
               {/* Sync error */}
               {syncError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700">{syncError}</p>
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg p-3">
+                  <p className="text-sm text-red-700 dark:text-red-400">{syncError}</p>
                 </div>
               )}
 
@@ -873,31 +873,31 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-emerald-600">&#10003;</span>
-                      <p className="text-sm font-medium text-gray-800">Sync Complete</p>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Sync Complete</p>
                     </div>
                     <button
                       onClick={() => { setSyncResult(null); setSyncError(null); }}
-                      className="text-xs text-gray-400 hover:text-gray-600"
+                      className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     >
                       Dismiss
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white/80 rounded-lg p-2.5">
-                      <p className="text-xs text-gray-500">API Payments</p>
-                      <p className="font-medium text-gray-800 text-sm">{(syncResult.totalPayments ?? 0).toLocaleString()}</p>
+                    <div className="bg-white/80 dark:bg-gray-700/50 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">API Payments</p>
+                      <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{(syncResult.totalPayments ?? 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-emerald-50 rounded-lg p-2.5">
-                      <p className="text-xs text-emerald-600">New Orders</p>
-                      <p className="font-medium text-emerald-800 text-sm">{(syncResult.newOrders ?? 0).toLocaleString()}</p>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-2.5">
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400">New Orders</p>
+                      <p className="font-medium text-emerald-800 dark:text-emerald-300 text-sm">{(syncResult.newOrders ?? 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-white/80 rounded-lg p-2.5">
-                      <p className="text-xs text-gray-500">Enriched Orders</p>
-                      <p className="font-medium text-gray-800 text-sm">{(syncResult.enrichedOrders ?? 0).toLocaleString()}</p>
+                    <div className="bg-white/80 dark:bg-gray-700/50 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Enriched Orders</p>
+                      <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{(syncResult.enrichedOrders ?? 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-white/80 rounded-lg p-2.5">
-                      <p className="text-xs text-gray-500">Skipped Duplicates</p>
-                      <p className="font-medium text-gray-800 text-sm">{(syncResult.skippedDuplicates ?? 0).toLocaleString()}</p>
+                    <div className="bg-white/80 dark:bg-gray-700/50 rounded-lg p-2.5">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Skipped Duplicates</p>
+                      <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{(syncResult.skippedDuplicates ?? 0).toLocaleString()}</p>
                     </div>
                   </div>
                   {(syncResult.errors ?? 0) > 0 && (
@@ -911,12 +911,16 @@ export default function SettingsPage() {
 
         {/* ── Other platforms ─────────────────────────────────────── */}
         {PLATFORM_CARDS.map((p) => (
-          <div key={p.key} className={`border ${p.color} rounded-lg p-4 flex items-center justify-between`}>
+          <div key={p.key} className={`border rounded-lg p-4 flex items-center justify-between ${
+            p.key === "doordash" ? "border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/10"
+            : p.key === "ubereats" ? "border-green-200 dark:border-green-800/50 bg-green-50 dark:bg-green-900/10"
+            : "border-orange-200 dark:border-orange-800/50 bg-orange-50 dark:bg-orange-900/10"
+          }`}>
             <div className="flex items-center gap-2">
               <span className="text-lg">{p.icon}</span>
               <div>
-                <p className="text-sm font-medium text-gray-800">{p.name}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{p.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {p.key === "ubereats" ? "CSV import or auto-scrape" : "CSV import only — no API available"}
                 </p>
               </div>
@@ -965,7 +969,7 @@ export default function SettingsPage() {
                 {ueScraperActive ? "Stop Scraper" : "Scrape Orders"}
               </button>
             ) : (
-              <span className="text-xs text-gray-400 px-2.5 py-1 bg-gray-100 rounded-full">CSV Only</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500 px-2.5 py-1 bg-gray-100 dark:bg-gray-700 rounded-full">CSV Only</span>
             )}
           </div>
         ))}
@@ -973,8 +977,8 @@ export default function SettingsPage() {
         {ueScraperStatus && ueScraperStatus.stage !== "done" && (
           <div className={`rounded-lg p-3 text-sm ${
             ueScraperStatus.stage === "error"
-              ? "bg-red-50 border border-red-100 text-red-700"
-              : "bg-blue-50 border border-blue-100 text-blue-700"
+              ? "bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 text-red-700 dark:text-red-400"
+              : "bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 text-blue-700 dark:text-blue-400"
           }`}>
             <div className="flex items-center gap-2">
               {ueScraperStatus.stage !== "error" && (
@@ -990,35 +994,35 @@ export default function SettingsPage() {
           </div>
         )}
         {ueScraperStatus && ueScraperStatus.stage === "done" && ueScraperStatus.message !== "Ready" && (
-          <div className="rounded-lg p-3 text-xs bg-emerald-50 border border-emerald-100 text-emerald-700">
+          <div className="rounded-lg p-3 text-xs bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400">
             {ueScraperStatus.message}
           </div>
         )}
 
         {/* ── Sync History ────────────────────────────────────────── */}
         {syncHistory.length > 0 && (
-          <div className="border-t border-gray-100 pt-4 space-y-3">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sync History</h4>
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-3">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Sync History</h4>
             <div className="space-y-1">
               {syncHistory.map((h) => (
-                <div key={h.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                <div key={h.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0">
                   <div className="flex items-center gap-3">
                     <span className={`w-2 h-2 rounded-full ${
                       h.status === "completed" ? "bg-emerald-500" : h.status === "failed" ? "bg-red-500" : "bg-amber-500"
                     }`} />
                     <div>
-                      <p className="text-sm text-gray-700">
+                      <p className="text-sm text-gray-700 dark:text-gray-300">
                         {new Date(h.importedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                       </p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
                         {new Date(h.importedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-gray-700">{h.rowsProcessed.toLocaleString()} payments</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300">{h.rowsProcessed.toLocaleString()} payments</p>
                     <p className={`text-xs ${
-                      h.status === "completed" ? "text-emerald-600" : h.status === "failed" ? "text-red-600" : "text-amber-600"
+                      h.status === "completed" ? "text-emerald-600 dark:text-emerald-400" : h.status === "failed" ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
                     }`}>
                       {h.status}
                     </p>
@@ -1033,10 +1037,10 @@ export default function SettingsPage() {
       {/* ═══════════════════════════════════════════════════════════
           CARD 2 — Import Data + Supported Formats
           ═══════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-gray-800">Import Data</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Import Data</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Upload CSV, TSV, or Excel files from your platforms
           </p>
         </div>
@@ -1045,10 +1049,10 @@ export default function SettingsPage() {
         <div
           className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
             dragOver
-              ? "border-indigo-500 bg-indigo-50"
+              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
               : file
-                ? "border-emerald-400 bg-emerald-50"
-                : "border-gray-300 bg-gray-50 hover:border-gray-400"
+                ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
+                : "border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 hover:border-gray-400 dark:hover:border-gray-500"
           }`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -1056,19 +1060,19 @@ export default function SettingsPage() {
         >
           {file ? (
             <div>
-              <p className="text-base font-medium text-gray-800">{file.name}</p>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-base font-medium text-gray-800 dark:text-gray-200">{file.name}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 {(file.size / 1024).toFixed(1)} KB
               </p>
               {!uploading && (
-                <button onClick={resetUpload} className="mt-3 text-sm text-red-600 hover:text-red-700">
+                <button onClick={resetUpload} className="mt-3 text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
                   Remove
                 </button>
               )}
             </div>
           ) : (
             <div>
-              <p className="text-base text-gray-500">Drag and drop a file here, or</p>
+              <p className="text-base text-gray-500 dark:text-gray-400">Drag and drop a file here, or</p>
               <label className="mt-3 inline-block px-4 py-2 bg-indigo-600 text-white rounded-lg cursor-pointer hover:bg-indigo-700 text-sm">
                 Browse Files
                 <input
@@ -1078,7 +1082,7 @@ export default function SettingsPage() {
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
                 />
               </label>
-              <p className="text-xs text-gray-400 mt-3">Supported: CSV, TSV, XLSX, XLS, PDF (Chase statements)</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">Supported: CSV, TSV, XLSX, XLS, PDF (Chase statements)</p>
             </div>
           )}
         </div>
@@ -1087,18 +1091,18 @@ export default function SettingsPage() {
         {file && !importResult && !duplicateInfo && (
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Source Platform</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Source Platform</label>
               <select
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value as SourcePlatform)}
                 disabled={uploading}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
               >
                 {PLATFORMS.map((p) => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400 mt-1">Leave on Auto-detect to let the system identify the source</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Leave on Auto-detect to let the system identify the source</p>
             </div>
 
             {uploading && uploadProgress ? (
@@ -1124,12 +1128,12 @@ export default function SettingsPage() {
 
         {/* Duplicate warning */}
         {duplicateInfo && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg p-4 space-y-3">
             <div className="flex items-start gap-3">
-              <span className="text-amber-600 text-xl mt-0.5">&#9888;</span>
+              <span className="text-amber-600 dark:text-amber-400 text-xl mt-0.5">&#9888;</span>
               <div>
-                <h4 className="text-sm font-medium text-amber-800">Duplicate File Detected</h4>
-                <p className="text-sm text-amber-700 mt-1">{duplicateInfo.message}</p>
+                <h4 className="text-sm font-medium text-amber-800 dark:text-amber-300">Duplicate File Detected</h4>
+                <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">{duplicateInfo.message}</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -1140,7 +1144,7 @@ export default function SettingsPage() {
               >
                 {uploading ? "Processing..." : "Import Anyway (Skip Duplicates)"}
               </button>
-              <button onClick={resetUpload} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-50 text-sm">
+              <button onClick={resetUpload} className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors">
                 Cancel
               </button>
             </div>
@@ -1149,8 +1153,8 @@ export default function SettingsPage() {
 
         {/* Upload error */}
         {uploadError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-700">{uploadError}</p>
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg p-3">
+            <p className="text-sm text-red-700 dark:text-red-400">{uploadError}</p>
           </div>
         )}
 
@@ -1159,62 +1163,62 @@ export default function SettingsPage() {
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <span className="text-emerald-600 text-lg">&#10003;</span>
-              <h4 className="text-sm font-medium text-gray-800">Import Successful</h4>
+              <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">Import Successful</h4>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Source</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.source}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Source</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.source}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Rows Processed</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.rowsProcessed}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Rows Processed</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.rowsProcessed}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Transactions</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.transactions}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Transactions</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.transactions}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Platform Orders</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.platformOrders}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Platform Orders</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.platformOrders}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Bank Transactions</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.bankTransactions}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Bank Transactions</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.bankTransactions}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-500">Expenses</p>
-                <p className="font-medium text-gray-800 text-sm">{importResult.summary.expenses}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Expenses</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 text-sm">{importResult.summary.expenses}</p>
               </div>
             </div>
 
             {importResult.summary.rowsSkipped > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
-                <p className="text-xs text-blue-700">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg p-2.5">
+                <p className="text-xs text-blue-700 dark:text-blue-400">
                   {importResult.summary.rowsSkipped} duplicate row(s) were automatically skipped.
                 </p>
               </div>
             )}
 
             {importResult.overlappingImports && importResult.overlappingImports.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                <p className="text-xs font-medium text-amber-700 mb-1">Overlapping time ranges detected</p>
-                <ul className="text-xs text-amber-600 space-y-0.5">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg p-2.5">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Overlapping time ranges detected</p>
+                <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
                   {importResult.overlappingImports.map((imp) => (
                     <li key={imp.id}>
                       &quot;{imp.fileName}&quot; imported on {new Date(imp.importedAt).toLocaleDateString()}
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-amber-600 mt-1">Duplicate rows were automatically skipped during import.</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Duplicate rows were automatically skipped during import.</p>
               </div>
             )}
 
             {importResult.summary.errors.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                <p className="text-xs font-medium text-amber-700 mb-1">{importResult.summary.errors.length} warning(s)</p>
-                <ul className="text-xs text-amber-600 space-y-0.5">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg p-2.5">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">{importResult.summary.errors.length} warning(s)</p>
+                <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
                   {importResult.summary.errors.slice(0, 5).map((err, i) => (
                     <li key={i}>{err}</li>
                   ))}
@@ -1227,7 +1231,7 @@ export default function SettingsPage() {
 
             <button
               onClick={resetUpload}
-              className="w-full border border-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-50 text-sm"
+              className="w-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm transition-colors"
             >
               Import Another File
             </button>
@@ -1235,15 +1239,15 @@ export default function SettingsPage() {
         )}
 
         {/* ── Supported File Formats ─────────────────────────────── */}
-        <div className="border-t border-gray-100 pt-4 mt-4">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Supported File Formats</h4>
+        <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mt-4">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Supported File Formats</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             {SUPPORTED_FORMATS.map((p) => (
               <div key={p.name} className="flex items-start gap-2">
-                <span className="text-indigo-600 mt-0.5">&#9679;</span>
+                <span className="text-indigo-600 dark:text-indigo-400 mt-0.5">&#9679;</span>
                 <div>
-                  <p className="font-medium text-gray-700">{p.name}</p>
-                  <p className="text-gray-500 text-xs">{p.desc}</p>
+                  <p className="font-medium text-gray-700 dark:text-gray-300">{p.name}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs">{p.desc}</p>
                 </div>
               </div>
             ))}

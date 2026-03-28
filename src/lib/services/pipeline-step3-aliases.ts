@@ -24,15 +24,19 @@ const DB_DIR = path.join(process.cwd(), "databases");
 export interface AliasResult {
   itemAliasesApplied: number;
   categoryAliasesApplied: number;
+  categoryMappingsApplied: number;
   totalItems: number;
 }
 
 /**
- * Apply all menu item and category aliases to order_items in sales.db.
+ * Apply all menu item aliases and category mappings to order_items in sales.db.
  *
  * 1. Reset all display_name/display_category to raw values
- * 2. Apply menu_item_aliases (exact match on item_name → display_name)
- * 3. Apply menu_category_aliases (exact match on category → display_category)
+ * 2. Apply menu_item_aliases (pattern match on item_name → display_name)
+ * 3. Apply menu categories:
+ *    - If menu_item_category_map has rows → direct lookup (new system)
+ *    - If empty → fall back to menu_category_aliases pattern matching (legacy)
+ * 4. Denormalize display_categories onto orders table
  */
 export function step3ApplyAliases(): AliasResult {
   const salesDb = new Database(path.join(DB_DIR, "sales.db"));
@@ -53,6 +57,8 @@ export function step3ApplyAliases(): AliasResult {
       "SELECT pattern, match_type, display_name FROM menu_item_aliases"
     ).all() as { pattern: string; match_type: string; display_name: string }[];
 
+    // All matching is case-insensitive to stay consistent with the UI
+    // (menu-item-aliases route uses toLowerCase() for matching)
     let itemAliasesApplied = 0;
     for (const alias of itemAliases) {
       const pattern = alias.pattern.trim();
@@ -61,15 +67,15 @@ export function step3ApplyAliases(): AliasResult {
       let result;
       if (alias.match_type === "exact") {
         result = salesDb.prepare(
-          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) = ? AND display_name != ?"
+          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) = ? COLLATE NOCASE AND display_name != ?"
         ).run(displayName, pattern, displayName);
       } else if (alias.match_type === "starts_with") {
         result = salesDb.prepare(
-          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) LIKE ? AND display_name != ?"
+          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) LIKE ? COLLATE NOCASE AND display_name != ?"
         ).run(displayName, `${pattern}%`, displayName);
       } else if (alias.match_type === "contains") {
         result = salesDb.prepare(
-          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) LIKE ? AND display_name != ?"
+          "UPDATE order_items SET display_name = ? WHERE TRIM(item_name) LIKE ? COLLATE NOCASE AND display_name != ?"
         ).run(displayName, `%${pattern}%`, displayName);
       }
 
@@ -78,33 +84,69 @@ export function step3ApplyAliases(): AliasResult {
       }
     }
 
-    // 3. Apply menu category aliases
-    const catAliases = catDb.prepare(
-      "SELECT pattern, match_type, display_name FROM menu_category_aliases"
-    ).all() as { pattern: string; match_type: string; display_name: string }[];
-
+    // 3. Apply menu categories
     let categoryAliasesApplied = 0;
-    for (const alias of catAliases) {
-      const pattern = alias.pattern.trim();
-      const displayName = alias.display_name.trim();
+    let categoryMappingsApplied = 0;
 
-      let result;
-      if (alias.match_type === "exact") {
-        result = salesDb.prepare(
-          "UPDATE order_items SET display_category = ? WHERE TRIM(category) = ? AND display_category != ?"
-        ).run(displayName, pattern, displayName);
-      } else if (alias.match_type === "starts_with") {
-        result = salesDb.prepare(
-          "UPDATE order_items SET display_category = ? WHERE TRIM(category) LIKE ? AND display_category != ?"
-        ).run(displayName, `${pattern}%`, displayName);
-      } else if (alias.match_type === "contains") {
-        result = salesDb.prepare(
-          "UPDATE order_items SET display_category = ? WHERE TRIM(category) LIKE ? AND display_category != ?"
-        ).run(displayName, `%${pattern}%`, displayName);
+    // Check if user-defined category mappings exist (new system)
+    let hasCategoryMappings = false;
+    try {
+      const tableExists = catDb.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='menu_item_category_map'"
+      ).get();
+      if (tableExists) {
+        const count = catDb.prepare("SELECT COUNT(*) as cnt FROM menu_item_category_map").get() as { cnt: number };
+        hasCategoryMappings = count.cnt > 0;
       }
+    } catch { /* table doesn't exist */ }
 
-      if (result && result.changes > 0) {
-        categoryAliasesApplied += result.changes;
+    if (hasCategoryMappings) {
+      // New system: direct lookup from menu_item_category_map
+      // Set all to "Uncategorized" first, then overwrite from mappings
+      salesDb.prepare("UPDATE order_items SET display_category = 'Uncategorized'").run();
+
+      const mappings = catDb.prepare(`
+        SELECT m.display_name, c.name as category_name
+        FROM menu_item_category_map m
+        JOIN menu_categories c ON m.category_id = c.id
+      `).all() as { display_name: string; category_name: string }[];
+
+      for (const mapping of mappings) {
+        const result = salesDb.prepare(
+          "UPDATE order_items SET display_category = ? WHERE display_name = ? COLLATE NOCASE"
+        ).run(mapping.category_name, mapping.display_name);
+        if (result.changes > 0) {
+          categoryMappingsApplied += result.changes;
+        }
+      }
+    } else {
+      // Legacy fallback: pattern matching via menu_category_aliases
+      const catAliases = catDb.prepare(
+        "SELECT pattern, match_type, display_name FROM menu_category_aliases"
+      ).all() as { pattern: string; match_type: string; display_name: string }[];
+
+      for (const alias of catAliases) {
+        const pattern = alias.pattern.trim();
+        const displayName = alias.display_name.trim();
+
+        let result;
+        if (alias.match_type === "exact") {
+          result = salesDb.prepare(
+            "UPDATE order_items SET display_category = ? WHERE TRIM(category) = ? COLLATE NOCASE AND display_category != ?"
+          ).run(displayName, pattern, displayName);
+        } else if (alias.match_type === "starts_with") {
+          result = salesDb.prepare(
+            "UPDATE order_items SET display_category = ? WHERE TRIM(category) LIKE ? COLLATE NOCASE AND display_category != ?"
+          ).run(displayName, `${pattern}%`, displayName);
+        } else if (alias.match_type === "contains") {
+          result = salesDb.prepare(
+            "UPDATE order_items SET display_category = ? WHERE TRIM(category) LIKE ? COLLATE NOCASE AND display_category != ?"
+          ).run(displayName, `%${pattern}%`, displayName);
+        }
+
+        if (result && result.changes > 0) {
+          categoryAliasesApplied += result.changes;
+        }
       }
     }
 
@@ -118,7 +160,7 @@ export function step3ApplyAliases(): AliasResult {
       )
     `).run();
 
-    return { itemAliasesApplied, categoryAliasesApplied, totalItems };
+    return { itemAliasesApplied, categoryAliasesApplied, categoryMappingsApplied, totalItems };
   } finally {
     salesDb.close();
     catDb.close();

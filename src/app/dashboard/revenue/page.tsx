@@ -113,13 +113,13 @@ export default function RevenuePage() {
       />
 
       {/* Revenue by Platform Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Revenue by Platform
         </h3>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-gray-400 border-b">
+            <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
               <th className="pb-2 font-medium">Platform</th>
               <th className="pb-2 font-medium text-right">Revenue</th>
               <th className="pb-2 font-medium text-right">Orders</th>
@@ -129,18 +129,18 @@ export default function RevenuePage() {
           </thead>
           <tbody>
             {data.revenueByPlatform.map((p) => (
-              <tr key={p.platform} className="border-b border-gray-50">
-                <td className="py-2 text-gray-800">
+              <tr key={p.platform} className="border-b border-gray-100 dark:border-gray-700/50">
+                <td className="py-2 text-gray-800 dark:text-gray-200">
                   {PLATFORM_LABELS[p.platform] || p.platform}
                 </td>
-                <td className="py-2 text-right font-medium">
+                <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">
                   {formatCurrency(p.revenue)}
                 </td>
-                <td className="py-2 text-right text-gray-600">{p.count}</td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">{p.count}</td>
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {formatCurrency(p.count > 0 ? p.revenue / p.count : 0)}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {totalRevenue > 0
                     ? ((p.revenue / totalRevenue) * 100).toFixed(1)
                     : 0}

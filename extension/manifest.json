@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Profit Duck - Delivery Platform Data Sync",
+  "version": "1.0.0",
+  "description": "Automatically captures order data from delivery platform merchant portals and syncs to Profit Duck.",
+  "permissions": ["storage", "alarms", "tabs", "activeTab", "cookies", "scripting", "debugger"],
+  "host_permissions": [
+    "https://merchants.ubereats.com/*",
+    "http://localhost:3000/*",
+    "http://localhost:3001/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://merchants.ubereats.com/*"],
+      "js": ["content-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://merchants.ubereats.com/*"],
+      "js": ["content-bridge.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

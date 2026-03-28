@@ -17,17 +17,17 @@ export default function PlatformNav() {
       : PLATFORMS.find((p) => p.slug !== "overview" && pathname.startsWith(p.href))?.slug || "overview";
 
   return (
-    <nav className="flex gap-1 bg-gray-100 rounded-lg p-1">
+    <nav className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 overflow-x-auto scrollbar-hide">
       {PLATFORMS.map((p) => {
         const isActive = p.slug === activeSlug;
         return (
           <Link
             key={p.slug}
             href={p.href}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
               isActive
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
             {p.label}

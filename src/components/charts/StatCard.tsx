@@ -12,10 +12,10 @@ interface StatCardProps {
 }
 
 const variantStyles = {
-  default: "bg-white",
-  success: "bg-emerald-50 border-emerald-200",
-  danger: "bg-red-50 border-red-200",
-  warning: "bg-amber-50 border-amber-200",
+  default: "bg-white dark:bg-gray-800",
+  success: "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800/50",
+  danger: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/50",
+  warning: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/50",
 };
 
 export default function StatCard({
@@ -30,10 +30,10 @@ export default function StatCard({
 
   return (
     <div
-      className={`rounded-xl border border-gray-200 p-6 ${variantStyles[variant]}`}
+      className={`rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 ${variantStyles[variant]}`}
     >
       <div className="flex items-center gap-1.5">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
         {info && (
           <div className="relative">
             <button
@@ -41,7 +41,7 @@ export default function StatCard({
               onMouseEnter={() => setShowInfo(true)}
               onMouseLeave={() => setShowInfo(false)}
               onClick={() => setShowInfo(!showInfo)}
-              className="text-gray-400 hover:text-gray-600 transition-colors text-xs leading-none"
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors text-xs leading-none"
               aria-label={`Info about ${title}`}
             >
               ⓘ
@@ -55,14 +55,14 @@ export default function StatCard({
           </div>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{value}</p>
       {subtitle && (
-        <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>
       )}
       {trend && (
         <p
           className={`text-xs mt-2 ${
-            trend.value >= 0 ? "text-emerald-600" : "text-red-600"
+            trend.value >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
           }`}
         >
           {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}%{" "}

@@ -11,7 +11,7 @@ type SortConfig = { key: string; dir: SortDirection } | null;
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDirection }) {
   return (
-    <svg className={`inline-block w-3 h-3 ml-1 ${active ? "text-indigo-600" : "text-gray-300"}`} viewBox="0 0 10 14" fill="currentColor">
+    <svg className={`inline-block w-3 h-3 ml-1 ${active ? "text-indigo-600 dark:text-indigo-400" : "text-gray-300 dark:text-gray-600"}`} viewBox="0 0 10 14" fill="currentColor">
       {(!active || dir === "asc") && <path d="M5 0L9.33 5H0.67L5 0Z" opacity={active && dir === "asc" ? 1 : 0.4} />}
       {(!active || dir === "desc") && <path d="M5 14L0.67 9H9.33L5 14Z" opacity={active && dir === "desc" ? 1 : 0.4} />}
     </svg>
@@ -47,10 +47,9 @@ interface PlatformDetailData {
   tips: number;
   feeBreakdown: {
     commission: number;
-    service: number;
+    processing: number;
     delivery: number;
     marketing: number;
-    customer: number;
   };
   dailyRevenue: { date: string; total: number; orders: number }[];
   orders: {
@@ -87,6 +86,9 @@ interface PlatformDetailData {
   diningOptionBreakdown?: { option: string; count: number; revenue: number }[];
   topItems?: { name: string; category: string; qty: number; revenue: number }[];
   categoryBreakdown?: { category: string; qty: number; revenue: number; itemCount: number }[];
+  modifierAnalytics?: { name: string; group: string; count: number; revenue: number; avgPrice: number; pctOfOrders: number }[];
+  totalItemsWithModifiers?: number;
+  totalModifierRevenue?: number;
 }
 
 export default function PlatformDetailPage({
@@ -110,6 +112,7 @@ export default function PlatformDetailPage({
   const [categorySort, setCategorySort] = useState<SortConfig>(null);
   const [topItemsSort, setTopItemsSort] = useState<SortConfig>(null);
   const [ordersSort, setOrdersSort] = useState<SortConfig>(null);
+  const [modifierSort, setModifierSort] = useState<SortConfig>(null);
 
   const toggleSort = useCallback((setter: React.Dispatch<React.SetStateAction<SortConfig>>, key: string) => {
     setter((prev) => {
@@ -148,6 +151,10 @@ export default function PlatformDetailPage({
       orderTypeSort
     );
   }, [data?.orderTypeBreakdown, orderTypeSort]);
+  const sortedModifiers = useMemo(
+    () => sortData(data?.modifierAnalytics || [], modifierSort),
+    [data?.modifierAnalytics, modifierSort]
+  );
   const sortedOrders = useMemo(
     () => sortData(data?.orders || [], ordersSort),
     [data?.orders, ordersSort]
@@ -238,8 +245,8 @@ export default function PlatformDetailPage({
 
       {/* Fee Breakdown */}
       {hasFees && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Fee Breakdown
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -247,8 +254,8 @@ export default function PlatformDetailPage({
               .filter(([, v]) => v > 0)
               .map(([key, value]) => (
                 <div key={key}>
-                  <p className="text-xs text-gray-500 capitalize">{key}</p>
-                  <p className="text-lg font-semibold text-gray-800">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{key}</p>
+                  <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {formatCurrency(value)}
                   </p>
                 </div>
@@ -259,13 +266,13 @@ export default function PlatformDetailPage({
 
       {/* Square: Cash vs Credit Breakdown */}
       {data.paymentTypeBreakdown && data.paymentTypeBreakdown.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Cash vs Credit Breakdown
           </h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 {[
                   { key: "type", label: "Payment Type" },
                   { key: "count", label: "Orders", right: true },
@@ -292,41 +299,41 @@ export default function PlatformDetailPage({
                 return (
                   <>
                     {sortedPayments.map((p) => (
-                      <tr key={p.type} className="border-b border-gray-50">
-                        <td className="py-2 text-gray-800 font-medium">
+                      <tr key={p.type} className="border-b border-gray-100 dark:border-gray-700/50">
+                        <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">
                           <span className="inline-flex items-center gap-1.5">
                             <span className={`w-2 h-2 rounded-full ${p.type === "Cash" ? "bg-green-500" : "bg-indigo-500"}`} />
                             {p.type}
                           </span>
                         </td>
-                        <td className="py-2 text-right text-gray-600">{p.count}</td>
-                        <td className="py-2 text-right text-gray-600">{formatCurrency(p.subtotal)}</td>
-                        <td className="py-2 text-right text-gray-600">{formatCurrency(p.tax)}</td>
-                        <td className="py-2 text-right text-gray-600">{formatCurrency(p.tip)}</td>
-                        <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(p.total)}</td>
-                        <td className="py-2 text-right text-gray-600">
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{p.count}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{formatCurrency(p.subtotal)}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{formatCurrency(p.tax)}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{formatCurrency(p.tip)}</td>
+                        <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(p.total)}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {total > 0 ? ((p.total / total) * 100).toFixed(1) : "0"}%
                         </td>
                       </tr>
                     ))}
-                    <tr className="border-t border-gray-200 font-medium">
-                      <td className="py-2 text-gray-800">Total</td>
-                      <td className="py-2 text-right text-gray-600">
+                    <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {data.paymentTypeBreakdown!.reduce((s, p) => s + p.count, 0)}
                       </td>
-                      <td className="py-2 text-right text-gray-600">
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {formatCurrency(data.paymentTypeBreakdown!.reduce((s, p) => s + p.subtotal, 0))}
                       </td>
-                      <td className="py-2 text-right text-gray-600">
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {formatCurrency(data.paymentTypeBreakdown!.reduce((s, p) => s + p.tax, 0))}
                       </td>
-                      <td className="py-2 text-right text-gray-600">
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {formatCurrency(data.paymentTypeBreakdown!.reduce((s, p) => s + p.tip, 0))}
                       </td>
-                      <td className="py-2 text-right font-medium text-gray-800">
+                      <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">
                         {formatCurrency(total)}
                       </td>
-                      <td className="py-2 text-right text-gray-600">100%</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">100%</td>
                     </tr>
                   </>
                 );
@@ -338,13 +345,13 @@ export default function PlatformDetailPage({
 
       {/* Delivery platforms: Order Type Breakdown */}
       {data.orderTypeBreakdown && data.orderTypeBreakdown.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Order Type Breakdown
           </h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 {[
                   { key: "type", label: "Type" },
                   { key: "count", label: "Orders", right: true },
@@ -370,23 +377,23 @@ export default function PlatformDetailPage({
                 return (
                   <>
                     {sortedOrderTypes.map((o) => (
-                      <tr key={o.type} className="border-b border-gray-50">
-                        <td className="py-2 text-gray-800 font-medium capitalize">{o.type || "Unknown"}</td>
-                        <td className="py-2 text-right text-gray-600">{o.count}</td>
-                        <td className="py-2 text-right text-gray-600">{formatCurrency(o.revenue)}</td>
+                      <tr key={o.type} className="border-b border-gray-100 dark:border-gray-700/50">
+                        <td className="py-2 text-gray-800 dark:text-gray-200 font-medium capitalize">{o.type || "-"}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{o.count}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{formatCurrency(o.revenue)}</td>
                         <td className="py-2 text-right text-red-600">{formatCurrency(o.fees)}</td>
                         <td className="py-2 text-right font-medium text-emerald-600">{formatCurrency(o.netPayout)}</td>
-                        <td className="py-2 text-right text-gray-600">
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {o.pct.toFixed(1)}%
                         </td>
                       </tr>
                     ))}
-                    <tr className="border-t border-gray-200 font-medium">
-                      <td className="py-2 text-gray-800">Total</td>
-                      <td className="py-2 text-right text-gray-600">
+                    <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {data.orderTypeBreakdown!.reduce((s, o) => s + o.count, 0)}
                       </td>
-                      <td className="py-2 text-right text-gray-600">
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                         {formatCurrency(totalRev)}
                       </td>
                       <td className="py-2 text-right text-red-600">
@@ -395,7 +402,7 @@ export default function PlatformDetailPage({
                       <td className="py-2 text-right font-medium text-emerald-600">
                         {formatCurrency(data.orderTypeBreakdown!.reduce((s, o) => s + o.netPayout, 0))}
                       </td>
-                      <td className="py-2 text-right text-gray-600">100%</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">100%</td>
                     </tr>
                   </>
                 );
@@ -407,16 +414,16 @@ export default function PlatformDetailPage({
 
       {/* Square: Dining Options */}
       {data.diningOptionBreakdown && data.diningOptionBreakdown.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Dining Options
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {data.diningOptionBreakdown.map((d) => (
-              <div key={d.option} className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-500">{d.option}</p>
-                <p className="text-xl font-bold text-gray-800">{d.count}</p>
-                <p className="text-sm text-gray-500">{formatCurrency(d.revenue)} revenue</p>
+              <div key={d.option} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">{d.option}</p>
+                <p className="text-xl font-bold text-gray-800 dark:text-gray-200">{d.count}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(d.revenue)} revenue</p>
               </div>
             ))}
           </div>
@@ -425,13 +432,13 @@ export default function PlatformDetailPage({
 
       {/* Item Category Breakdown (Square) */}
       {data.categoryBreakdown && data.categoryBreakdown.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Revenue by Menu Category
           </h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 {[
                   { key: "category", label: "Category" },
                   { key: "qty", label: "Items Sold", right: true },
@@ -456,20 +463,20 @@ export default function PlatformDetailPage({
                 return (
                   <>
                     {sortedCategories.map((c) => (
-                      <tr key={c.category} className="border-b border-gray-50">
-                        <td className="py-2 text-gray-800 font-medium">{c.category}</td>
-                        <td className="py-2 text-right text-gray-600">{c.qty}</td>
-                        <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.revenue)}</td>
-                        <td className="py-2 text-right text-gray-600">
+                      <tr key={c.category} className="border-b border-gray-100 dark:border-gray-700/50">
+                        <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">{c.category}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">{c.qty}</td>
+                        <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(c.revenue)}</td>
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {c.pct.toFixed(1)}%
                         </td>
                       </tr>
                     ))}
-                    <tr className="border-t border-gray-200 font-medium">
-                      <td className="py-2 text-gray-800">Total</td>
-                      <td className="py-2 text-right text-gray-600">{totalQty}</td>
-                      <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(totalRev)}</td>
-                      <td className="py-2 text-right text-gray-600">100%</td>
+                    <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">{totalQty}</td>
+                      <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(totalRev)}</td>
+                      <td className="py-2 text-right text-gray-600 dark:text-gray-400">100%</td>
                     </tr>
                   </>
                 );
@@ -479,70 +486,74 @@ export default function PlatformDetailPage({
         </div>
       )}
 
-      {/* Top Selling Items (Square) */}
+      {/* Top Selling Items (all platforms with item data) */}
       {data.topItems && data.topItems.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Top Selling Items ({data.topItems.length})
           </h3>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-400 border-b">
-                {[
-                  { key: "name", label: "Item" },
-                  { key: "category", label: "Category" },
-                  { key: "qty", label: "Qty Sold", right: true },
-                  { key: "revenue", label: "Revenue", right: true },
-                  { key: "avgPrice", label: "Avg Price", right: true },
-                ].map((col) => (
-                  <th
-                    key={col.key}
-                    className={`pb-2 font-medium cursor-pointer select-none hover:text-gray-600 ${col.right ? "text-right" : ""}`}
-                    onClick={() => toggleSort(setTopItemsSort, col.key)}
-                  >
-                    {col.label}
-                    <SortIcon active={topItemsSort?.key === col.key} dir={topItemsSort?.dir || "asc"} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTopItems.slice(0, itemsVisible).map((item) => (
-                <tr key={item.name} className="border-b border-gray-50">
-                  <td className="py-2 text-gray-800 font-medium">{item.name}</td>
-                  <td className="py-2 text-gray-500">
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">
-                      {item.category}
-                    </span>
-                  </td>
-                  <td className="py-2 text-right text-gray-600">{item.qty}</td>
-                  <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(item.revenue)}</td>
-                  <td className="py-2 text-right text-gray-600">
-                    {formatCurrency(item.avgPrice)}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead>
+                <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
+                  {[
+                    { key: "name", label: "Item" },
+                    { key: "category", label: "Category" },
+                    { key: "qty", label: "Qty Sold", right: true },
+                    { key: "revenue", label: "Revenue", right: true },
+                    { key: "avgPrice", label: "Avg Price", right: true },
+                  ].map((col) => (
+                    <th
+                      key={col.key}
+                      className={`pb-2 px-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap ${col.right ? "text-right" : ""}`}
+                      onClick={() => toggleSort(setTopItemsSort, col.key)}
+                    >
+                      {col.label}
+                      <SortIcon active={topItemsSort?.key === col.key} dir={topItemsSort?.dir || "asc"} />
+                    </th>
+                  ))}
                 </tr>
-              ))}
-              {(() => {
-                const totalQty = data.topItems!.reduce((s, i) => s + i.qty, 0);
-                const totalRev = data.topItems!.reduce((s, i) => s + i.revenue, 0);
-                return (
-                  <tr className="border-t border-gray-200 font-medium">
-                    <td className="py-2 text-gray-800">Total</td>
-                    <td className="py-2" />
-                    <td className="py-2 text-right text-gray-600">{totalQty}</td>
-                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(totalRev)}</td>
-                    <td className="py-2 text-right text-gray-600">
-                      {formatCurrency(totalQty > 0 ? totalRev / totalQty : 0)}
+              </thead>
+              <tbody>
+                {sortedTopItems.slice(0, itemsVisible).map((item) => (
+                  <tr key={item.name} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">{item.name}</td>
+                    <td className="py-2 px-3">
+                      {item.category && (
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                          {item.category}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{item.qty}</td>
+                    <td className="py-2 px-3 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{formatCurrency(item.revenue)}</td>
+                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {formatCurrency(item.avgPrice)}
                     </td>
                   </tr>
-                );
-              })()}
-            </tbody>
-          </table>
+                ))}
+                {(() => {
+                  const totalQty = data.topItems!.reduce((s, i) => s + i.qty, 0);
+                  const totalRev = data.topItems!.reduce((s, i) => s + i.revenue, 0);
+                  return (
+                    <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <td className="py-2 px-3 text-gray-800 dark:text-gray-200">Total</td>
+                      <td className="py-2 px-3" />
+                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">{totalQty}</td>
+                      <td className="py-2 px-3 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(totalRev)}</td>
+                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400">
+                        {formatCurrency(totalQty > 0 ? totalRev / totalQty : 0)}
+                      </td>
+                    </tr>
+                  );
+                })()}
+              </tbody>
+            </table>
+          </div>
           {sortedTopItems.length > itemsVisible && (
             <button
               onClick={() => setItemsVisible((v) => v + 10)}
-              className="mt-3 w-full text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium py-2 rounded-lg hover:bg-indigo-50 transition-colors"
+              className="mt-3 w-full text-center text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium py-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
             >
               Show 10 more ({sortedTopItems.length - itemsVisible} remaining)
             </button>
@@ -550,24 +561,101 @@ export default function PlatformDetailPage({
         </div>
       )}
 
+      {/* Modifier Analytics (all platforms with modifier data) */}
+      {data.modifierAnalytics && data.modifierAnalytics.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Popular Modifiers ({data.modifierAnalytics.length})
+            </h3>
+            {data.totalModifierRevenue !== undefined && data.totalModifierRevenue > 0 && (
+              <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                +{formatCurrency(data.totalModifierRevenue)} modifier revenue
+              </span>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[550px]">
+              <thead>
+                <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
+                  {[
+                    { key: "name", label: "Modifier" },
+                    { key: "group", label: "Group" },
+                    { key: "count", label: "Times Added", right: true },
+                    { key: "revenue", label: "Revenue", right: true },
+                    { key: "avgPrice", label: "Avg Price", right: true },
+                    { key: "pctOfOrders", label: "% Orders", right: true },
+                  ].map((col) => (
+                    <th
+                      key={col.key}
+                      className={`pb-2 px-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap ${col.right ? "text-right" : ""}`}
+                      onClick={() => toggleSort(setModifierSort, col.key)}
+                    >
+                      {col.label}
+                      <SortIcon active={modifierSort?.key === col.key} dir={modifierSort?.dir || "asc"} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedModifiers.slice(0, itemsVisible).map((mod) => (
+                  <tr key={`${mod.group}-${mod.name}`} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                    <td className="py-2 px-3 text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap">{mod.name}</td>
+                    <td className="py-2 px-3 text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">{mod.group || "-"}</td>
+                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{mod.count}</td>
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
+                      {mod.revenue > 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium">+{formatCurrency(mod.revenue)}</span>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-500">$0.00</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {mod.avgPrice > 0 ? formatCurrency(mod.avgPrice) : "Free"}
+                    </td>
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                        mod.pctOfOrders >= 20
+                          ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400"
+                          : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                      }`}>
+                        {mod.pctOfOrders}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {sortedModifiers.length > itemsVisible && (
+            <button
+              onClick={() => setItemsVisible((v) => v + 10)}
+              className="mt-3 w-full text-center text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium py-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+            >
+              Show 10 more ({sortedModifiers.length - itemsVisible} remaining)
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Order Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-medium text-gray-500">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
             Orders ({data.totalOrders.toLocaleString()} total)
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-gray-500">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="bg-gray-50 dark:bg-gray-800/50">
+              <tr className="text-left text-gray-500 dark:text-gray-400">
                 {[
                   { key: "datetime", label: "Date" },
                   { key: "orderId", label: "Order ID" },
                 ].map((col) => (
                   <th
                     key={col.key}
-                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
                     onClick={() => toggleSort(setOrdersSort, col.key)}
                   >
                     {col.label}
@@ -576,7 +664,7 @@ export default function PlatformDetailPage({
                 ))}
                 {isSquare && (
                   <th
-                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
                     onClick={() => toggleSort(setOrdersSort, "cardBrand")}
                   >
                     Payment
@@ -585,7 +673,7 @@ export default function PlatformDetailPage({
                 )}
                 {isSquare && (
                   <th
-                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
                     onClick={() => toggleSort(setOrdersSort, "diningOption")}
                   >
                     Dining
@@ -594,7 +682,7 @@ export default function PlatformDetailPage({
                 )}
                 {!isSquare && (
                   <th
-                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700"
+                    className="px-4 py-3 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
                     onClick={() => toggleSort(setOrdersSort, "channel")}
                   >
                     Channel
@@ -610,7 +698,7 @@ export default function PlatformDetailPage({
                 ].map((col) => (
                   <th
                     key={col.key}
-                    className="px-4 py-3 font-medium text-right cursor-pointer select-none hover:text-gray-700"
+                    className="px-4 py-3 font-medium text-right cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
                     onClick={() => toggleSort(setOrdersSort, col.key)}
                   >
                     {col.label}
@@ -621,49 +709,49 @@ export default function PlatformDetailPage({
             </thead>
             <tbody>
               {sortedOrders.map((o) => (
-                <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50">
-                  <td className="px-4 py-2.5 text-gray-600">{formatDateTime(o.datetime)}</td>
-                  <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">
-                    {o.orderId.length > 12 ? o.orderId.slice(0, 12) + "..." : o.orderId}
+                <tr key={o.id} className="border-t border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                  <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDateTime(o.datetime)}</td>
+                  <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-nowrap">
+                    {o.orderId.length > 16 ? o.orderId.slice(0, 16) + "..." : o.orderId}
                   </td>
                   {isSquare && (
-                    <td className="px-4 py-2.5 text-gray-600">{o.cardBrand || "Cash"}</td>
+                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{o.cardBrand || "Cash"}</td>
                   )}
                   {isSquare && (
-                    <td className="px-4 py-2.5 text-gray-600">{o.diningOption || "-"}</td>
+                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">{o.diningOption || "-"}</td>
                   )}
                   {!isSquare && (
-                    <td className="px-4 py-2.5 text-gray-600 capitalize">
+                    <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400 capitalize whitespace-nowrap">
                       {o.channel || o.fulfillmentType || "-"}
                     </td>
                   )}
-                  <td className="px-4 py-2.5 text-right text-gray-600">{formatCurrency(o.subtotal)}</td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">{formatCurrency(o.tax)}</td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">{formatCurrency(o.tip)}</td>
-                  <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(o.fees)}</td>
-                  <td className="px-4 py-2.5 text-right font-medium text-emerald-600">
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatCurrency(o.subtotal)}</td>
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatCurrency(o.tax)}</td>
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatCurrency(o.tip)}</td>
+                  <td className="px-4 py-2.5 text-right text-red-600 dark:text-red-400 whitespace-nowrap">{formatCurrency(o.fees)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     {formatCurrency(o.netPayout)}
                   </td>
                 </tr>
               ))}
               {data.orders.length > 0 && (
-                <tr className="border-t-2 border-gray-200 bg-gray-50 font-medium">
-                  <td className="px-4 py-2.5 text-gray-800" colSpan={isSquare ? 4 : 3}>
+                <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 font-medium">
+                  <td className="px-4 py-2.5 text-gray-800 dark:text-gray-200 whitespace-nowrap" colSpan={isSquare ? 4 : 3}>
                     Page Total ({data.orders.length} orders)
                   </td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
                     {formatCurrency(data.orders.reduce((s, o) => s + o.subtotal, 0))}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
                     {formatCurrency(data.orders.reduce((s, o) => s + o.tax, 0))}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-gray-600">
+                  <td className="px-4 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
                     {formatCurrency(data.orders.reduce((s, o) => s + o.tip, 0))}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-red-600">
+                  <td className="px-4 py-2.5 text-right text-red-600 dark:text-red-400 whitespace-nowrap">
                     {formatCurrency(data.orders.reduce((s, o) => s + o.fees, 0))}
                   </td>
-                  <td className="px-4 py-2.5 text-right font-medium text-emerald-600">
+                  <td className="px-4 py-2.5 text-right font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     {formatCurrency(data.orders.reduce((s, o) => s + o.netPayout, 0))}
                   </td>
                 </tr>

@@ -145,7 +145,7 @@ export function unifySquare(): UnifyResult {
   // Get all individual items for order_items table
   const allItems = src.prepare(`
     SELECT item, category, qty, gross_sales, discounts, net_sales,
-      modifiers_applied, event_type, dining_option, transaction_id, date, time
+      modifiers_applied, modifiers_json, event_type, dining_option, transaction_id, date, time
     FROM items
     WHERE transaction_id != '' AND transaction_id IS NOT NULL
     ORDER BY date, time
@@ -207,13 +207,16 @@ export function unifySquare(): UnifyResult {
       const gross = (row.gross_sales as number) || 0;
       const unitPrice = qty > 0 ? Math.round((gross / qty) * 100) / 100 : 0;
 
+      // Prefer structured JSON modifiers, fall back to flat string
+      const modifiers = (row.modifiers_json as string) || (row.modifiers_applied as string) || "";
+
       insertItem.run(
         txnId,
         row.date || "", row.time || "",
         itemName, row.category || "", qty,
         unitPrice, gross,
         row.discounts || 0, row.net_sales || 0,
-        row.modifiers_applied || "",
+        modifiers,
         itemName,             // display_name (populated by Step 3)
         row.category || "",   // display_category (populated by Step 3)
         row.event_type || "Payment",
@@ -455,7 +458,7 @@ export function unifyUberEats(): UnifyResult {
     INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
       unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
       event_type, dining_option)
-    VALUES (?, 'ubereats', ?, NULL, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
+    VALUES (?, 'ubereats', ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -486,23 +489,70 @@ export function unifyUberEats(): UnifyResult {
       if (statusRaw === "Cancelled") status = "cancelled";
       else if (statusRaw === "Unfulfilled") status = "unfulfilled";
 
+      // Single query for items — used for both summary and order_items insert
+      const items = src.prepare("SELECT * FROM items WHERE order_id = ?").all(orderId) as Record<string, unknown>[];
+      const itemsSummary = items.length > 0
+        ? items.map(i => `${i.item_name} x${i.quantity}`).join(" | ")
+        : null;
+      const itemCount = items.length > 0
+        ? items.reduce((sum, i) => sum + ((i.quantity as number) || 1), 0)
+        : 0;
+      const diningOpt = (r.fulfillment_type as string) === "PICKUP" ? "Pickup" : "Delivery";
+      // Build order-level modifiers summary from structured JSON if available
+      const modsSummary = items
+        .filter(i => (i.modifiers_json as string) || (i.modifiers as string))
+        .map(i => {
+          const json = (i.modifiers_json as string);
+          if (json) {
+            try {
+              const mods = JSON.parse(json) as { group: string; name: string; price: number }[];
+              const summary = mods.map(m => m.name).join(", ");
+              return `${i.item_name}: ${summary}`;
+            } catch { /* fall through */ }
+          }
+          const flat = (i.modifiers as string) || "";
+          return `${i.item_name}: ${flat.replace(/;/g, ",").replace(/\([^)]*\)/g, "").trim()}`;
+        })
+        .join(" | ") || null;
+
       insert.run(
-        r.date, null, "ubereats", orderId,
+        r.date, r.time || null, "ubereats", orderId,
         gross, tax, totalFees, payout,
-        status, null, null, null,
-        0, 0, "Delivery", r.customer || null, null,
+        status, itemsSummary, itemCount, modsSummary,
+        0, 0, diningOpt, r.customer || null, null,
         commissionFee + chargesFee, 0, 0, 0,
         feesTotal, 0, refundsTotal, 0, 0
       );
 
-      // order_items: 1 row per order (no item detail from Uber Eats)
-      insertItem.run(
-        orderId,
-        r.date,
-        "Uber Eats Order", status, gross, gross, payout,
-        "Uber Eats Order", status,
-        "Payment", "Delivery"
-      );
+      // order_items: use real items if available, otherwise synthetic row
+      if (items.length > 0) {
+        for (const item of items) {
+          const itemName = (item.item_name as string) || "Unknown Item";
+          const qty = (item.quantity as number) || 1;
+          const lineTotal = parseAmount(item.price as string); // price is already line total from UE
+          const unitPrice = Math.round((qty > 0 ? lineTotal / qty : lineTotal) * 100) / 100;
+          // Prefer structured JSON, fall back to flat string
+          const modifiersJson = (item.modifiers_json as string) || "";
+          const modifiers = modifiersJson || (item.modifiers as string) || "";
+
+          insertItem.run(
+            orderId,
+            r.date,
+            itemName, "", qty, unitPrice, lineTotal, lineTotal,
+            modifiers, itemName, "",
+            "Payment", diningOpt
+          );
+        }
+      } else {
+        // Fallback: no item detail (CSV import)
+        insertItem.run(
+          orderId,
+          r.date,
+          "Uber Eats Order", "", 1, gross, gross, gross,
+          "", "Uber Eats Order", "",
+          "Payment", diningOpt
+        );
+      }
 
       result.inserted++;
     }

@@ -152,13 +152,18 @@ export async function syncSquareFees(
   });
 
   const step1Db = new Database(SQUAREUP_DB_PATH);
+  // Ensure modifiers_json column exists (migration for existing DBs)
+  try { step1Db.exec("ALTER TABLE items ADD COLUMN modifiers_json TEXT"); } catch (e: any) {
+    if (!e.message?.includes("duplicate column")) throw e;
+  }
+
   const insertItem = step1Db.prepare(`
     INSERT INTO items (date, time, time_zone, category, item, qty, price_point_name, sku,
-      modifiers_applied, gross_sales, discounts, net_sales, tax, transaction_id, payment_id,
+      modifiers_applied, modifiers_json, gross_sales, discounts, net_sales, tax, transaction_id, payment_id,
       device_name, notes, details, event_type, location, dining_option, customer_id, customer_name,
       customer_reference_id, unit, count, itemization_type, fulfillment_note, channel, token,
       card_brand, pan_suffix, processing_fee, tip, source, platform)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', 'square')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'api', 'square')
   `);
 
   let newItemsCount = 0;
@@ -195,7 +200,7 @@ export async function syncSquareFees(
         const tipDollars = tipCents / 100;
         const feeDollars = feeCents / 100;
 
-        const diningOption = detail?.diningOption || "For Here";
+        const diningOption = detail?.diningOption || "";
         const orderDate = new Date(payment.created_at);
         // Convert UTC to Eastern time
         const eastern = new Intl.DateTimeFormat("en-US", {
@@ -218,15 +223,23 @@ export async function syncSquareFees(
             const liDisc = (li.total_discount_money?.amount || 0) / 100;
             const liNet = liGross - liTax;
 
-            // Get modifiers
-            const mods = (li.modifiers || []).map((m: { name?: string }) => m.name || "").filter(Boolean).join(", ");
+            // Get modifiers — build both flat string and structured JSON
+            const modifiers = (li.modifiers || []).filter((m: any) => m.name);
+            const mods = modifiers.map((m: any) => m.name).join(", ");
+            const modsJson = modifiers.length > 0
+              ? JSON.stringify(modifiers.map((m: any) => ({
+                  group: "",
+                  name: m.name || "",
+                  price: Math.round(((m.total_price_money?.amount || m.base_price_money?.amount || 0) / 100) * 100) / 100,
+                })))
+              : "";
 
             insertItem.run(
               dateStr, timeStr, "America/New_York",
               li.variation_name || "", li.name, qty, "", "",
-              mods, liGross, liDisc, liNet, liTax,
+              mods, modsJson, liGross, liDisc, liNet, liTax,
               payment.id, payment.id,
-              "", "", "", "Payment", "INCREPEABLE",
+              "", "", "", "Payment", payment.location_id || "",
               diningOption, "", "", "", "", "", "", "", "",
               "", paymentMethod, "",
               feeDollars / (detail.lineItems.length), tipDollars / (detail.lineItems.length)
@@ -237,9 +250,9 @@ export async function syncSquareFees(
           insertItem.run(
             dateStr, timeStr, "America/New_York",
             "", "Unknown Item", 1, "", "",
-            "", grossDollars, 0, grossDollars, taxDollars,
+            "", "", grossDollars, 0, grossDollars, taxDollars,
             payment.id, payment.id,
-            "", "", "", "Payment", "INCREPEABLE",
+            "", "", "", "Payment", payment.location_id || "",
             diningOption, "", "", "", "", "", "", "", "",
             "", paymentMethod, "",
             feeDollars, tipDollars
@@ -286,6 +299,32 @@ export async function syncSquareFees(
 
   const aliasResult = step3ApplyAliases();
   console.log(`[Square Sync] Step 3 complete: items=${aliasResult.itemAliasesApplied}, categories=${aliasResult.categoryAliasesApplied}`);
+
+  // ============================================================
+  // STEP 4: Sync catalog (categories + item mappings)
+  // Only adds new categories/mappings — never overwrites manual work
+  // ============================================================
+
+  onProgress?.({
+    phase: "syncing",
+    current: 0,
+    total: 0,
+    message: "Step 4: Syncing catalog categories...",
+  });
+
+  try {
+    const { syncSquareCatalog } = await import("./square-catalog-sync");
+    const catalogResult = await syncSquareCatalog(onProgress);
+    console.log(`[Square Sync] Step 4 complete: ${catalogResult.categoriesCreated} new categories, ${catalogResult.itemsMapped} new mappings`);
+
+    // Re-run Step 3 if catalog added new mappings
+    if (catalogResult.categoriesCreated > 0 || catalogResult.itemsMapped > 0) {
+      step3ApplyAliases();
+    }
+  } catch (err) {
+    // Non-fatal: catalog sync failure shouldn't break payment sync
+    console.warn("[Square Sync] Step 4 catalog sync failed (non-fatal):", err);
+  }
 
   const result: SyncResult = {
     totalPayments: payments.length,

@@ -115,10 +115,10 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 function feeRateClass(rate: number): string {
   if (rate > 25)
-    return "bg-red-50 text-red-700 px-1.5 py-0.5 rounded text-xs font-medium";
+    return "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded text-xs font-medium";
   if (rate > 15)
-    return "bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded text-xs font-medium";
-  return "bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded text-xs font-medium";
+    return "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded text-xs font-medium";
+  return "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded text-xs font-medium";
 }
 
 
@@ -222,7 +222,7 @@ export default function HealthReportPage() {
         </p>
         <div className="flex items-center gap-3">
           {/* Comparison mode toggle */}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
             {([
               { value: "prior" as const, label: "Prior Period" },
               { value: "yoy" as const, label: "vs Last Year" },
@@ -232,8 +232,8 @@ export default function HealthReportPage() {
                 onClick={() => setCompareMode(opt.value)}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                   compareMode === opt.value
-                    ? "bg-white text-indigo-600 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-white dark:bg-gray-800 text-indigo-600 shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 }`}
               >
                 {opt.label}
@@ -242,7 +242,7 @@ export default function HealthReportPage() {
           </div>
           <button
             onClick={fetchReport}
-            className="px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"
+            className="px-3 py-1.5 text-sm font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
           >
             Refresh
           </button>
@@ -251,13 +251,13 @@ export default function HealthReportPage() {
 
       {/* Key Insights — the headline of the health report */}
       {insights.length > 0 && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
-          <h3 className="text-sm font-medium text-indigo-700 mb-3">
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 rounded-xl p-5">
+          <h3 className="text-sm font-medium text-indigo-700 dark:text-indigo-300 mb-3">
             Key Insights
           </h3>
           <ul className="columns-1 md:columns-2 gap-x-8 space-y-1.5">
             {insights.map((insight, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-indigo-900 break-inside-avoid">
+              <li key={i} className="flex items-start gap-2 text-sm text-indigo-900 dark:text-indigo-200 break-inside-avoid">
                 <span className="text-indigo-400 mt-0.5 shrink-0">&bull;</span>
                 <span>{insight}</span>
               </li>
@@ -337,13 +337,13 @@ export default function HealthReportPage() {
             chartLookbackDays={projection.trend.chartLookbackDays}
           />
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6 space-y-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-500">Income Projection</h3>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Income Projection</h3>
             <select
               value={forecastRange}
               onChange={(e) => setForecastRange(e.target.value as typeof forecastRange)}
-              className="text-[11px] border border-gray-200 rounded-md px-1.5 py-0.5 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              className="text-[11px] border border-gray-200 dark:border-gray-600 rounded-md px-1.5 py-0.5 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
             >
               <option value="1m">1m</option>
               <option value="3m">3m</option>
@@ -372,7 +372,7 @@ export default function HealthReportPage() {
             {projInfo?.scenarios ? (
               <div className="space-y-0.5">
                 {/* Header row */}
-                <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-400 uppercase tracking-wide pb-1 border-b border-gray-100">
+                <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide pb-1 border-b border-gray-100 dark:border-gray-700">
                   <span></span>
                   <span className="text-right">Trend</span>
                   <span className="text-right text-violet-400">Seasonal</span>
@@ -380,43 +380,43 @@ export default function HealthReportPage() {
                 {/* Best case */}
                 <div className="grid grid-cols-3 gap-1 items-baseline py-1">
                   <span className="text-[10px] text-emerald-500 font-medium">Best</span>
-                  <span className="text-sm font-bold text-right text-gray-700">{formatCurrency(projInfo.scenarios.best.trend)}</span>
+                  <span className="text-sm font-bold text-right text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.best.trend)}</span>
                   <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.best.seasonal)}</span>
                 </div>
                 {/* Mid case */}
-                <div className="grid grid-cols-3 gap-1 items-baseline py-1 bg-gray-50 -mx-2 px-2 rounded">
-                  <span className="text-[10px] text-gray-500 font-medium">Expected</span>
-                  <span className="text-base font-bold text-right text-gray-900">{formatCurrency(projInfo.scenarios.mid.trend)}</span>
+                <div className="grid grid-cols-3 gap-1 items-baseline py-1 bg-gray-50 dark:bg-gray-700/50 -mx-2 px-2 rounded">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Expected</span>
+                  <span className="text-base font-bold text-right text-gray-900 dark:text-gray-100">{formatCurrency(projInfo.scenarios.mid.trend)}</span>
                   <span className="text-base font-bold text-right text-violet-700">{formatCurrency(projInfo.scenarios.mid.seasonal)}</span>
                 </div>
                 {/* Worst case */}
                 <div className="grid grid-cols-3 gap-1 items-baseline py-1">
                   <span className="text-[10px] text-red-500 font-medium">Worst</span>
-                  <span className="text-sm font-bold text-right text-gray-700">{formatCurrency(projInfo.scenarios.worst.trend)}</span>
+                  <span className="text-sm font-bold text-right text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.worst.trend)}</span>
                   <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.worst.seasonal)}</span>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-gray-500">Trend</span>
-                  <span className="text-lg font-bold text-gray-900">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Trend</span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
                     {formatCurrency(projInfo?.trendRevenue ?? projection.trend.projectedHorizonRevenue)}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-violet-500">Seasonal</span>
-                  <span className="text-lg font-bold text-violet-700">
+                  <span className="text-xs text-violet-500 dark:text-violet-400">Seasonal</span>
+                  <span className="text-lg font-bold text-violet-700 dark:text-violet-400">
                     {formatCurrency(projInfo?.seasonalRevenue ?? projection.trend.projectedHorizonRevenue)}
                   </span>
                 </div>
               </div>
             )}
-            <p className="text-xs text-gray-400 mt-2">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
               Period to date: {formatCurrency(kpis.current.revenue)}
             </p>
             {projInfo?.monthlyAvg != null && projInfo.monthlyAvg > 0 && (
-              <p className="text-xs text-gray-500 mt-1 font-medium">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">
                 ~{formatCurrency(projInfo.monthlyAvg)}/mo avg
               </p>
             )}
@@ -449,14 +449,14 @@ export default function HealthReportPage() {
             )}
           </div>
           {projInfo?.seasonalCallout && (
-            <div className="bg-violet-50 rounded-lg p-2.5">
-              <p className="text-xs text-violet-700">
+            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-2.5">
+              <p className="text-xs text-violet-700 dark:text-violet-300">
                 {projInfo.seasonalCallout}
               </p>
             </div>
           )}
           {projection.dailySeries.length < 7 && (
-            <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
               Limited data available — projections may be unreliable.
             </p>
           )}
@@ -464,14 +464,14 @@ export default function HealthReportPage() {
       </div>
 
       {/* Section 3: Platform Performance */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Platform Performance
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-500 border-b border-gray-200">
+              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                 <th className="pb-2 font-medium">Platform</th>
                 <th className="pb-2 font-medium text-right">Orders</th>
                 <th className="pb-2 font-medium text-right">Gross Revenue</th>
@@ -485,7 +485,7 @@ export default function HealthReportPage() {
               {platforms.map((p) => (
                 <tr
                   key={p.platform}
-                  className="border-b border-gray-50 hover:bg-gray-50"
+                  className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 text-gray-800 dark:text-gray-200"
                 >
                   <td className="py-2.5 font-medium">
                     {PLATFORM_LABELS[p.platform] || p.platform}
@@ -496,7 +496,7 @@ export default function HealthReportPage() {
                   <td className="py-2.5 text-right">
                     {formatCurrency(p.totalSubtotal)}
                   </td>
-                  <td className="py-2.5 text-right text-red-600">
+                  <td className="py-2.5 text-right text-red-600 dark:text-red-400">
                     {formatCurrency(p.totalFees)}
                   </td>
                   <td className="py-2.5 text-right">
@@ -504,7 +504,7 @@ export default function HealthReportPage() {
                       {p.feeRate.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="py-2.5 text-right text-emerald-600">
+                  <td className="py-2.5 text-right text-emerald-600 dark:text-emerald-400">
                     {formatCurrency(p.totalNetPayout)}
                   </td>
                   <td className="py-2.5 text-right font-medium">
@@ -520,17 +520,17 @@ export default function HealthReportPage() {
       {/* Section 4: Menu Performance + Expense Breakdown (side by side) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Menu Performance */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
             Menu Performance
-            <span className="text-xs text-gray-400 font-normal ml-2">{meta.comparisonLabel}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500 font-normal ml-2">{meta.comparisonLabel}</span>
           </h3>
           {menuPerformance.length === 0 ? (
-            <p className="text-sm text-gray-400">No item data available for this period.</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No item data available for this period.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-400 border-b">
+                <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                   <th className="pb-2 font-medium">Item</th>
                   <th className="pb-2 font-medium text-right">Qty</th>
                   <th className="pb-2 font-medium text-right">Revenue</th>
@@ -539,17 +539,17 @@ export default function HealthReportPage() {
               </thead>
               <tbody>
                 {menuPerformance.map((item) => (
-                  <tr key={item.name} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 text-gray-800 font-medium truncate max-w-[140px]">{item.name}</td>
-                    <td className="py-2 text-right text-gray-600">{item.qty.toLocaleString()}</td>
-                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(item.revenue)}</td>
+                  <tr key={item.name} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="py-2 text-gray-800 dark:text-gray-200 font-medium truncate max-w-[140px]">{item.name}</td>
+                    <td className="py-2 text-right text-gray-600 dark:text-gray-400">{item.qty.toLocaleString()}</td>
+                    <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(item.revenue)}</td>
                     <td className="py-2 text-right">
                       {item.prevRevenue > 0 ? (
-                        <span className={`text-xs font-medium ${item.change >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        <span className={`text-xs font-medium ${item.change >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                           {item.change >= 0 ? "↑" : "↓"} {Math.abs(item.change)}%
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400">new</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500">new</span>
                       )}
                     </td>
                   </tr>
@@ -560,9 +560,9 @@ export default function HealthReportPage() {
         </div>
 
         {/* Expense Breakdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-gray-500">Expense Breakdown</h3>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Expense Breakdown</h3>
             <div className={`flex items-center gap-1 text-xs font-medium ${
               expenses.trendDirection === "up" ? "text-red-600"
                 : expenses.trendDirection === "down" ? "text-emerald-600"
@@ -573,11 +573,11 @@ export default function HealthReportPage() {
             </div>
           </div>
           {expenses.topCategories.length === 0 ? (
-            <p className="text-sm text-gray-400">No expense data for this period.</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No expense data for this period.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-400 border-b">
+                <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                   <th className="pb-2 font-medium">Category</th>
                   <th className="pb-2 font-medium text-right">Amount</th>
                   <th className="pb-2 font-medium text-right">% Rev</th>
@@ -586,39 +586,39 @@ export default function HealthReportPage() {
               </thead>
               <tbody>
                 {expenses.topCategories.map((c) => (
-                  <tr key={c.category} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-2 text-gray-800 font-medium truncate max-w-[140px]">{c.category}</td>
-                    <td className="py-2 text-right font-medium text-gray-800">{formatCurrency(c.amount)}</td>
+                  <tr key={c.category} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                    <td className="py-2 text-gray-800 dark:text-gray-200 font-medium truncate max-w-[140px]">{c.category}</td>
+                    <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(c.amount)}</td>
                     <td className="py-2 text-right">
                       <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                        c.pctOfRevenue > 20 ? "bg-red-50 text-red-700"
-                          : c.pctOfRevenue > 10 ? "bg-amber-50 text-amber-700"
-                          : "bg-gray-50 text-gray-600"
+                        c.pctOfRevenue > 20 ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                          : c.pctOfRevenue > 10 ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+                          : "bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                       }`}>
                         {c.pctOfRevenue.toFixed(1)}%
                       </span>
                     </td>
                     <td className="py-2 text-right">
                       {c.prevAmount > 0 ? (
-                        <span className={`text-xs font-medium ${c.change <= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        <span className={`text-xs font-medium ${c.change <= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                           {c.change > 0 ? "↑" : "↓"} {Math.abs(c.change)}%
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
                       )}
                     </td>
                   </tr>
                 ))}
-                <tr className="border-t border-gray-200 font-medium">
-                  <td className="py-2 text-gray-800">Total</td>
-                  <td className="py-2 text-right text-gray-800">{formatCurrency(expenses.currentTotal)}</td>
+                <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                  <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                  <td className="py-2 text-right text-gray-800 dark:text-gray-200">{formatCurrency(expenses.currentTotal)}</td>
                   <td className="py-2 text-right">
-                    <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">
+                    <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
                       {kpis.current.revenue > 0 ? ((expenses.currentTotal / kpis.current.revenue) * 100).toFixed(1) : 0}%
                     </span>
                   </td>
                   <td className="py-2 text-right">
-                    <span className={`text-xs font-medium ${expenses.trendDirection === "down" ? "text-emerald-600" : expenses.trendDirection === "up" ? "text-red-600" : "text-gray-500"}`}>
+                    <span className={`text-xs font-medium ${expenses.trendDirection === "down" ? "text-emerald-600 dark:text-emerald-400" : expenses.trendDirection === "up" ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>
                       {expenses.trendDirection === "up" ? "↑" : expenses.trendDirection === "down" ? "↓" : "→"} {expenses.trendPct.toFixed(1)}%
                     </span>
                   </td>

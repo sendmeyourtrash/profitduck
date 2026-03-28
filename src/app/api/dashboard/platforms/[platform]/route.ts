@@ -17,6 +17,8 @@ export async function GET(
     return NextResponse.json({ error: "Invalid platform" }, { status: 404 });
   }
 
+  try {
+
   const { searchParams } = new URL(request.url);
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
@@ -111,8 +113,8 @@ export async function GET(
     totalPages: Math.ceil(totalCount / limit),
   };
 
-  // Item and category analytics from order_items (using display names after aliases)
-  if (platform === "square") {
+  // ---- Item & Category Analytics (all platforms with order_items) ----
+  {
     const itemConditions = conditions.map(c => c.replace("platform", "oi.platform").replace("date", "oi.date"));
     const itemWhere = `WHERE ${itemConditions.join(" AND ")}`;
 
@@ -132,7 +134,7 @@ export async function GET(
       : "";
     const itemQueryParams = [...queryParams, ...itemIgnores];
 
-    // Top items (using display_name, filtered by ignore list)
+    // Top items (all platforms)
     const topItems = db.prepare(`
       SELECT oi.display_name as name, oi.display_category as category,
         ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue
@@ -142,7 +144,9 @@ export async function GET(
       ORDER BY qty DESC
     `).all(...itemQueryParams) as { name: string; category: string; qty: number; revenue: number }[];
 
-    response.topItems = topItems;
+    if (topItems.length > 0) {
+      response.topItems = topItems;
+    }
 
     // Build ignore filter for categories
     const catIgnoreFilter = categoryIgnores.length > 0
@@ -150,7 +154,7 @@ export async function GET(
       : "";
     const catQueryParams = [...queryParams, ...categoryIgnores];
 
-    // Category breakdown (using display_category, filtered by ignore list)
+    // Category breakdown (all platforms)
     const categoryBreakdown = db.prepare(`
       SELECT oi.display_category as category,
         ROUND(SUM(oi.qty), 0) as qty, ROUND(SUM(oi.net_sales), 2) as revenue,
@@ -161,9 +165,53 @@ export async function GET(
       ORDER BY revenue DESC
     `).all(...catQueryParams) as { category: string; qty: number; revenue: number; itemCount: number }[];
 
-    response.categoryBreakdown = categoryBreakdown;
+    if (categoryBreakdown.length > 0) {
+      response.categoryBreakdown = categoryBreakdown;
+    }
 
-    // Payment type breakdown
+    // ---- Modifier Analytics (all platforms with JSON modifiers) ----
+    const modRows = db.prepare(`
+      SELECT oi.modifiers FROM order_items oi
+      ${itemWhere} AND oi.event_type = 'Payment' AND oi.modifiers LIKE '[%'
+    `).all(...queryParams) as { modifiers: string }[];
+
+    if (modRows.length > 0) {
+      // Accumulate in integer cents to avoid float drift
+      const modCounts = new Map<string, { name: string; group: string; count: number; revenueCents: number }>();
+      let totalItemsWithMods = 0;
+
+      for (const row of modRows) {
+        try {
+          const mods = JSON.parse(row.modifiers) as { group: string; name: string; price: number }[];
+          totalItemsWithMods++;
+          for (const m of mods) {
+            const key = m.name;
+            const existing = modCounts.get(key) || { name: m.name, group: m.group || "", count: 0, revenueCents: 0 };
+            existing.count++;
+            existing.revenueCents += Math.round((m.price || 0) * 100);
+            modCounts.set(key, existing);
+          }
+        } catch { /* skip malformed JSON */ }
+      }
+
+      const totalOrders = (response as any).orderCount || 0;
+      response.modifierAnalytics = [...modCounts.values()]
+        .sort((a, b) => b.count - a.count)
+        .map(m => ({
+          name: m.name,
+          group: m.group,
+          count: m.count,
+          revenue: m.revenueCents / 100,
+          avgPrice: m.count > 0 ? Math.round(m.revenueCents / m.count) / 100 : 0,
+          pctOfOrders: totalOrders > 0 ? Math.round((m.count / totalOrders) * 1000) / 10 : 0,
+        }));
+      response.totalItemsWithModifiers = totalItemsWithMods;
+      response.totalModifierRevenue = [...modCounts.values()].reduce((s, m) => s + m.revenueCents, 0) / 100;
+    }
+  }
+
+  // ---- Square-only: Payment type breakdown ----
+  if (platform === "square") {
     const paymentBreakdown = db.prepare(`
       SELECT payment_method, COUNT(*) as count,
         ROUND(SUM(gross_sales), 2) as subtotal,
@@ -182,35 +230,45 @@ export async function GET(
       tip: p.tip,
       total: p.total,
     }));
-
-    // Dining option breakdown
-    const diningBreakdown = db.prepare(`
-      SELECT dining_option, COUNT(*) as count,
-        ROUND(SUM(gross_sales + tax + tip), 2) as revenue
-      FROM orders ${where}
-      GROUP BY dining_option ORDER BY revenue DESC
-    `).all(...queryParams) as { dining_option: string; count: number; revenue: number }[];
-
-    response.diningOptionBreakdown = diningBreakdown.map((d) => ({
-      option: d.dining_option || "Unknown",
-      count: d.count,
-      revenue: d.revenue,
-    }));
   }
 
-  // Delivery platform breakdowns
-  if (platform === "doordash" || platform === "ubereats" || platform === "grubhub") {
+  // ---- Dining option / Order type breakdown (all platforms, only when data exists) ----
+  {
     const diningBreakdown = db.prepare(`
-      SELECT dining_option as type, COUNT(*) as count,
+      SELECT dining_option, COUNT(*) as count,
         ROUND(SUM(gross_sales + tax + tip), 2) as revenue,
         ROUND(SUM(net_sales), 2) as netPayout,
         ROUND(SUM(fees_total), 2) as fees
       FROM orders ${where}
       GROUP BY dining_option ORDER BY revenue DESC
-    `).all(...queryParams) as { type: string; count: number; revenue: number; netPayout: number; fees: number }[];
+    `).all(...queryParams) as { dining_option: string; count: number; revenue: number; netPayout: number; fees: number }[];
 
-    response.orderTypeBreakdown = diningBreakdown;
+    const filtered = diningBreakdown.filter(d => d.dining_option && d.dining_option.trim() !== "");
+
+    if (filtered.length > 0) {
+      response.diningOptionBreakdown = filtered.map(d => ({
+        option: d.dining_option,
+        count: d.count,
+        revenue: d.revenue,
+      }));
+
+      // For delivery platforms, also provide the richer orderTypeBreakdown
+      if (platform === "doordash" || platform === "ubereats" || platform === "grubhub") {
+        response.orderTypeBreakdown = filtered.map(d => ({
+          type: d.dining_option,
+          count: d.count,
+          revenue: d.revenue,
+          netPayout: d.netPayout,
+          fees: d.fees,
+        }));
+      }
+    }
   }
 
   return NextResponse.json(response);
+
+  } catch (error) {
+    console.error(`[Platform Detail] Error for ${platform}:`, error);
+    return NextResponse.json({ error: "Failed to load platform data" }, { status: 500 });
+  }
 }

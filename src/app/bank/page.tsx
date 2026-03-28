@@ -64,7 +64,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
   return (
     <div>
       <dt className="text-xs text-gray-400">{label}</dt>
-      <dd className="text-sm text-gray-800 mt-0.5">{value}</dd>
+      <dd className="text-sm text-gray-800 dark:text-gray-200 mt-0.5">{value}</dd>
     </div>
   );
 }
@@ -72,11 +72,11 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 function ExpandedRow({ tx }: { tx: BankTransaction }) {
   return (
     <td colSpan={8} className="px-0 py-0">
-      <div className="bg-gray-50/80 border-t border-gray-100">
+      <div className="bg-gray-50/80 dark:bg-gray-800/80 border-t border-gray-100 dark:border-gray-700/50">
         <div className="px-5 py-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-6 gap-y-2">
             <DetailField label="Account" value={
-              <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">
+              <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                 {tx.accountName}
               </span>
             } />
@@ -85,18 +85,18 @@ function ExpandedRow({ tx }: { tx: BankTransaction }) {
             <DetailField label="Type" value={
               <span className={`px-2 py-0.5 rounded-full text-xs ${
                 tx.type === "deposit"
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-red-100 text-red-700"
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
               }`}>{tx.type}</span>
             } />
             <DetailField label="Amount" value={
-              <span className={`font-medium ${tx.type === "deposit" ? "text-emerald-600" : "text-gray-800"}`}>
+              <span className={`font-medium ${tx.type === "deposit" ? "text-emerald-600" : "text-gray-800 dark:text-gray-200"}`}>
                 {formatCurrency(Math.abs(tx.amount))}
               </span>
             } />
             {tx.taxDeductible && (
               <DetailField label="Tax Deductible" value={
-                <span className="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">Yes</span>
+                <span className="px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400">Yes</span>
               } />
             )}
             {tx.note && <DetailField label="Note" value={tx.note} />}
@@ -104,7 +104,7 @@ function ExpandedRow({ tx }: { tx: BankTransaction }) {
               <DetailField label="Tags" value={
                 <div className="flex gap-1 flex-wrap">
                   {tx.tags.split(",").map((tag) => (
-                    <span key={tag.trim()} className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600">
+                    <span key={tag.trim()} className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
                       {tag.trim()}
                     </span>
                   ))}
@@ -317,7 +317,7 @@ function BankPage() {
       {/* Account Filter */}
       {availableAccounts.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-500 font-medium">Account:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Account:</span>
           {availableAccounts.map((label) => {
             const active = selectedAccounts.includes(label);
             return (
@@ -326,10 +326,10 @@ function BankPage() {
                 onClick={() => toggleAccount(label)}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   active
-                    ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300"
+                    ? "bg-blue-100 text-blue-700 ring-1 ring-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:ring-blue-700"
                     : selectedAccounts.length === 0
-                    ? "bg-blue-50 text-blue-600"
-                    : "bg-gray-100 text-gray-500"
+                    ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
                 }`}
               >
                 {label}
@@ -339,7 +339,7 @@ function BankPage() {
           {selectedAccounts.length > 0 && (
             <button
               onClick={() => { setSelectedAccounts([]); setPage(0); }}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
               Clear
             </button>
@@ -350,7 +350,7 @@ function BankPage() {
       {/* Category Filter */}
       {availableCategories.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-gray-500 font-medium">Category:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Category:</span>
           {availableCategories.map((cat) => {
             const active = selectedCategories.includes(cat.name);
             return (
@@ -359,12 +359,12 @@ function BankPage() {
                 onClick={() => toggleCategory(cat.name)}
                 className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
                   active
-                    ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300"
+                    ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400 dark:ring-indigo-700"
                     : cat.ignored
-                    ? "bg-amber-50 text-amber-400 line-through"
+                    ? "bg-amber-50 text-amber-400 line-through dark:bg-amber-900/20 dark:text-amber-500"
                     : selectedCategories.length === 0
-                    ? "bg-gray-100 text-gray-600"
-                    : "bg-gray-50 text-gray-400"
+                    ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+                    : "bg-gray-50 text-gray-400 dark:bg-gray-700/50 dark:text-gray-500"
                 }`}
               >
                 {cat.name}
@@ -374,7 +374,7 @@ function BankPage() {
           {selectedCategories.length > 0 && (
             <button
               onClick={() => { setSelectedCategories([]); setPage(0); }}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
               Clear
             </button>
@@ -389,9 +389,9 @@ function BankPage() {
         const unmatched = availableVendors.filter((v) => v.tag === "unmatched");
 
         const chipColors: Record<string, { active: string; inactive: string }> = {
-          grouped: { active: "bg-purple-100 text-purple-700 ring-1 ring-purple-300", inactive: "bg-purple-50 text-purple-600" },
-          ignored: { active: "bg-gray-200 text-gray-600 ring-1 ring-gray-300 line-through", inactive: "bg-gray-100 text-gray-400 line-through" },
-          unmatched: { active: "bg-amber-100 text-amber-700 ring-1 ring-amber-300", inactive: "bg-amber-50 text-amber-600" },
+          grouped: { active: "bg-purple-100 text-purple-700 ring-1 ring-purple-300 dark:bg-purple-900/30 dark:text-purple-400 dark:ring-purple-700", inactive: "bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400" },
+          ignored: { active: "bg-gray-200 text-gray-600 ring-1 ring-gray-300 line-through dark:bg-gray-600 dark:text-gray-300 dark:ring-gray-500", inactive: "bg-gray-100 text-gray-400 line-through dark:bg-gray-700 dark:text-gray-500" },
+          unmatched: { active: "bg-amber-100 text-amber-700 ring-1 ring-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-700", inactive: "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" },
         };
 
         const renderChips = (vendors: typeof availableVendors, label: string) => {
@@ -407,7 +407,7 @@ function BankPage() {
                     key={name}
                     onClick={() => toggleVendor(name)}
                     className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                      active ? colors.active : selectedVendors.length === 0 ? colors.inactive : "bg-gray-100 text-gray-400"
+                      active ? colors.active : selectedVendors.length === 0 ? colors.inactive : "bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500"
                     }`}
                     title={`${count} transactions`}
                   >
@@ -422,11 +422,11 @@ function BankPage() {
         const hasActiveVendors = selectedVendors.length > 0;
 
         return (
-          <details className="bg-white rounded-xl border border-gray-200 px-4 py-2" open={hasActiveVendors}>
-            <summary className="text-xs text-gray-500 font-medium cursor-pointer select-none flex items-center gap-2">
+          <details className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/50 px-4 py-2" open={hasActiveVendors}>
+            <summary className="text-xs text-gray-500 dark:text-gray-400 font-medium cursor-pointer select-none flex items-center gap-2">
               Vendor Filters
               {hasActiveVendors && (
-                <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] dark:bg-indigo-900/30 dark:text-indigo-400">
                   {selectedVendors.length} active
                 </span>
               )}
@@ -438,7 +438,7 @@ function BankPage() {
               {selectedVendors.length > 0 && (
                 <button
                   onClick={() => { setSelectedVendors([]); setPage(0); }}
-                  className="text-xs text-gray-400 hover:text-gray-600"
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                 >
                   Clear vendor filters
                 </button>
@@ -451,17 +451,17 @@ function BankPage() {
       {/* Summary Cards */}
       {!initialLoading && total > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/50 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Deposits</p>
             <p className="text-lg font-semibold text-emerald-600 mt-0.5">{formatCurrency(summary.deposits)}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{summary.depositsCount.toLocaleString()} transactions</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/50 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Expenses</p>
             <p className="text-lg font-semibold text-red-600 mt-0.5">{formatCurrency(summary.expenses)}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{summary.expensesCount.toLocaleString()} transactions</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/50 px-4 py-3">
             <p className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Net</p>
             <p className={`text-lg font-semibold mt-0.5 ${summary.net <= 0 ? "text-emerald-600" : "text-red-600"}`}>
               {formatCurrency(Math.abs(summary.net))}
@@ -472,20 +472,20 @@ function BankPage() {
       )}
 
       {/* Table */}
-      <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700/50 overflow-hidden transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
         {initialLoading ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
           </div>
         ) : transactions.length === 0 ? (
-          <div className="text-center py-12 text-gray-500 text-sm">
+          <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
             No bank transactions found
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-gray-500">
+              <thead className="bg-gray-50 dark:bg-gray-800/50">
+                <tr className="text-left text-gray-500 dark:text-gray-400">
                   <th className="px-2 py-3 w-8">
                     <input
                       type="checkbox"
@@ -506,7 +506,7 @@ function BankPage() {
                   ].map((col) => (
                     <th
                       key={col.label}
-                      className={`px-4 py-3 font-medium ${col.right ? "text-right" : ""} ${col.key ? "cursor-pointer select-none hover:text-gray-700" : ""}`}
+                      className={`px-4 py-3 font-medium ${col.right ? "text-right" : ""} ${col.key ? "cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200" : ""}`}
                       onClick={col.key ? () => toggleSort(col.key!) : undefined}
                     >
                       {col.label}
@@ -521,12 +521,12 @@ function BankPage() {
                   return (
                     <React.Fragment key={tx.id}>
                       <tr
-                        className={`border-t border-gray-100 cursor-pointer transition-colors ${
+                        className={`border-t border-gray-100 dark:border-gray-700/50 cursor-pointer transition-colors ${
                           tx.ignored ? "opacity-40" : ""
                         } ${
-                          selectedTxIds.has(tx.id) ? "bg-indigo-50/30" : ""
+                          selectedTxIds.has(tx.id) ? "bg-indigo-50/30 dark:bg-indigo-900/10" : ""
                         } ${
-                          isExpanded ? "bg-indigo-50/50" : "hover:bg-gray-50"
+                          isExpanded ? "bg-indigo-50/50 dark:bg-indigo-900/10" : "hover:bg-gray-50 dark:hover:bg-gray-700/30"
                         }`}
                         onClick={() => toggleExpand(tx.id)}
                       >
@@ -538,7 +538,7 @@ function BankPage() {
                             className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                           />
                         </td>
-                        <td className="px-4 py-2.5 text-gray-600">
+                        <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">
                           <span className="inline-flex items-center gap-1.5">
                             <span className={`text-xs text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}>&#9656;</span>
                             {formatDate(tx.date)}
@@ -555,7 +555,7 @@ function BankPage() {
                                 if (e.key === "Escape") setRenamingId(null);
                               }}
                               onBlur={() => saveRename(tx.id)}
-                              className="w-full border border-indigo-300 rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              className="w-full border border-indigo-300 dark:border-indigo-600 rounded px-2 py-0.5 text-sm font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               autoFocus
                             />
                           ) : (
@@ -563,7 +563,7 @@ function BankPage() {
                               className="group cursor-text"
                               onClick={() => startRename(tx)}
                             >
-                              <span className="text-gray-800 font-medium group-hover:text-indigo-600">
+                              <span className="text-gray-800 dark:text-gray-200 font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                                 {tx.description || "-"}
                               </span>
                               {tx.customName && tx.originalName && tx.customName !== tx.originalName && (
@@ -572,33 +572,33 @@ function BankPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate text-xs">
+                        <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 max-w-xs truncate text-xs">
                           {tx.rawDescription && tx.rawDescription !== tx.description ? tx.rawDescription : ""}
                           {tx.taxDeductible && (
-                            <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-700">tax</span>
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400">tax</span>
                           )}
                         </td>
                         <td className="px-4 py-2.5">
-                          <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">
+                          <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                             {tx.accountName}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-600">{tx.category || "-"}</td>
+                        <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{tx.category || "-"}</td>
                         <td className="px-4 py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             tx.type === "deposit"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-red-100 text-red-700"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                           }`}>{tx.type}</span>
                         </td>
                         <td className={`px-4 py-2.5 text-right font-medium ${
-                          tx.type === "deposit" ? "text-emerald-600" : "text-gray-800"
+                          tx.type === "deposit" ? "text-emerald-600" : "text-gray-800 dark:text-gray-200"
                         }`}>
                           {formatCurrency(Math.abs(tx.amount))}
                         </td>
                       </tr>
                       {isExpanded && (
-                        <tr key={`${tx.id}-detail`} className="border-t border-gray-100">
+                        <tr key={`${tx.id}-detail`} className="border-t border-gray-100 dark:border-gray-700/50">
                           <ExpandedRow tx={tx} />
                         </tr>
                       )}
@@ -611,11 +611,11 @@ function BankPage() {
         )}
 
         {totalPages > 1 && (
-          <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="border-t border-gray-100 dark:border-gray-700/50 px-4 py-3 flex items-center justify-between">
             <button
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
             >
               Previous
             </button>
@@ -625,7 +625,7 @@ function BankPage() {
             <button
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
             >
               Next
             </button>
@@ -635,8 +635,8 @@ function BankPage() {
 
       {/* Bulk Rename Bar */}
       {selectedTxIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white border border-gray-200 shadow-lg rounded-xl px-5 py-3 flex items-center gap-3 z-50">
-          <span className="text-sm text-gray-700 font-medium whitespace-nowrap">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/50 shadow-lg rounded-xl px-5 py-3 flex items-center gap-3 z-50">
+          <span className="text-sm text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">
             {selectedTxIds.size} selected
           </span>
           <input
@@ -644,7 +644,7 @@ function BankPage() {
             value={bulkRenameValue}
             onChange={(e) => setBulkRenameValue(e.target.value)}
             placeholder="Rename to..."
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm w-56 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             onKeyDown={(e) => { if (e.key === "Enter") saveBulkRename(); }}
           />
           <button
@@ -656,7 +656,7 @@ function BankPage() {
           </button>
           <button
             onClick={() => { setSelectedTxIds(new Set()); setBulkRenameValue(""); }}
-            className="text-sm text-gray-400 hover:text-gray-600"
+            className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
           >
             Cancel
           </button>

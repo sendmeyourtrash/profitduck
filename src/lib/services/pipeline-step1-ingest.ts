@@ -400,40 +400,157 @@ export function ingestUberEatsOrders(rows: Record<string, string>[]): IngestResu
   const db = openDb("ubereats.db");
   const result: IngestResult = { platform: "ubereats", inserted: 0, skipped: 0, cleaned: 0, errors: [] };
 
+  // Orders table — one row per order with financials
   db.exec(`CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id TEXT, date TEXT, customer TEXT, order_status TEXT,
-    sales_excl_tax TEXT, tax TEXT, marketplace_fee TEXT,
-    customer_refunds TEXT, order_charges TEXT, estimated_payout TEXT
+    order_id TEXT UNIQUE,
+    order_uuid TEXT,
+    date TEXT,
+    time TEXT,
+    timestamp_unix INTEGER,
+    completed_at TEXT,
+    customer TEXT,
+    customer_uuid TEXT,
+    customer_order_count INTEGER DEFAULT 0,
+    order_status TEXT,
+    fulfillment_type TEXT,
+    sales_excl_tax REAL DEFAULT 0,
+    tax REAL DEFAULT 0,
+    marketplace_fee REAL DEFAULT 0,
+    marketplace_fee_rate TEXT,
+    customer_refunds REAL DEFAULT 0,
+    order_charges REAL DEFAULT 0,
+    estimated_payout REAL DEFAULT 0,
+    raw_json TEXT,
+    source TEXT DEFAULT 'extension',
+    created_at TEXT DEFAULT (datetime('now'))
   )`);
+
+  // Items table — one row per item per order (like Square's items table)
+  db.exec(`CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT,
+    item_uuid TEXT,
+    item_name TEXT,
+    quantity INTEGER DEFAULT 1,
+    price REAL DEFAULT 0,
+    modifiers TEXT,
+    modifiers_json TEXT,
+    special_instructions TEXT,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+  )`);
+  // Add modifiers_json column if upgrading from old schema
+  try { db.exec("ALTER TABLE items ADD COLUMN modifiers_json TEXT"); } catch (_) {}
+
+  // Indexes
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ue_orders_date ON orders(date)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ue_items_order ON items(order_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ue_items_name ON items(item_name)`);
 
   const insertMany = db.transaction(() => {
     for (const raw of rows) {
       const norm = normalizeKeys(raw);
       const orderId = norm["order_id"] || norm["order id"] || "";
 
-      // Dedup
+      // Dedup by order_id
       if (orderId) {
         const existing = db.prepare("SELECT 1 FROM orders WHERE order_id = ?").get(orderId);
         if (existing) { result.skipped++; continue; }
       }
 
-      // Date cleanup: Uber Eats uses M/D/YYYY → normalize to YYYY-MM-DD
+      // Date/time from extension GraphQL data
       const rawDate = norm["date"] || "";
       const cleanDate = normalizeDate(rawDate);
       if (cleanDate !== rawDate) result.cleaned++;
 
-      db.prepare(`INSERT INTO orders (order_id, date, customer, order_status, sales_excl_tax, tax, marketplace_fee, customer_refunds, order_charges, estimated_payout) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
-        orderId, cleanDate,
+      // Parse amounts — strip $ and handle negatives
+      const parseAmt = (v: string): number => {
+        if (!v) return 0;
+        const s = v.replace(/[$,]/g, "").trim();
+        return parseFloat(s) || 0;
+      };
+
+      db.prepare(`INSERT INTO orders (
+        order_id, order_uuid, date, time, timestamp_unix, completed_at,
+        customer, customer_uuid, customer_order_count,
+        order_status, fulfillment_type,
+        sales_excl_tax, tax, marketplace_fee, marketplace_fee_rate,
+        customer_refunds, order_charges, estimated_payout,
+        raw_json, source
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        orderId,
+        norm["order_uuid"] || "",
+        cleanDate,
+        norm["time"] || "",
+        norm["timestamp_unix"] ? parseInt(norm["timestamp_unix"]) : null,
+        norm["completed_at"] || "",
         norm["customer"] || "",
+        norm["customer_uuid"] || "",
+        norm["customer_order_count"] ? parseInt(norm["customer_order_count"]) : 0,
         norm["order_status"] || norm["order status"] || "",
-        norm["sales_excl_tax"] || norm["sales (excl. tax)"] || norm["sales_(excl._tax)"] || "",
-        norm["tax"] || "",
-        norm["marketplace_fee"] || norm["marketplace fee"] || "",
-        norm["customer_refunds"] || norm["customer refunds"] || "",
-        norm["order_charges"] || norm["order charges"] || "",
-        norm["estimated_payout"] || norm["estimated payout"] || ""
+        norm["fulfillment_type"] || "",
+        parseAmt(norm["sales_excl_tax"] || norm["sales (excl. tax)"] || norm["sales_(excl._tax)"] || ""),
+        parseAmt(norm["tax"] || ""),
+        parseAmt(norm["marketplace_fee"] || norm["marketplace fee"] || ""),
+        norm["marketplace_fee_rate"] || "",
+        parseAmt(norm["customer_refunds"] || norm["customer refunds"] || ""),
+        parseAmt(norm["order_charges"] || norm["order charges"] || ""),
+        parseAmt(norm["estimated_payout"] || norm["estimated payout"] || ""),
+        norm["raw_json"] || "",
+        norm["source"] || "extension"
       );
+
+      // Insert items if provided (JSON array from extension)
+      const itemsJson = norm["items_json"] || "";
+      if (itemsJson) {
+        try {
+          const items = JSON.parse(itemsJson);
+          for (const item of items) {
+            // Build modifiers string from customizations
+            let modifiers = "";
+            if (item.customizations && Array.isArray(item.customizations)) {
+              modifiers = item.customizations
+                .map((c: { name: string; options?: { name: string; price?: string }[] }) => {
+                  const opts = (c.options || []).map((o: { name: string; price?: string }) =>
+                    o.price ? `${o.name} (${o.price})` : o.name
+                  ).join(", ");
+                  return `${c.name}: ${opts}`;
+                })
+                .join("; ");
+            }
+
+            // Build structured modifiers JSON: [{group, name, price}]
+            const modifiersJson: { group: string; name: string; price: number }[] = [];
+            if (item.customizations && Array.isArray(item.customizations)) {
+              for (const c of item.customizations) {
+                for (const o of (c.options || [])) {
+                  modifiersJson.push({
+                    group: c.name || "",
+                    name: o.name || "",
+                    price: Math.round(parseAmt(o.price || "") * 100) / 100,
+                  });
+                }
+              }
+            }
+
+            db.prepare(`INSERT INTO items (
+              order_id, item_uuid, item_name, quantity, price, modifiers, modifiers_json, special_instructions
+            ) VALUES (?,?,?,?,?,?,?,?)`).run(
+              orderId,
+              item.uuid || "",
+              item.name || "",
+              item.quantity || 1,
+              parseAmt(item.price || ""),
+              modifiers,
+              modifiersJson.length > 0 ? JSON.stringify(modifiersJson) : "",
+              item.specialInstructions || ""
+            );
+          }
+        } catch (e) {
+          result.errors.push(`Failed to parse items for order ${orderId}: ${e}`);
+        }
+      }
+
       result.inserted++;
     }
   });

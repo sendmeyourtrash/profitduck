@@ -45,8 +45,8 @@ export default function PlatformPieChart({
     `$${value.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <h3 className="text-sm font-medium text-gray-500 mb-4">{title}</h3>
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">{title}</h3>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>

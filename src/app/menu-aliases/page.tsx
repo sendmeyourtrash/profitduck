@@ -7,8 +7,8 @@ const MenuItemAliasesPanel = dynamic(
   () => import("@/components/panels/MenuItemAliasesPanel"),
   { ssr: false }
 );
-const MenuCategoryAliasesPanel = dynamic(
-  () => import("@/components/panels/MenuCategoryAliasesPanel"),
+const MenuCategoriesPanel = dynamic(
+  () => import("@/components/panels/MenuCategoriesPanel"),
   { ssr: false }
 );
 const MenuModifiersPanel = dynamic(
@@ -18,7 +18,7 @@ const MenuModifiersPanel = dynamic(
 
 const TABS = [
   { key: "items", label: "Menu Items", description: "Map old or renamed menu items to their current names for accurate analytics." },
-  { key: "categories", label: "Categories", description: "Merge or rename menu categories (e.g. 'Menu - Sweet Crêpes' → 'Sweet Crêpes')." },
+  { key: "categories", label: "Categories", description: "Define menu categories and assign items for analytics grouping." },
   { key: "modifiers", label: "Modifiers", description: "View modifier usage — add-ons like 'Banana', 'Hot', 'Large 12oz'." },
 ] as const;
 
@@ -55,7 +55,7 @@ export default function MenuAliasesPage() {
 
       {/* Tab content */}
       {activeTab === "items" && <MenuItemAliasesPanel />}
-      {activeTab === "categories" && <MenuCategoryAliasesPanel />}
+      {activeTab === "categories" && <MenuCategoriesPanel />}
       {activeTab === "modifiers" && <MenuModifiersPanel />}
     </div>
   );

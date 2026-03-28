@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   BarChart,
   Bar,
@@ -88,6 +89,8 @@ export default function BarChartCard({
   percentLabel = "Share",
   valueLabel,
 }: BarChartCardProps) {
+  const { theme } = useTheme();
+  const gridStroke = theme === "dark" ? "#374151" : "#e5e7eb";
   const [showPercent, setShowPercent] = useState(false);
 
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -120,17 +123,17 @@ export default function BarChartCard({
   }, []);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">{title}</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</h3>
         {showPercentToggle && (
-          <div className="flex gap-0.5 bg-gray-100 rounded-md p-0.5">
+          <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-md p-0.5">
             <button
               onClick={() => setShowPercent(false)}
               className={`px-2 py-0.5 text-xs font-medium rounded transition-colors ${
                 !showPercent
-                  ? "bg-white text-gray-800 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               }`}
             >
               $
@@ -139,8 +142,8 @@ export default function BarChartCard({
               onClick={() => setShowPercent(true)}
               className={`px-2 py-0.5 text-xs font-medium rounded transition-colors ${
                 showPercent
-                  ? "bg-white text-gray-800 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               }`}
             >
               %
@@ -151,7 +154,7 @@ export default function BarChartCard({
       <div ref={containerRef} style={{ height: chartHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} layout="vertical" margin={{ left: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
             <XAxis
               type="number"
               tickFormatter={(v) => showPercent ? `${v.toFixed(0)}%` : fmtAxis(v, valuePrefix)}

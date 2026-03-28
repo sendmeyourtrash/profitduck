@@ -1,3 +1,5 @@
+<!-- Last updated: 2026-03-25 — Moved to docs/, verified current with multi-DB architecture -->
+
 # Architecture
 
 ## Database Layer

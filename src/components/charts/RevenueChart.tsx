@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTheme } from "@/contexts/ThemeContext";
 import {
   AreaChart,
   Area,
@@ -144,6 +145,10 @@ export default function RevenueChart({
   chartLookbackDays,
   defaultPeriod,
 }: RevenueChartProps) {
+  const { theme } = useTheme();
+  const gridStroke = theme === "dark" ? "#374151" : "#e5e7eb";
+  const axisStroke = theme === "dark" ? "#4b5563" : "#9ca3af";
+
   const [internalShowTrend, setInternalShowTrend] = useState(false);
   const [showMA, setShowMA] = useState(false);
   const [showExpenses, setShowExpenses] = useState(false);
@@ -419,17 +424,17 @@ export default function RevenueChart({
   const hasOverlay = showTrend || showMA || seasonalOn || hasExpenses;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
       {/* Title row */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium text-gray-500">{title}</h3>
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</h3>
           {showTrend && data.length > 1 && (
             <span
               className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                 trendSlope >= 0
-                  ? "bg-emerald-50 text-emerald-600"
-                  : "bg-red-50 text-red-600"
+                  ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400"
+                  : "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
               }`}
             >
               {trendLabel}
@@ -440,7 +445,7 @@ export default function RevenueChart({
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value as Period)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300"
+            className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
           >
             <option value="1D">Daily</option>
             <option value="1W">Weekly</option>
@@ -455,12 +460,12 @@ export default function RevenueChart({
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           {/* Forecast group: Trend + Seasonal */}
           {(externalShowTrend == null || (onSeasonalToggle && externalShowTrend == null)) && (
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
               {externalShowTrend == null && (
                 <button
                   onClick={() => setInternalShowTrend((p) => !p)}
                   className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                    showTrend ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                    showTrend ? "bg-white dark:bg-gray-600 text-indigo-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                   }`}
                 >
                   Trend
@@ -470,7 +475,7 @@ export default function RevenueChart({
                 <button
                   onClick={() => onSeasonalToggle(!seasonalOn)}
                   className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                    seasonalOn ? "bg-white text-violet-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                    seasonalOn ? "bg-white dark:bg-gray-600 text-violet-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                   }`}
                 >
                   Seasonal
@@ -482,7 +487,7 @@ export default function RevenueChart({
             <select
               value={forecastRange}
               onChange={(e) => setInternalForecastRange(e.target.value as typeof internalForecastRange)}
-              className="text-[11px] border border-gray-200 rounded-md px-1.5 py-0.5 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              className="text-[11px] border border-gray-200 dark:border-gray-600 rounded-md px-1.5 py-0.5 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
             >
               <option value="1m">Forecast 1m</option>
               <option value="3m">Forecast 3m</option>
@@ -493,11 +498,11 @@ export default function RevenueChart({
           )}
 
           {/* Overlay group: MA + Expenses + Break-even */}
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
+          <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
             <button
               onClick={() => setShowMA((p) => !p)}
               className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                showMA ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                showMA ? "bg-white dark:bg-gray-600 text-indigo-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
               }`}
             >
               {MA_LABEL[period]}
@@ -506,7 +511,7 @@ export default function RevenueChart({
               <button
                 onClick={() => setShowExpenses((p) => !p)}
                 className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                  showExpenses ? "bg-white text-red-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  showExpenses ? "bg-white dark:bg-gray-600 text-red-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                 }`}
               >
                 Expenses
@@ -516,7 +521,7 @@ export default function RevenueChart({
               <button
                 onClick={() => setShowBreakEven((p) => !p)}
                 className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                  showBreakEven ? "bg-white text-amber-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  showBreakEven ? "bg-white dark:bg-gray-600 text-amber-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                 }`}
               >
                 Break-even
@@ -539,17 +544,17 @@ export default function RevenueChart({
                 <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
             <XAxis
               dataKey="date"
               tickFormatter={formatDateLabel}
               tick={{ fontSize: 12 }}
-              stroke="#9ca3af"
+              stroke={axisStroke}
             />
             <YAxis
               tickFormatter={fmtAxis}
               tick={{ fontSize: 11 }}
-              stroke="#9ca3af"
+              stroke={axisStroke}
               width={55}
               tickCount={6}
               domain={hasBreakEven ? [0, (dataMax: number) => Math.max(dataMax, beValue * 1.1)] : undefined}

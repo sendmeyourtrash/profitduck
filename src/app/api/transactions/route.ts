@@ -4,7 +4,7 @@
  * Reads from sales.db unified `orders` table.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { querySales, queryPlatformBreakdown } from "@/lib/db/sales-db";
+import { querySales, queryPlatformBreakdown, getSalesDb } from "@/lib/db/sales-db";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -100,8 +100,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Cash summary — quick query for cash payment totals
-    const { querySales: queryCash } = require("@/lib/db/sales-db");
-    const cashResult = queryCash({
+    const cashResult = querySales({
       platforms: allPlatforms.length > 0 ? allPlatforms : undefined,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
@@ -117,8 +116,43 @@ export async function GET(request: NextRequest) {
       netSales: cashResult.summary.net_sales || 0,
     };
 
+    // Batch-fetch order_items for all transactions on this page
+    // Key by order_id + platform to prevent cross-platform collisions
+    const orderKeys = transactions
+      .filter(t => t.order_id)
+      .map(t => ({ id: t.order_id, platform: t.platform }));
+    let orderItemsMap: Record<string, { item_name: string; qty: number; unit_price: number; gross_sales: number; modifiers: string; display_name: string }[]> = {};
+
+    if (orderKeys.length > 0) {
+      try {
+        const db = getSalesDb();
+        // Build (order_id = ? AND platform = ?) OR ... conditions
+        const conditions = orderKeys.map(() => "(order_id = ? AND platform = ?)").join(" OR ");
+        const params = orderKeys.flatMap(k => [k.id, k.platform]);
+        const itemRows = db.prepare(
+          `SELECT order_id, platform, item_name, qty, unit_price, gross_sales, modifiers, display_name
+           FROM order_items WHERE (${conditions}) AND event_type = 'Payment'`
+        ).all(...params) as { order_id: string; platform: string; item_name: string; qty: number; unit_price: number; gross_sales: number; modifiers: string; display_name: string }[];
+
+        for (const row of itemRows) {
+          const key = `${row.order_id}:${row.platform}`;
+          if (!orderItemsMap[key]) orderItemsMap[key] = [];
+          orderItemsMap[key].push(row);
+        }
+      } catch (e) {
+        // Non-fatal — frontend falls back to summary string
+        console.warn("[Transactions] Failed to fetch order_items:", e);
+      }
+    }
+
+    // Attach order_items to each transaction using composite key
+    const transactionsWithItems = transactions.map(t => ({
+      ...t,
+      order_items: orderItemsMap[`${t.order_id}:${t.platform}`] || [],
+    }));
+
     return NextResponse.json({
-      transactions,
+      transactions: transactionsWithItems,
       total,
       limit,
       offset,
@@ -129,7 +163,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Sales query error:", error);
     return NextResponse.json(
-      { error: "Failed to query sales data", detail: String(error) },
+      { error: "Failed to query sales data" },
       { status: 500 },
     );
   }

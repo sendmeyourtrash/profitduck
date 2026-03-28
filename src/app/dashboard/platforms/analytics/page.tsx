@@ -175,7 +175,7 @@ export default function AnalyticsPage() {
 
       {/* Tabs + Exclude toggle */}
       <div className="flex items-center gap-4">
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -185,8 +185,8 @@ export default function AnalyticsPage() {
             }}
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               tab === t.key
-                ? "bg-white text-gray-800 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
+                ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             }`}
           >
             {t.label}
@@ -205,11 +205,11 @@ export default function AnalyticsPage() {
         <div className={`transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
           {/* Hourly Revenue */}
           {tab === "hourly" && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
               {(selectedPlatforms.length === 0 || selectedPlatforms.includes("ubereats")) && (
-                <div className="mb-4 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div className="mb-4 flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2">
                   <span className="text-amber-500 text-sm">⚠</span>
-                  <p className="text-xs text-amber-700">
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
                     Uber Eats data does not include order times and is excluded from this chart.
                   </p>
                 </div>
@@ -219,7 +219,7 @@ export default function AnalyticsPage() {
                   <h3 className="text-sm font-medium text-gray-500">
                     {hourlyShowAvg ? "Avg Daily " : ""}Revenue by Time of Day
                   </h3>
-                  <div className="flex bg-gray-100 rounded-lg p-0.5">
+                  <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
                     {[
                       { value: 60, label: "1hr" },
                       { value: 30, label: "30m" },
@@ -230,8 +230,8 @@ export default function AnalyticsPage() {
                         onClick={() => setGranularity(g.value)}
                         className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                           granularity === g.value
-                            ? "bg-white text-indigo-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700"
+                            ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                         }`}
                       >
                         {g.label}
@@ -242,8 +242,8 @@ export default function AnalyticsPage() {
                     onClick={() => setHourlyShowAvg((p) => !p)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                       hourlyShowAvg
-                        ? "bg-amber-100 text-amber-700 shadow-sm"
-                        : "bg-gray-100 text-gray-500 hover:text-gray-700"
+                        ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 shadow-sm"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     }`}
                   >
                     Avg{hourlyShowAvg ? ` (${hourlyDaysInSample}d)` : ""}
@@ -255,7 +255,7 @@ export default function AnalyticsPage() {
                     className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                       selectedDow === null
                         ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                     }`}
                   >
                     All
@@ -267,7 +267,7 @@ export default function AnalyticsPage() {
                       className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                         selectedDow === i
                           ? "bg-indigo-600 text-white"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600"
                       }`}
                     >
                       {name.slice(0, 3)}
@@ -316,24 +316,24 @@ export default function AnalyticsPage() {
                           return selectedPlatforms.length === 0 || selectedPlatforms.includes(key);
                         });
                         return (
-                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
-                            <p className="font-medium text-gray-800 mb-1.5">Time: {label}</p>
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 dark:text-gray-200 mb-1.5">Time: {label}</p>
                             {visiblePayload.map((p) => (
                                 <div key={String(p.dataKey)} className="flex justify-between gap-4">
                                   <span style={{ color: String(p.color) }}>
                                     {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
                                   </span>
-                                  <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                                  <span className="font-medium text-gray-800 dark:text-gray-200">{formatCurrency(Number(p.value))}</span>
                                 </div>
                               ))}
                             {row && (
                               <>
-                                <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
-                                  <span className="text-gray-500">{hourlyShowAvg ? "Avg Orders/Day" : "Orders"}</span>
-                                  <span className="font-medium">{row.orderCount}</span>
+                                <div className="border-t border-gray-100 dark:border-gray-700 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                  <span className="text-gray-500 dark:text-gray-400">{hourlyShowAvg ? "Avg Orders/Day" : "Orders"}</span>
+                                  <span className="font-medium text-gray-800 dark:text-gray-200">{row.orderCount}</span>
                                 </div>
                                 <div className="flex justify-between gap-4">
-                                  <span className="text-gray-500">Avg Order Value</span>
+                                  <span className="text-gray-500 dark:text-gray-400">Avg Order Value</span>
                                   <span className="font-medium text-amber-600">
                                     {row.orderCount > 0 ? formatCurrency(row.avgOrderValue) : "—"}
                                   </span>
@@ -393,43 +393,43 @@ export default function AnalyticsPage() {
                     activeSlots > 0 ? rev / activeSlots : 0;
                   return (
                     <>
-                      <div className="bg-indigo-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Peak Hour</p>
-                        <p className="text-lg font-bold text-indigo-600">
+                      <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Peak Hour</p>
+                        <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
                           {peak?.label || "-"}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {hourlyShowAvg ? "Avg Orders/Day" : "Total Orders"}
                         </p>
-                        <p className="text-lg font-bold text-gray-800">
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {hourlyShowAvg ? orders.toFixed(1) : totalOrders.toLocaleString()}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {hourlyShowAvg ? "Avg Daily Revenue" : "Total Revenue"}
                         </p>
-                        <p className="text-lg font-bold text-gray-800">
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(rev)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg Order Value</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg Order Value</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(avgOrderValue)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg Revenue/Hour</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg Revenue/Hour</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(avgRevPerSlot)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Active Hours</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Active Hours</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {activeSlots}
                         </p>
                       </div>
@@ -442,8 +442,8 @@ export default function AnalyticsPage() {
 
           {/* Day of Week */}
           {tab === "dow" && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
                 Average Daily Revenue by Day of Week
               </h3>
               <div className="h-80">
@@ -472,20 +472,20 @@ export default function AnalyticsPage() {
                         if (!active || !payload?.length) return null;
                         const row = payload[0]?.payload as DowData | undefined;
                         return (
-                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
-                            <p className="font-medium text-gray-800 mb-1.5">{row?.name || label}</p>
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 dark:text-gray-200 mb-1.5">{row?.name || label}</p>
                             {payload.map((p) => (
                               <div key={String(p.dataKey)} className="flex justify-between gap-4">
                                 <span style={{ color: String(p.color) }}>
                                   {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
                                 </span>
-                                <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                                <span className="font-medium text-gray-800 dark:text-gray-200">{formatCurrency(Number(p.value))}</span>
                               </div>
                             ))}
                             {row && (
-                              <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
-                                <span className="text-gray-500">Avg Orders</span>
-                                <span className="font-medium">{row.avgOrders.toFixed(1)}</span>
+                              <div className="border-t border-gray-100 dark:border-gray-700 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                <span className="text-gray-500 dark:text-gray-400">Avg Orders</span>
+                                <span className="font-medium text-gray-800 dark:text-gray-200">{row.avgOrders.toFixed(1)}</span>
                               </div>
                             )}
                           </div>
@@ -508,7 +508,7 @@ export default function AnalyticsPage() {
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-gray-500 border-b">
+                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
                       <th className="pb-2 font-medium">Day</th>
                       <th className="pb-2 font-medium text-right">
                         Avg Revenue
@@ -528,22 +528,22 @@ export default function AnalyticsPage() {
                     {dowData.map((d) => (
                       <tr
                         key={d.dow}
-                        className="border-b border-gray-50 hover:bg-indigo-50 cursor-pointer transition-colors"
+                        className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer transition-colors"
                         onClick={() => { setSelectedDow(d.dow); setTab("hourly"); }}
                       >
-                        <td className="py-2 text-gray-800 font-medium">
-                          {d.name} <span className="text-indigo-400 text-xs ml-1">→ hourly</span>
+                        <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">
+                          {d.name} <span className="text-indigo-400 dark:text-indigo-500 text-xs ml-1">→ hourly</span>
                         </td>
-                        <td className="py-2 text-right text-gray-600">
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {formatCurrency(d.avgRevenue)}
                         </td>
-                        <td className="py-2 text-right text-gray-600">
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {d.avgOrders.toFixed(1)}
                         </td>
-                        <td className="py-2 text-right text-gray-600">
+                        <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                           {formatCurrency(d.revenue)}
                         </td>
-                        <td className="py-2 text-right text-gray-400">
+                        <td className="py-2 text-right text-gray-400 dark:text-gray-500">
                           {d.daysInSample}
                         </td>
                       </tr>
@@ -556,12 +556,12 @@ export default function AnalyticsPage() {
 
           {/* Fee Analysis */}
           {tab === "fees" && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 mb-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
                 Platform Fee Analysis
               </h3>
               {feeData.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-8">
+                <p className="text-gray-400 dark:text-gray-500 text-sm text-center py-8">
                   No platform order data available
                 </p>
               ) : (
@@ -604,7 +604,7 @@ export default function AnalyticsPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="text-left text-gray-500 border-b">
+                        <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
                           <th className="pb-2 font-medium">Platform</th>
                           <th className="pb-2 font-medium text-right">
                             Orders
@@ -621,13 +621,13 @@ export default function AnalyticsPage() {
                           <th className="pb-2 font-medium text-right">
                             Net Payout
                           </th>
-                          <th className="pb-2 font-medium text-right text-gray-400">
+                          <th className="pb-2 font-medium text-right text-gray-400 dark:text-gray-500">
                             Avg Rev/Order
                           </th>
-                          <th className="pb-2 font-medium text-right text-gray-400">
+                          <th className="pb-2 font-medium text-right text-gray-400 dark:text-gray-500">
                             Avg Fee/Order
                           </th>
-                          <th className="pb-2 font-medium text-right text-gray-400">
+                          <th className="pb-2 font-medium text-right text-gray-400 dark:text-gray-500">
                             Avg Net/Order
                           </th>
                         </tr>
@@ -649,18 +649,18 @@ export default function AnalyticsPage() {
                           return (
                             <tr
                               key={f.platform}
-                              className="border-b border-gray-50"
+                              className="border-b border-gray-100 dark:border-gray-700/50"
                             >
-                              <td className="py-2 text-gray-800 font-medium">
+                              <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">
                                 <span className="inline-flex items-center gap-1.5">
                                   <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: PLATFORM_COLORS[f.platform] || "#888" }} />
                                   {PLATFORM_LABELS[f.platform] || f.platform}
                                 </span>
                               </td>
-                              <td className="py-2 text-right text-gray-600">
+                              <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                                 {f.orderCount.toLocaleString()}
                               </td>
-                              <td className="py-2 text-right text-gray-600">
+                              <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                                 {formatCurrency(f.totalRevenue)}
                               </td>
                               <td className="py-2 text-right text-red-600 font-medium">
@@ -682,13 +682,13 @@ export default function AnalyticsPage() {
                               <td className="py-2 text-right text-emerald-600 font-medium">
                                 {formatCurrency(f.totalNetPayout)}
                               </td>
-                              <td className="py-2 text-right text-gray-500">
+                              <td className="py-2 text-right text-gray-500 dark:text-gray-400">
                                 {formatCurrency(avgRev)}
                               </td>
-                              <td className="py-2 text-right text-red-400">
+                              <td className="py-2 text-right text-red-400 dark:text-red-500">
                                 {formatCurrency(avgFee)}
                               </td>
-                              <td className="py-2 text-right text-emerald-500">
+                              <td className="py-2 text-right text-emerald-500 dark:text-emerald-400">
                                 {formatCurrency(avgNet)}
                               </td>
                             </tr>
@@ -793,21 +793,21 @@ export default function AnalyticsPage() {
               : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/${perLabel}`;
 
             return (
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <h3 className="text-sm font-medium text-gray-500">
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
                     {periodLabels[dailyPeriod]} Revenue Trend
                   </h3>
-                  <div className="flex bg-gray-100 rounded-lg p-0.5">
+                  <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
                     {(["1D", "1W", "1M", "1Q"] as const).map((p) => (
                       <button
                         key={p}
                         onClick={() => setDailyPeriod(p)}
                         className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                           dailyPeriod === p
-                            ? "bg-white text-indigo-600 shadow-sm"
-                            : "text-gray-500 hover:text-gray-700"
+                            ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                         }`}
                       >
                         {p}
@@ -826,13 +826,13 @@ export default function AnalyticsPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex bg-gray-100 rounded-lg p-0.5">
+                <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
                   <button
                     onClick={() => setShowDailyTrend((p) => !p)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                       showDailyTrend
-                        ? "bg-white text-indigo-600 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
+                        ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     }`}
                   >
                     Trend
@@ -841,8 +841,8 @@ export default function AnalyticsPage() {
                     onClick={() => setShowDailyMA((p) => !p)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                       showDailyMA
-                        ? "bg-white text-indigo-600 shadow-sm"
-                        : "text-gray-500 hover:text-gray-700"
+                        ? "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     }`}
                   >
                     {maWindow}p MA
@@ -875,28 +875,28 @@ export default function AnalyticsPage() {
                         const maEntry = payload.find((p) => p.dataKey === "ma");
                         const total = platforms.reduce((s, p) => s + (Number(p.value) || 0), 0);
                         return (
-                          <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
-                            <p className="font-medium text-gray-800 mb-1.5">{label}</p>
+                          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium text-gray-800 dark:text-gray-200 mb-1.5">{label}</p>
                             {platforms.map((p) => (
                               Number(p.value) > 0 ? (
                                 <div key={String(p.dataKey)} className="flex justify-between gap-4">
                                   <span style={{ color: String(p.color) }}>
                                     {PLATFORM_LABELS[String(p.dataKey)] || String(p.dataKey)}
                                   </span>
-                                  <span className="font-medium">{formatCurrency(Number(p.value))}</span>
+                                  <span className="font-medium text-gray-800 dark:text-gray-200">{formatCurrency(Number(p.value))}</span>
                                 </div>
                               ) : null
                             ))}
                             {total > 0 && (
-                              <div className="border-t border-gray-100 mt-1.5 pt-1.5 flex justify-between gap-4">
-                                <span className="text-gray-500">Total</span>
-                                <span className="font-bold">{formatCurrency(total)}</span>
+                              <div className="border-t border-gray-100 dark:border-gray-700 mt-1.5 pt-1.5 flex justify-between gap-4">
+                                <span className="text-gray-500 dark:text-gray-400">Total</span>
+                                <span className="font-bold text-gray-800 dark:text-gray-200">{formatCurrency(total)}</span>
                               </div>
                             )}
                             {trendEntry && trendEntry.value != null && (
                               <div className="flex justify-between gap-4">
-                                <span className="text-gray-400">Trendline</span>
-                                <span className="text-gray-500">{formatCurrency(Number(trendEntry.value))}</span>
+                                <span className="text-gray-400 dark:text-gray-500">Trendline</span>
+                                <span className="text-gray-500 dark:text-gray-400">{formatCurrency(Number(trendEntry.value))}</span>
                               </div>
                             )}
                             {maEntry && maEntry.value != null && (
@@ -968,42 +968,42 @@ export default function AnalyticsPage() {
                   );
                   return (
                     <>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Total Revenue</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Total Revenue</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(totalRev)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg {periodLabels[dailyPeriod]} Revenue</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg {periodLabels[dailyPeriod]} Revenue</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(avgPer)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg Order Value</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg Order Value</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {formatCurrency(avgOrderVal)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Avg Orders/{periodLabels[dailyPeriod].replace("ly","")}</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Avg Orders/{periodLabels[dailyPeriod].replace("ly","")}</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {avgOrdersPer.toFixed(1)}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Best Period</p>
-                        <p className="text-lg font-bold text-emerald-600">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Best Period</p>
+                        <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
                           {formatCurrency(maxDay.revenue)}
                         </p>
-                        <p className="text-[10px] text-gray-400">
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500">
                           {maxDay.label}
                         </p>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Periods</p>
-                        <p className="text-lg font-bold text-gray-800">
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Periods</p>
+                        <p className="text-lg font-bold text-gray-800 dark:text-gray-200">
                           {totalPeriods}
                         </p>
                       </div>

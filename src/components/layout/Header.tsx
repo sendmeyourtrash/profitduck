@@ -8,6 +8,7 @@ const pageTitles: Record<string, string> = {
   "/dashboard/revenue": "Revenue Analytics",
   "/dashboard/expenses": "Expense Analytics",
   "/dashboard/platforms": "Platform Performance",
+  "/dashboard/menu": "Menu Performance",
   "/health-report": "Business Health Report",
   "/sales": "Sales",
   "/bank": "Bank Activity",
@@ -19,6 +20,7 @@ const DATE_PICKER_PATHS = new Set([
   "/dashboard/revenue",
   "/dashboard/expenses",
   "/dashboard/platforms",
+  "/dashboard/menu",
   "/analytics",
   "/health-report",
   "/sales",
@@ -54,9 +56,9 @@ export default function Header() {
     pathname.startsWith("/dashboard/platforms/");
 
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
+    <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 lg:px-6 py-3 lg:py-4">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 hidden lg:block shrink-0">{title}</h2>
         {showDatePicker && <DateRangePicker />}
       </div>
     </header>

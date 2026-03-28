@@ -128,19 +128,19 @@ export default function ExpensesPage() {
     <div className={`space-y-6 transition-opacity ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Biggest Movers Callout */}
       {movers.length > 0 && (
-        <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-          <h3 className="text-sm font-medium text-amber-800 mb-2">Biggest Movers vs Prior Period</h3>
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 rounded-xl p-4">
+          <h3 className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-2">Biggest Movers vs Prior Period</h3>
           <div className="flex flex-wrap gap-3">
             {movers.map((m) => (
               <div
                 key={m.category}
-                className="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-amber-200 cursor-pointer hover:border-amber-400 transition-colors"
+                className="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-lg px-3 py-1.5 border border-amber-200 dark:border-amber-700/50 cursor-pointer hover:border-amber-400 dark:hover:border-amber-500 transition-colors"
                 onClick={() => router.push(`/dashboard/expenses/category/${encodeURIComponent(m.category)}`)}
               >
                 <span className={`text-xs font-bold ${m.direction === "up" ? "text-red-600" : "text-emerald-600"}`}>
                   {m.direction === "up" ? "↑" : "↓"} {Math.abs(m.change)}%
                 </span>
-                <span className="text-xs text-gray-700 font-medium">{m.category}</span>
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-medium">{m.category}</span>
                 <span className="text-[10px] text-gray-400">
                   {formatCurrency(m.previous)} → {formatCurrency(m.current)}
                 </span>
@@ -178,15 +178,15 @@ export default function ExpensesPage() {
       {/* Monthly Budget + Cost Split + Top Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Monthly Budget Pace */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Monthly Pace</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Monthly Pace</h3>
           <div className="space-y-3">
             <div>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                 <span>Spent this month</span>
                 <span>{formatCurrency(data.monthlyBudget.spent)} / ~{formatCurrency(data.monthlyBudget.monthlyAvg)} avg</span>
               </div>
-              <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+              <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
                 <div
                   className={`h-3 rounded-full transition-all ${
                     (data.monthlyBudget.spent / data.monthlyBudget.monthlyAvg) > 0.9
@@ -200,12 +200,12 @@ export default function ExpensesPage() {
               </div>
             </div>
             <div className="flex justify-between items-baseline">
-              <span className="text-xs text-gray-400">Day {data.monthlyBudget.dayOfMonth} of {data.monthlyBudget.daysInMonth}</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">Day {data.monthlyBudget.dayOfMonth} of {data.monthlyBudget.daysInMonth}</span>
               <div className="text-right">
-                <p className="text-xs text-gray-400">Projected month-end</p>
-                <p className={`text-sm font-bold ${data.monthlyBudget.paceVsAvg > 10 ? "text-red-600" : data.monthlyBudget.paceVsAvg < -10 ? "text-emerald-600" : "text-gray-800"}`}>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Projected month-end</p>
+                <p className={`text-sm font-bold ${data.monthlyBudget.paceVsAvg > 10 ? "text-red-600" : data.monthlyBudget.paceVsAvg < -10 ? "text-emerald-600" : "text-gray-800 dark:text-gray-200"}`}>
                   {formatCurrency(data.monthlyBudget.projected)}
-                  <span className="text-[10px] font-normal text-gray-400 ml-1">
+                  <span className="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1">
                     ({data.monthlyBudget.paceVsAvg > 0 ? "+" : ""}{data.monthlyBudget.paceVsAvg}% vs avg)
                   </span>
                 </p>
@@ -215,8 +215,8 @@ export default function ExpensesPage() {
         </div>
 
         {/* Recurring vs Variable */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Fixed vs Variable</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Fixed vs Variable</h3>
           {/* Stacked bar */}
           <div className="w-full h-4 rounded-full overflow-hidden flex mb-3">
             <div
@@ -234,32 +234,32 @@ export default function ExpensesPage() {
             <div>
               <div className="flex items-center gap-1.5 mb-1">
                 <div className="w-2.5 h-2.5 rounded-sm bg-indigo-500" />
-                <span className="text-xs text-gray-500">Fixed</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Fixed</span>
               </div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.costSplit.recurring.total)}</p>
-              <p className="text-[10px] text-gray-400">{data.costSplit.recurring.pct}% of total</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(data.costSplit.recurring.total)}</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">{data.costSplit.recurring.pct}% of total</p>
             </div>
             <div>
               <div className="flex items-center gap-1.5 mb-1">
                 <div className="w-2.5 h-2.5 rounded-sm bg-amber-400" />
-                <span className="text-xs text-gray-500">Variable</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">Variable</span>
               </div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(data.costSplit.variable.total)}</p>
-              <p className="text-[10px] text-gray-400">{data.costSplit.variable.pct}% of total</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(data.costSplit.variable.total)}</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">{data.costSplit.variable.pct}% of total</p>
             </div>
           </div>
         </div>
 
         {/* Top Single Transactions */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Largest Transactions</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Largest Transactions</h3>
           <div className="space-y-2">
             {data.topTransactions.map((tx, i) => (
               <div key={tx.id} className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-400 w-4 shrink-0">{i + 1}.</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 w-4 shrink-0">{i + 1}.</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-800 truncate">{tx.vendorName}</p>
-                  <p className="text-[10px] text-gray-400">{tx.date} · {tx.category}</p>
+                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{tx.vendorName}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{tx.date} · {tx.category}</p>
                 </div>
                 <span className="text-sm font-bold text-red-600 shrink-0">{formatCurrency(tx.amount)}</span>
               </div>
@@ -299,16 +299,16 @@ export default function ExpensesPage() {
       </div>
 
       {/* Payment Method Breakdown */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Expenses by Payment Method
         </h3>
         {data.expensesByPaymentMethod.length === 0 ? (
-          <p className="text-gray-400 text-sm">No payment method data available</p>
+          <p className="text-gray-400 dark:text-gray-500 text-sm">No payment method data available</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 <th className="pb-2 font-medium">Payment Method</th>
                 <th className="pb-2 font-medium text-right">Total</th>
                 <th className="pb-2 font-medium text-right">Transactions</th>
@@ -317,13 +317,13 @@ export default function ExpensesPage() {
             </thead>
             <tbody>
               {data.expensesByPaymentMethod.map((pm) => (
-                <tr key={pm.paymentMethod} className="border-b border-gray-50">
-                  <td className="py-2 text-gray-800 font-medium">{pm.paymentMethod}</td>
+                <tr key={pm.paymentMethod} className="border-b border-gray-100 dark:border-gray-700/50">
+                  <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">{pm.paymentMethod}</td>
                   <td className="py-2 text-right font-medium text-red-600">
                     {formatCurrency(pm.total)}
                   </td>
-                  <td className="py-2 text-right text-gray-600">{pm.count}</td>
-                  <td className="py-2 text-right text-gray-600">
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">{pm.count}</td>
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                     {summary.totalExpenses > 0
                       ? ((pm.total / summary.totalExpenses) * 100).toFixed(1)
                       : "0"}
@@ -331,15 +331,15 @@ export default function ExpensesPage() {
                   </td>
                 </tr>
               ))}
-              <tr className="border-t border-gray-200 font-medium">
-                <td className="py-2 text-gray-800">Total</td>
+              <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
                 <td className="py-2 text-right font-medium text-red-600">
                   {formatCurrency(summary.totalExpenses)}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {data.expensesByPaymentMethod.reduce((s, pm) => s + pm.count, 0)}
                 </td>
-                <td className="py-2 text-right text-gray-600">100%</td>
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">100%</td>
               </tr>
             </tbody>
           </table>
@@ -354,16 +354,16 @@ export default function ExpensesPage() {
       />
 
       {/* Platform Fees Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Platform Fees Breakdown
         </h3>
         {data.feesByPlatform.length === 0 ? (
-          <p className="text-gray-400 text-sm">No fee data available</p>
+          <p className="text-gray-400 dark:text-gray-500 text-sm">No fee data available</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 <th className="pb-2 font-medium">Platform</th>
                 <th className="pb-2 font-medium text-right">Commission</th>
                 <th className="pb-2 font-medium text-right">Service</th>
@@ -373,15 +373,15 @@ export default function ExpensesPage() {
             </thead>
             <tbody>
               {data.feesByPlatform.map((f) => (
-                <tr key={f.platform} className="border-b border-gray-50">
-                  <td className="py-2 text-gray-800 capitalize">{f.platform}</td>
-                  <td className="py-2 text-right text-gray-600">
+                <tr key={f.platform} className="border-b border-gray-100 dark:border-gray-700/50">
+                  <td className="py-2 text-gray-800 dark:text-gray-200 capitalize">{f.platform}</td>
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                     {f.breakdown?.commission > 0 ? formatCurrency(f.breakdown?.commission) : "—"}
                   </td>
-                  <td className="py-2 text-right text-gray-600">
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                     {f.breakdown?.service > 0 ? formatCurrency(f.breakdown?.service) : "—"}
                   </td>
-                  <td className="py-2 text-right text-gray-600">
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                     {f.breakdown?.marketing > 0 ? formatCurrency(f.breakdown?.marketing) : "—"}
                   </td>
                   <td className="py-2 text-right font-medium text-amber-600">
@@ -389,15 +389,15 @@ export default function ExpensesPage() {
                   </td>
                 </tr>
               ))}
-              <tr className="border-t border-gray-200 font-medium">
-                <td className="py-2 text-gray-800">Total</td>
-                <td className="py-2 text-right text-gray-600">
+              <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.commission, 0))}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.service, 0))}
                 </td>
-                <td className="py-2 text-right text-gray-600">
+                <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                   {formatCurrency(data.feesByPlatform.reduce((s, f) => s + f.breakdown?.marketing, 0))}
                 </td>
                 <td className="py-2 text-right font-medium text-amber-600">
@@ -410,16 +410,16 @@ export default function ExpensesPage() {
       </div>
 
       {/* Vendor Details Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Top Vendors by Spending
         </h3>
         {data.expensesByVendor.length === 0 ? (
-          <p className="text-gray-400 text-sm">No vendor data available</p>
+          <p className="text-gray-400 dark:text-gray-500 text-sm">No vendor data available</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
+              <tr className="text-left text-gray-400 dark:text-gray-500 border-b border-gray-200/50 dark:border-gray-700/50">
                 <th className="pb-2 font-medium">Vendor</th>
                 <th className="pb-2 font-medium text-right">Total</th>
                 <th className="pb-2 font-medium text-right">Txns</th>
@@ -431,22 +431,22 @@ export default function ExpensesPage() {
               {data.expensesByVendor.map((v) => (
                 <tr
                   key={v.vendorId}
-                  className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors"
                   onClick={() =>
                     router.push(
                       `/dashboard/expenses/vendor/${encodeURIComponent(v.vendorName)}`
                     )
                   }
                 >
-                  <td className="py-2 text-indigo-600 hover:text-indigo-800 font-medium">
+                  <td className="py-2 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium">
                     {v.vendorName}
-                    <span className="ml-1.5 text-gray-400 text-xs">→</span>
+                    <span className="ml-1.5 text-gray-400 dark:text-gray-500 text-xs">→</span>
                   </td>
                   <td className="py-2 text-right font-medium text-red-600">
                     {formatCurrency(v.total)}
                   </td>
-                  <td className="py-2 text-right text-gray-600">{v.count}</td>
-                  <td className="py-2 text-right text-gray-600">
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">{v.count}</td>
+                  <td className="py-2 text-right text-gray-600 dark:text-gray-400">
                     {formatCurrency(v.count > 0 ? v.total / v.count : 0)}
                   </td>
                   <td className="py-2 text-right">
@@ -455,7 +455,7 @@ export default function ExpensesPage() {
                         {v.change > 0 ? "↑" : "↓"} {Math.abs(v.change)}%
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-400">new</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">new</span>
                     )}
                   </td>
                 </tr>

@@ -1,3 +1,5 @@
+<!-- Last updated: 2026-03-25 — Moved to docs/, verified current with multi-DB architecture -->
+
 # Data Pipeline
 
 ## Overview
@@ -286,8 +288,8 @@ display_category  TEXT     After menu category alias applied
       - Update order_items.display_name for matching items
       - Read menu_category_aliases from categories.db
       - Update order_items.display_category for matching categories
-7. ingestion.ts records import in Prisma (dev.db) for history tracking
-7. Sales page shows new orders immediately
+7. ingestion.ts records import in categories.db for history tracking
+8. Sales page shows new orders immediately
 ```
 
 ### Running a Square API sync:
@@ -379,12 +381,7 @@ display_category  TEXT     After menu category alias applied
 │   ├── vendor_aliases      (42)  Bank vendor name mappings
 │   └── vendor_ignores       (9)  Vendors excluded from reports
 │
-│  ── App database ──
-│
-└── /dev.db             (1.8MB)  Prisma: import history, settings
-
-/old-databases/                  Backups (not used by app)
-└── dev-20260317-153514.db (103MB)  Pre-rebuild backup
+│  Note: Import history and settings are stored in categories.db (no separate app database)
 ```
 
 ---

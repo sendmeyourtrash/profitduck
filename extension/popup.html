@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=300">
+  <title>Profit Duck</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo-row">
+        <span class="logo">🦆</span>
+        <span class="title">Profit Duck</span>
+      </div>
+      <div id="connection" class="status">
+        <span id="status-dot" class="dot dot-disconnected"></span>
+        <span id="status-text">Checking...</span>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-value" id="captured-count">0</span>
+        <span class="stat-label">CAPTURED</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="synced-count">0</span>
+        <span class="stat-label">SYNCED</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value" id="queued-count">0</span>
+        <span class="stat-label">QUEUED</span>
+      </div>
+    </div>
+
+    <!-- Last sync -->
+    <div class="last-sync" id="last-sync">No sync yet</div>
+
+    <!-- Sync Actions -->
+    <div class="actions">
+      <button id="smart-sync-btn" class="btn btn-primary btn-full">
+        Sync New Orders
+      </button>
+      <div class="btn-row">
+        <button id="full-sync-btn" class="btn btn-secondary">Full Re-sync</button>
+        <button id="date-sync-btn" class="btn btn-secondary">Date Range</button>
+      </div>
+    </div>
+
+    <!-- Date Range Picker (hidden by default) -->
+    <div id="date-range-panel" class="date-range-panel" style="display:none;">
+      <div class="date-row">
+        <label>
+          <span>From</span>
+          <input type="date" id="date-from">
+        </label>
+        <label>
+          <span>To</span>
+          <input type="date" id="date-to">
+        </label>
+      </div>
+      <div class="btn-row">
+        <button id="date-sync-go" class="btn btn-primary" style="flex:1">Sync Range</button>
+        <button id="date-sync-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Crawl progress -->
+    <div id="crawl-progress" class="crawl-progress" style="display:none;">
+      <div class="crawl-header">
+        <span id="crawl-message" class="crawl-message">Scanning...</span>
+        <button id="crawl-stop" class="btn btn-secondary" style="padding:2px 8px;font-size:10px;">Stop</button>
+      </div>
+      <div class="progress-bar-container">
+        <div id="crawl-bar" class="progress-bar-fill" style="width:0%"></div>
+      </div>
+      <span id="crawl-count" class="crawl-count"></span>
+    </div>
+
+    <!-- Settings (collapsible) -->
+    <details class="settings">
+      <summary>Settings</summary>
+      <div class="settings-body">
+        <label>
+          <span>Server URL</span>
+          <input type="text" id="server-url" placeholder="http://localhost:3000">
+        </label>
+        <label>
+          <span>API Key</span>
+          <input type="password" id="api-key" placeholder="Leave empty for local dev">
+        </label>
+        <button id="save-settings" class="btn btn-secondary">Save</button>
+      </div>
+    </details>
+
+    <!-- Log -->
+    <div class="log" id="log"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

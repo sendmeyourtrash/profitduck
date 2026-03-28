@@ -47,7 +47,7 @@ All data lives in local SQLite files under `/databases/`. No cloud database, no 
 
 ### Three-Step Pipeline
 
-All data flows through a 3-step pipeline. See [PIPELINE.md](./PIPELINE.md) for details.
+All data flows through a 3-step pipeline. See [docs/pipeline.md](./docs/pipeline.md) for details.
 
 ```
 Step 1: Source -> Vendor DB    (raw data with cleanup)
@@ -91,7 +91,13 @@ PLAID_SECRET=          # Plaid secret (optional)
 PLAID_ENV=sandbox      # Plaid environment
 ```
 
+## Authentication
+
+Set `API_KEY` in `.env` to protect all API routes. When set, requests must include an `x-api-key` header. When unset, all routes are open (local dev mode).
+
 ## Documentation
 
-- [PIPELINE.md](./PIPELINE.md) - Data pipeline architecture
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Detailed system architecture
+- [docs/architecture.md](./docs/architecture.md) — System architecture, DB schema, API routes
+- [docs/pipeline.md](./docs/pipeline.md) — 3-step data pipeline
+- [docs/transactions.md](./docs/transactions.md) — Transaction system, dedup, reconciliation
+- [docs/agents.md](./docs/agents.md) — 19 Claude Code agents: roles, triggers, execution order

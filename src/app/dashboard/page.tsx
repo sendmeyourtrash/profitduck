@@ -133,8 +133,8 @@ export default function DashboardPage() {
         </div>
 
         {/* Top Selling Items */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Top Sellers</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Top Sellers</h3>
           {overview.topItems && overview.topItems.length > 0 ? (
             <div className="space-y-2.5">
               {overview.topItems.map((item, i) => {
@@ -143,15 +143,15 @@ export default function DashboardPage() {
                 return (
                   <div key={item.name}>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-700 truncate">
+                      <span className="text-gray-700 dark:text-gray-200 truncate">
                         <span className="text-gray-400 mr-1.5">{i + 1}.</span>
                         {item.name}
                       </span>
-                      <span className="text-gray-800 font-medium ml-2 whitespace-nowrap">
+                      <span className="text-gray-800 dark:text-gray-100 font-medium ml-2 whitespace-nowrap">
                         {formatCurrency(item.revenue)}
                       </span>
                     </div>
-                    <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="mt-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                       <div className="h-full bg-indigo-400 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
                     <p className="text-[10px] text-gray-400 mt-0.5">{item.qty.toLocaleString()} sold</p>
@@ -172,24 +172,24 @@ export default function DashboardPage() {
           const sorted = [...overview.dayOfWeekRevenue!].sort((a, b) => b.revenue - a.revenue);
           const maxRev = sorted[0]?.revenue || 1;
           return (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-medium text-gray-500 mb-3">Busiest Days</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Busiest Days</h3>
               <div className="space-y-2">
                 {sorted.map((d) => {
                   const pct = (d.revenue / maxRev) * 100;
                   const isBusiest = d.revenue === maxRev;
                   return (
                     <div key={d.day} className="flex items-center gap-2.5">
-                      <span className={`text-xs font-semibold w-7 ${isBusiest ? "text-emerald-600" : "text-gray-500"}`}>
+                      <span className={`text-xs font-semibold w-7 ${isBusiest ? "text-emerald-600" : "text-gray-500 dark:text-gray-400"}`}>
                         {d.day}
                       </span>
-                      <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
+                      <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded overflow-hidden">
                         <div
                           className={`h-full rounded ${isBusiest ? "bg-emerald-400" : "bg-indigo-200"}`}
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className={`text-xs font-medium w-16 text-right ${isBusiest ? "text-emerald-600" : "text-gray-600"}`}>
+                      <span className={`text-xs font-medium w-16 text-right ${isBusiest ? "text-emerald-600" : "text-gray-600 dark:text-gray-300"}`}>
                         {formatCurrency(d.revenue)}
                       </span>
                     </div>
@@ -202,7 +202,7 @@ export default function DashboardPage() {
 
         {/* Top Expense Categories */}
         {overview.expensesByCategory && overview.expensesByCategory.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-500">Top Expenses</h3>
               <a href="/dashboard/expenses" className="text-xs text-indigo-600 hover:text-indigo-700">
@@ -216,10 +216,10 @@ export default function DashboardPage() {
                 return (
                   <div key={cat.category}>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-700 truncate">{cat.category}</span>
-                      <span className="text-gray-600 font-medium ml-2">{formatCurrency(cat.total)}</span>
+                      <span className="text-gray-700 dark:text-gray-200 truncate">{cat.category}</span>
+                      <span className="text-gray-600 dark:text-gray-300 font-medium ml-2">{formatCurrency(cat.total)}</span>
                     </div>
-                    <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="mt-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                       <div className="h-full bg-red-300 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
@@ -234,25 +234,25 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Cash Flow */}
         {overview.cashFlow && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Cash Flow</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Cash Flow</h3>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Deposits In</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Deposits In</span>
                 <span className="text-sm font-semibold text-emerald-600">{formatCurrency(overview.cashFlow.deposits)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Cash Out</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Cash Out</span>
                 <span className="text-sm font-semibold text-red-600">{formatCurrency(overview.cashFlow.outflows)}</span>
               </div>
-              <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-800">Net Cash Flow</span>
+              <div className="border-t border-gray-100 dark:border-gray-700 pt-2 flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-800 dark:text-gray-100">Net Cash Flow</span>
                 <span className={`text-sm font-bold ${overview.cashFlow.net >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                   {formatCurrency(overview.cashFlow.net)}
                 </span>
               </div>
               {overview.expenseRatio != null && (
-                <div className="border-t border-gray-100 pt-2 flex justify-between items-center">
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-2 flex justify-between items-center">
                   <span className="text-xs text-gray-400">Expense Ratio</span>
                   <span className={`text-xs font-medium ${(overview.expenseRatio ?? 0) <= 85 ? "text-emerald-600" : "text-red-600"}`}>
                     {overview.expenseRatio.toFixed(1)}%
@@ -264,8 +264,8 @@ export default function DashboardPage() {
         )}
 
         {/* Platform Revenue — compact bars instead of pie chart */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Platform Revenue</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Platform Revenue</h3>
           {(() => {
             const PLAT_LABELS: Record<string, string> = { square: "Square", doordash: "DoorDash", ubereats: "Uber Eats", grubhub: "Grubhub" };
             const PLAT_COLORS: Record<string, string> = { square: "bg-indigo-400", doordash: "bg-amber-400", ubereats: "bg-emerald-400", grubhub: "bg-red-400" };
@@ -278,10 +278,10 @@ export default function DashboardPage() {
                   return (
                     <div key={p.platform}>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-700">{PLAT_LABELS[p.platform] || p.platform}</span>
-                        <span className="text-gray-600 font-medium">{formatCurrency(p.revenue)} <span className="text-gray-400 text-xs">({pct.toFixed(0)}%)</span></span>
+                        <span className="text-gray-700 dark:text-gray-200">{PLAT_LABELS[p.platform] || p.platform}</span>
+                        <span className="text-gray-600 dark:text-gray-300 font-medium">{formatCurrency(p.revenue)} <span className="text-gray-400 text-xs">({pct.toFixed(0)}%)</span></span>
                       </div>
-                      <div className="mt-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="mt-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div className={`h-full rounded-full ${PLAT_COLORS[p.platform] || "bg-gray-400"}`} style={{ width: `${pct}%` }} />
                       </div>
                       <p className="text-[10px] text-gray-400 mt-0.5">{p.orders.toLocaleString()} orders</p>
@@ -294,13 +294,13 @@ export default function DashboardPage() {
         </div>
 
         {/* Today + This Week snapshot */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Quick Snapshot</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-5">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Quick Snapshot</h3>
           <div className="space-y-3">
             <div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Today</span>
-                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.today.revenue)}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Today</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(overview.today.revenue)}</span>
               </div>
               {overview.todayChange && (
                 <p className={`text-[10px] text-right ${overview.todayChange.value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
@@ -310,8 +310,8 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">This Week</span>
-                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.week.revenue)}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">This Week</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(overview.week.revenue)}</span>
               </div>
               {overview.weekChange && (
                 <p className={`text-[10px] text-right ${overview.weekChange.value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
@@ -319,27 +319,27 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-            <div className="border-t border-gray-100 pt-2">
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Avg Daily</span>
-                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.dailyAvg?.revenue ?? 0)}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Avg Daily</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(overview.dailyAvg?.revenue ?? 0)}</span>
               </div>
             </div>
             <div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Revenue</span>
-                <span className="text-sm font-semibold text-gray-800">{formatCurrency(overview.total.revenue)}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Total Revenue</span>
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{formatCurrency(overview.total.revenue)}</span>
               </div>
             </div>
             <div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Expenses</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Total Expenses</span>
                 <span className="text-sm font-semibold text-red-600">{formatCurrency(overview.total.expenses)}</span>
               </div>
             </div>
-            <div className="border-t border-gray-100 pt-2">
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
               <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-800">All-Time Profit</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-gray-100">All-Time Profit</span>
                 <span className={`text-sm font-bold ${overview.total.netProfit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                   {formatCurrency(overview.total.netProfit)}
                 </span>

@@ -282,20 +282,25 @@ export async function fetchAllPayments(
 export interface SquareOrderLineItem {
   name: string;
   quantity: string;
-  category?: string;
+  catalog_object_id?: string;
   base_price_money?: { amount: number; currency: string };
   total_money?: { amount: number; currency: string };
   total_tax_money?: { amount: number; currency: string };
   total_discount_money?: { amount: number; currency: string };
   variation_name?: string;
-  modifiers?: { name?: string }[];
+  modifiers?: {
+    name?: string;
+    base_price_money?: { amount: number; currency: string };
+    total_price_money?: { amount: number; currency: string };
+    catalog_object_id?: string;
+  }[];
 }
 
 export interface SquareOrderData {
   totalTaxCents: number;
   lineItems: SquareOrderLineItem[];
   fulfillmentType: string | null; // "PICKUP", "DELIVERY", etc.
-  diningOption: string | null;    // "For Here", "To Go", etc.
+  diningOption: string | null;    // "To Go", "Delivery", null if unknown
 }
 
 /**
@@ -345,13 +350,18 @@ export async function batchRetrieveOrders(
           (li: any) => ({
             name: li.name || "",
             quantity: li.quantity || "0",
-            category: li.catalog_object_id ? undefined : undefined, // category not directly on line_items
+            catalog_object_id: li.catalog_object_id || undefined,
             base_price_money: li.base_price_money,
             total_money: li.total_money,
             total_tax_money: li.total_tax_money,
             total_discount_money: li.total_discount_money,
             variation_name: li.variation_name,
-            modifiers: (li.modifiers || []).map((m: { name?: string }) => ({ name: m.name })),
+            modifiers: (li.modifiers || []).map((m: any) => ({
+              name: m.name || "",
+              base_price_money: m.base_price_money,
+              total_price_money: m.total_price_money,
+              catalog_object_id: m.catalog_object_id,
+            })),
           })
         );
 
@@ -370,8 +380,8 @@ export async function batchRetrieveOrders(
         } else if (fulfillmentType === "SHIPMENT") {
           diningOption = "Shipment";
         } else if (!fulfillmentType) {
-          // No fulfillment = likely dine-in
-          diningOption = "For Here";
+          // No fulfillment data — don't assume
+          diningOption = null;
         }
 
         // Check metadata for explicit dining option
@@ -570,4 +580,134 @@ export async function fetchPayoutEntries(
   } while (cursor);
 
   return allEntries;
+}
+
+// ── Catalog API ──────────────────────────────────────────────────────────
+
+export interface SquareCatalogCategory {
+  id: string;
+  name: string;
+  parentCategoryId?: string;
+  isTopLevel: boolean;
+  categoryType?: string; // REGULAR_CATEGORY or MENU_CATEGORY
+}
+
+export interface SquareCatalogItem {
+  id: string;
+  name: string;
+  categoryIds: string[];
+  variationIds: string[];
+  variations: { id: string; name: string }[];
+}
+
+export interface SquareCatalogData {
+  categories: SquareCatalogCategory[];
+  items: SquareCatalogItem[];
+  /** Maps variation_id → parent item_id for resolving line item catalog_object_ids */
+  variationToItemId: Map<string, string>;
+}
+
+/**
+ * Fetch the full Square catalog (categories + items + variations).
+ * Uses cursor-based pagination on /v2/catalog/list.
+ *
+ * Line items in Orders use `catalog_object_id` which points to a
+ * CatalogItemVariation, not the CatalogItem itself. We build a
+ * variationToItemId map to resolve this.
+ */
+export async function fetchCatalog(
+  onProgress?: ProgressCallback
+): Promise<SquareCatalogData> {
+  const token = getToken();
+  const categories: SquareCatalogCategory[] = [];
+  const items: SquareCatalogItem[] = [];
+  const variationToItemId = new Map<string, string>();
+  let cursor: string | undefined;
+  let pageCount = 0;
+
+  do {
+    const params = new URLSearchParams();
+    params.set("types", "CATEGORY,ITEM");
+    if (cursor) params.set("cursor", cursor);
+
+    const url = `${SQUARE_BASE_URL}/catalog/list?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Square-Version": "2025-01-23",
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw parseSquareError(response.status, body);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: { objects?: any[]; cursor?: string } = await response.json();
+
+    if (data.objects) {
+      for (const obj of data.objects) {
+        if (obj.type === "CATEGORY" && obj.category_data) {
+          const cd = obj.category_data;
+          categories.push({
+            id: obj.id,
+            name: cd.name || "",
+            parentCategoryId: cd.parent_category?.id || undefined,
+            isTopLevel: cd.is_top_level ?? !cd.parent_category?.id,
+            categoryType: cd.category_type || undefined,
+          });
+        } else if (obj.type === "ITEM" && obj.item_data) {
+          const id = obj.item_data;
+          const categoryIds: string[] = (id.categories || []).map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (c: any) => c.id
+          );
+          const variations: { id: string; name: string }[] = (id.variations || []).map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (v: any) => ({
+              id: v.id,
+              name: v.item_variation_data?.name || "",
+            })
+          );
+
+          // Build variation → item mapping
+          for (const v of variations) {
+            variationToItemId.set(v.id, obj.id);
+          }
+
+          items.push({
+            id: obj.id,
+            name: id.name || "",
+            categoryIds,
+            variationIds: variations.map((v) => v.id),
+            variations,
+          });
+        }
+      }
+    }
+
+    cursor = data.cursor;
+    pageCount++;
+
+    onProgress?.({
+      phase: "fetching",
+      current: categories.length + items.length,
+      total: 0,
+      message: `Fetching Square catalog... ${categories.length} categories, ${items.length} items (page ${pageCount})`,
+    });
+
+    if (cursor) {
+      await new Promise((resolve) => setTimeout(resolve, PAGE_DELAY_MS));
+    }
+  } while (cursor);
+
+  console.log(
+    `[Square API] Catalog: ${categories.length} categories, ${items.length} items, ${variationToItemId.size} variations`
+  );
+
+  return { categories, items, variationToItemId };
 }

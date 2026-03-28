@@ -85,7 +85,7 @@ export default function PlatformsPage() {
 
   if (!data || data.platforms.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
+      <div className="text-center py-12 text-gray-500 dark:text-gray-400">
         <p className="text-lg">No platform order data yet</p>
         <p className="mt-2">
           Import data from DoorDash, Uber Eats, Grubhub, or Square to see
@@ -107,7 +107,7 @@ export default function PlatformsPage() {
   )[0];
 
   return (
-    <div className={`transition-opacity duration-150 ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
+    <div className={`space-y-6 transition-opacity duration-150 ${refreshing ? "opacity-60 pointer-events-none" : ""}`}>
       <PlatformFilter selected={selectedPlatforms} onChange={setSelectedPlatforms} />
 
       {/* Highlights */}
@@ -160,63 +160,63 @@ export default function PlatformsPage() {
       </div>
 
       {/* Platform Comparison Table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 p-6 pb-4">
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
           Platform Comparison
         </h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[700px]">
             <thead>
-              <tr className="text-left text-gray-400 border-b">
-                <th className="pb-2 font-medium">Platform</th>
-                <th className="pb-2 font-medium text-right">Orders</th>
-                <th className="pb-2 font-medium text-right">Gross Revenue</th>
-                <th className="pb-2 font-medium text-right">Fees</th>
-                <th className="pb-2 font-medium text-right">Net Payout</th>
-                <th className="pb-2 font-medium text-right">Commission %</th>
-                <th className="pb-2 font-medium text-right">Avg Order</th>
-                <th className="pb-2 font-medium text-right">Tips</th>
+              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
+                <th className="pb-2 pr-4 font-medium whitespace-nowrap">Platform</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Orders</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Gross Revenue</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Fees</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Net Payout</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Commission %</th>
+                <th className="pb-2 px-3 font-medium text-right whitespace-nowrap">Avg Order</th>
+                <th className="pb-2 pl-3 font-medium text-right whitespace-nowrap">Tips</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((p) => (
                 <tr
                   key={p.platform}
-                  className="border-b border-gray-50 cursor-pointer transition-colors hover:bg-gray-50"
+                  className="group cursor-pointer transition-colors"
                   onClick={() => router.push(`/dashboard/platforms/${p.platform}`)}
                 >
-                  <td className="py-3 text-gray-800 font-medium">
+                  <td className="py-3 pl-4 pr-4 text-gray-800 dark:text-gray-200 font-medium whitespace-nowrap rounded-l-xl group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {PLATFORM_LABELS[p.platform] || p.platform}
                   </td>
-                  <td className="py-3 text-right text-gray-600">
+                  <td className="py-3 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {p.orderCount}
                   </td>
-                  <td className="py-3 text-right">
+                  <td className="py-3 px-3 text-right text-gray-800 dark:text-gray-200 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {formatCurrency(p.grossRevenue)}
                   </td>
-                  <td className="py-3 text-right text-red-600">
+                  <td className="py-3 px-3 text-right text-red-600 dark:text-red-400 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {formatCurrency(p.totalFees)}
                   </td>
-                  <td className="py-3 text-right font-medium text-emerald-600">
+                  <td className="py-3 px-3 text-right font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {formatCurrency(p.netPayout)}
                   </td>
-                  <td className="py-3 text-right">
+                  <td className="py-3 px-3 text-right whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs ${
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
                         p.commissionRate <= 15
-                          ? "bg-emerald-100 text-emerald-700"
+                          ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
                           : p.commissionRate <= 25
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-red-100 text-red-700"
+                            ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                            : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                       }`}
                     >
                       {p.commissionRate}%
                     </span>
                   </td>
-                  <td className="py-3 text-right text-gray-600">
+                  <td className="py-3 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {formatCurrency(p.avgOrderValue)}
                   </td>
-                  <td className="py-3 text-right text-gray-600">
+                  <td className="py-3 pl-3 pr-4 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap rounded-r-xl group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 transition-colors">
                     {formatCurrency(p.tips)}
                   </td>
                 </tr>
