@@ -6,6 +6,7 @@
   "permissions": ["storage", "alarms", "tabs", "activeTab", "cookies", "scripting", "debugger"],
   "host_permissions": [
     "https://merchants.ubereats.com/*",
+    "https://merchant-portal.doordash.com/*",
     "http://localhost:3000/*",
     "http://localhost:3001/*"
   ],
@@ -22,6 +23,18 @@
     {
       "matches": ["https://merchants.ubereats.com/*"],
       "js": ["content-bridge.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://merchant-portal.doordash.com/*"],
+      "js": ["content-doordash.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://merchant-portal.doordash.com/*"],
+      "js": ["content-doordash-bridge.js"],
       "world": "ISOLATED",
       "run_at": "document_start"
     }

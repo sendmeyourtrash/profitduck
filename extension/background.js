@@ -21,6 +21,34 @@ const FLUSH_ALARM = "profitduck-flush";
 const FLUSH_DELAY_MS = 5000;
 const SERVER_ENDPOINT = "/api/ingest/extension";
 
+// ---- Platform detection ----
+const SUPPORTED_PLATFORMS = {
+  "merchants.ubereats.com": { platform: "ubereats", label: "Uber Eats", color: "#34d399", pages: {
+    "/orders": "Orders", "/payments": "Payments", "/menu": "Menu", "/analytics": "Analytics",
+  }},
+  "merchant-portal.doordash.com": { platform: "doordash", label: "DoorDash", color: "#ef4444", pages: {
+    "/orders": "Orders", "/financials": "Financials", "/menu": "Menu",
+  }},
+};
+
+async function detectActivePlatform() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return { platform: null, page: null, label: null, color: null };
+
+    for (const [host, config] of Object.entries(SUPPORTED_PLATFORMS)) {
+      if (tab.url.includes(host)) {
+        let page = "Other";
+        for (const [path, name] of Object.entries(config.pages)) {
+          if (tab.url.includes(path)) { page = name; break; }
+        }
+        return { platform: config.platform, page, label: config.label, color: config.color, tabId: tab.id };
+      }
+    }
+  } catch {}
+  return { platform: null, page: null, label: null, color: null };
+}
+
 // ---- GraphQL normalizer ----
 
 function parseDollar(val) {
@@ -105,6 +133,14 @@ function normalizeOrderDetails(data) {
   };
 }
 
+// ---- DoorDash normalizer (stub — will be completed after API research) ----
+
+function normalizeDoorDashOrder(data) {
+  // TODO: Map DoorDash API response to our standard format after DevTools research
+  // Expected fields: order_id, date, time, subtotal, tax, fees, payout, items
+  return null;
+}
+
 // ---- Server communication ----
 
 async function getConfig() {
@@ -114,7 +150,7 @@ async function getConfig() {
   } catch { return { serverUrl: "http://localhost:3000", apiKey: null }; }
 }
 
-async function sendToServer(orders) {
+async function sendToServer(orders, platform = "ubereats") {
   const { serverUrl, apiKey } = await getConfig();
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["x-api-key"] = apiKey;
@@ -122,7 +158,7 @@ async function sendToServer(orders) {
   const response = await fetch(`${serverUrl}${SERVER_ENDPOINT}`, {
     method: "POST", headers,
     body: JSON.stringify({
-      platform: "ubereats",
+      platform,
       orders: orders.map(o => o.csvRow),
       richOrders: orders,
       source: "extension",
@@ -150,24 +186,38 @@ function scheduleFlush() {
 
 async function flushQueue() {
   if (orderQueue.size === 0) return;
-  const orders = Array.from(orderQueue.values());
-  const orderIds = Array.from(orderQueue.keys());
+
+  // Group orders by platform
+  const byPlatform = new Map();
+  for (const [id, order] of orderQueue) {
+    const p = order._platform || "ubereats";
+    if (!byPlatform.has(p)) byPlatform.set(p, { orders: [], ids: [] });
+    byPlatform.get(p).orders.push(order);
+    byPlatform.get(p).ids.push(id);
+  }
   orderQueue.clear();
 
-  try {
-    const result = await sendToServer(orders);
-    lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
-    for (const id of orderIds) sentIds.add(id);
-    await chrome.storage.local.set({ lastSync });
-    updateBadge();
-    console.log(`[Profit Duck] Synced ${orders.length} orders: ${result.inserted} new, ${result.skipped} skipped`);
-  } catch (err) {
-    lastSync = { time: new Date().toISOString(), inserted: 0, skipped: 0, error: err.message };
-    await chrome.storage.local.set({ lastSync });
-    // Re-queue failed orders
-    for (let i = 0; i < orders.length; i++) orderQueue.set(orderIds[i], orders[i]);
-    console.error(`[Profit Duck] Sync failed: ${err.message}`);
+  let totalInserted = 0, totalSkipped = 0;
+  let lastError = null;
+
+  for (const [platform, batch] of byPlatform) {
+    try {
+      const result = await sendToServer(batch.orders, platform);
+      totalInserted += result.inserted || 0;
+      totalSkipped += result.skipped || 0;
+      for (const id of batch.ids) sentIds.add(id);
+      console.log(`[Profit Duck] [${platform}] Synced ${batch.orders.length}: ${result.inserted} new, ${result.skipped} skipped`);
+    } catch (err) {
+      lastError = err.message;
+      // Re-queue failed orders
+      for (let i = 0; i < batch.orders.length; i++) orderQueue.set(batch.ids[i], batch.orders[i]);
+      console.error(`[Profit Duck] [${platform}] Sync failed: ${err.message}`);
+    }
   }
+
+  lastSync = { time: new Date().toISOString(), inserted: totalInserted, skipped: totalSkipped, error: lastError };
+  await chrome.storage.local.set({ lastSync });
+  updateBadge();
 }
 
 function updateBadge() {
@@ -183,11 +233,20 @@ function updateBadge() {
 // ---- Trigger sync in content script via chrome.debugger ----
 
 async function triggerSync(mode, options = {}) {
-  const tabs = await chrome.tabs.query({ url: "https://merchants.ubereats.com/*" });
+  // Detect which platform to sync — prefer active tab, fall back to finding one
+  const detected = await detectActivePlatform();
+  const platform = options.platform || detected.platform || "ubereats";
+
+  const platformUrls = {
+    ubereats: { match: "https://merchants.ubereats.com/*", open: "https://merchants.ubereats.com/manager/orders" },
+    doordash: { match: "https://merchant-portal.doordash.com/*", open: "https://merchant-portal.doordash.com/orders" },
+  };
+  const pConfig = platformUrls[platform] || platformUrls.ubereats;
+
+  const tabs = await chrome.tabs.query({ url: pConfig.match });
   if (!tabs[0]?.id) {
-    // No Uber Eats tab — open one
-    const tab = await chrome.tabs.create({ url: "https://merchants.ubereats.com/manager/orders" });
-    crawlStatus = { state: "starting", message: "Opening Uber Eats..." };
+    const tab = await chrome.tabs.create({ url: pConfig.open });
+    crawlStatus = { state: "starting", message: `Opening ${detected.label || platform}...` };
     // Wait for tab to load
     await new Promise((resolve) => {
       const listener = (tabId, info) => {
@@ -266,6 +325,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "get_status":
       sendResponse({ capturedCount, queueSize: orderQueue.size, sentCount: sentIds.size, lastSync, crawlStatus, paused });
       break;
+    case "detect_platform":
+      detectActivePlatform().then(p => sendResponse(p)).catch(() => sendResponse({ platform: null }));
+      return true;
     case "toggle_pause":
       paused = !paused;
       chrome.storage.local.set({ paused });
@@ -305,15 +367,24 @@ function handleIntercepted(message) {
   // Allow capture during active sync even when paused (user explicitly triggered it)
   const isCrawling = ["fetching", "scanning", "starting", "syncing", "throttled"].includes(crawlStatus.state);
   if (paused && !isCrawling) return;
-  const order = normalizeOrderDetails(message.data);
+
+  const platform = message.platform || "ubereats";
+  let order;
+  if (platform === "doordash") {
+    order = normalizeDoorDashOrder(message.data);
+  } else {
+    order = normalizeOrderDetails(message.data);
+  }
   if (!order) return;
-  const id = order.orderUUID;
+
+  const id = order.orderUUID || order.orderId;
   if (!id || sentIds.has(id) || orderQueue.has(id)) return;
+  order._platform = platform;
   orderQueue.set(id, order);
   capturedCount++;
   updateBadge();
   scheduleFlush();
-  console.log(`[Profit Duck] Captured order ${order.orderId} (${order.items.length} items, $${order.netPayout})`);
+  console.log(`[Profit Duck] [${platform}] Captured order ${order.orderId} (${order.items?.length || 0} items, $${order.netPayout})`);
 }
 
 // ---- Alarm handler ----

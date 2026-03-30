@@ -15,8 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { ingestUberEatsOrders } from "@/lib/services/pipeline-step1-ingest";
-import { unifyUberEats } from "@/lib/services/pipeline-step2-unify";
+import { ingestUberEatsOrders, ingestDoordashOrders } from "@/lib/services/pipeline-step1-ingest";
+import { unifyUberEats, unifyDoordash } from "@/lib/services/pipeline-step2-unify";
 import { step3ApplyAliases } from "@/lib/services/pipeline-step3-aliases";
 import { createImport } from "@/lib/db/config-db";
 
@@ -114,9 +114,15 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      // Future platforms:
-      // case "doordash": { ... break; }
-      // case "grubhub": { ... break; }
+      case "doordash": {
+        const ddResult = ingestDoordashOrders(orders);
+        inserted = ddResult.inserted;
+        skipped = ddResult.skipped;
+        if (ddResult.errors.length > 0) errors.push(...ddResult.errors);
+        unifyDoordash();
+        step3ApplyAliases();
+        break;
+      }
 
       default:
         return NextResponse.json(

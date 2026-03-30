@@ -36,6 +36,8 @@ const logEl = $("#log");
 const pauseBar = $("#pause-bar");
 const pauseLabel = $("#pause-label");
 const pauseToggle = $("#pause-toggle");
+const platformBar = $("#platform-bar");
+const platformLabel = $("#platform-label");
 
 // ---- State ----
 let syncing = false;
@@ -46,6 +48,30 @@ pauseToggle.addEventListener("click", async () => {
   const result = await chrome.runtime.sendMessage({ action: "toggle_pause" });
   updatePauseUI(result.paused);
 });
+
+// ---- Platform detection ----
+let currentPlatform = null;
+
+async function refreshPlatform() {
+  try {
+    const info = await chrome.runtime.sendMessage({ action: "detect_platform" });
+    currentPlatform = info.platform;
+    if (info.platform) {
+      platformBar.className = `platform-bar platform-${info.platform}`;
+      platformLabel.textContent = `${info.label} — ${info.page}`;
+      // Enable sync buttons when on supported page
+      if (!syncing) enableSyncButtons();
+    } else {
+      platformBar.className = "platform-bar platform-none";
+      platformLabel.textContent = "Not on a supported page";
+      if (!syncing) disableSyncButtons();
+    }
+  } catch {
+    currentPlatform = null;
+    platformBar.className = "platform-bar platform-none";
+    platformLabel.textContent = "Not on a supported page";
+  }
+}
 
 function updatePauseUI(isPaused) {
   if (isPaused) {
@@ -245,4 +271,6 @@ function timeAgo(date) {
 // ---- Init ----
 checkConnection();
 refreshStatus();
+refreshPlatform();
 setInterval(refreshStatus, 2000);
+setInterval(refreshPlatform, 2000);
