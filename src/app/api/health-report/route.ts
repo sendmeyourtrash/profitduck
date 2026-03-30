@@ -64,7 +64,7 @@ function resolvePeriodDates(period: Period, now: Date, compare: "prior" | "yoy" 
       const currentEnd = endOfDay(now);
       const previousStart = compare === "yoy" ? startOfDay(subYears(now, 1)) : startOfDay(subDays(now, 1));
       const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfDay(subDays(now, 1));
-      const chartLookbackStart = subDays(now, 14);
+      const chartLookbackStart = currentStart;
       return {
         currentStart,
         currentEnd,
@@ -81,7 +81,7 @@ function resolvePeriodDates(period: Period, now: Date, compare: "prior" | "yoy" 
       const currentEnd = endOfDay(now);
       const previousStart = compare === "yoy" ? startOfDay(subYears(currentStart, 1)) : startOfDay(subDays(now, 13));
       const previousEnd = compare === "yoy" ? endOfDay(subYears(currentEnd, 1)) : endOfDay(subDays(now, 7));
-      const chartLookbackStart = subDays(now, 30);
+      const chartLookbackStart = currentStart;
       return {
         currentStart,
         currentEnd,
@@ -98,7 +98,7 @@ function resolvePeriodDates(period: Period, now: Date, compare: "prior" | "yoy" 
       const currentEnd = endOfDay(now);
       const previousStart = compare === "yoy" ? startOfMonth(subYears(now, 1)) : startOfMonth(subMonths(now, 1));
       const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfMonth(subMonths(now, 1));
-      const chartLookbackStart = subDays(now, 90);
+      const chartLookbackStart = currentStart;
       return {
         currentStart,
         currentEnd,
@@ -118,7 +118,7 @@ function resolvePeriodDates(period: Period, now: Date, compare: "prior" | "yoy" 
       const currentEnd = endOfDay(now);
       const previousStart = compare === "yoy" ? startOfQuarter(subYears(now, 1)) : startOfQuarter(subQuarters(now, 1));
       const previousEnd = compare === "yoy" ? endOfDay(subYears(now, 1)) : endOfQuarter(subQuarters(now, 1));
-      const chartLookbackStart = subDays(now, 365);
+      const chartLookbackStart = currentStart;
       return {
         currentStart,
         currentEnd,
@@ -172,13 +172,7 @@ function resolveCustomDates(
     ? endOfDay(subYears(currentEnd, 1))
     : endOfDay(subDays(currentStart, 1));
 
-  let lookbackDays: number;
-  if (spanDays <= 7) lookbackDays = 14;
-  else if (spanDays <= 30) lookbackDays = 60;
-  else if (spanDays <= 90) lookbackDays = 180;
-  else lookbackDays = 365;
-  lookbackDays = Math.max(lookbackDays, spanDays + 7);
-  const chartLookbackStart = subDays(currentEnd, lookbackDays);
+  const chartLookbackStart = currentStart;
 
   let forecastDays: number;
   if (spanDays <= 1) forecastDays = 1;
