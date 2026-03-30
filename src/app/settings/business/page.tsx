@@ -23,8 +23,8 @@ export default function BusinessPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {
-        if (data.restaurantOpenDate) setOpenDate(data.restaurantOpenDate);
-        if (data.timezone) setTimezone(data.timezone);
+        if (data.settings?.restaurant_open_date) setOpenDate(data.settings.restaurant_open_date);
+        if (data.settings?.timezone) setTimezone(data.settings.timezone);
       })
       .catch(() => {});
   }, []);

@@ -154,7 +154,38 @@ export default function ReconciliationPanel() {
     ])
       .then(([recon, chainData]) => {
         setData(recon);
-        setChains(chainData.chains || []);
+        // Transform flat ReconMatch rows into nested Chain structure
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setChains((chainData.chains || []).map((m: any) => ({
+          id: String(m.id),
+          platform: m.platform,
+          periodStart: m.order_group_start,
+          periodEnd: m.order_group_end,
+          status: m.status,
+          level1: {
+            orderCount: m.order_count || 0,
+            totalAmount: m.expected_amount || 0,
+            orders: [],
+          },
+          level2: {
+            payout: m.bank_tx_id ? {
+              id: String(m.bank_tx_id),
+              grossAmount: m.bank_amount || 0,
+              fees: 0,
+              netAmount: m.bank_amount || 0,
+              date: m.bank_date || "",
+            } : null,
+          },
+          level3: {
+            bankTransaction: m.bank_tx_id ? {
+              id: String(m.bank_tx_id),
+              amount: m.bank_amount || 0,
+              date: m.bank_date || "",
+              description: "",
+            } : null,
+            variance: m.variance || 0,
+          },
+        })));
       })
       .finally(() => setLoading(false));
   }, [chainPlatform]);
