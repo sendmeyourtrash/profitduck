@@ -269,6 +269,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "toggle_pause":
       paused = !paused;
       chrome.storage.local.set({ paused });
+      // If pausing during an active crawl, stop the crawl too
+      if (paused && ["fetching", "scanning", "starting", "syncing", "throttled"].includes(crawlStatus.state)) {
+        triggerStop();
+        crawlStatus = { state: "done", message: "Paused — sync stopped." };
+      }
       updateBadge();
       sendResponse({ paused });
       break;
@@ -297,7 +302,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function handleIntercepted(message) {
-  if (paused) return; // Skip capture when paused
+  // Allow capture during active sync even when paused (user explicitly triggered it)
+  const isCrawling = ["fetching", "scanning", "starting", "syncing", "throttled"].includes(crawlStatus.state);
+  if (paused && !isCrawling) return;
   const order = normalizeOrderDetails(message.data);
   if (!order) return;
   const id = order.orderUUID;
