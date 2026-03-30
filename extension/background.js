@@ -136,9 +136,86 @@ function normalizeOrderDetails(data) {
 // ---- DoorDash normalizer (stub — will be completed after API research) ----
 
 function normalizeDoorDashOrder(data) {
-  // TODO: Map DoorDash API response to our standard format after DevTools research
-  // Expected fields: order_id, date, time, subtotal, tax, fees, payout, items
-  return null;
+  // Handle order detail response (from /orders_details/ endpoint)
+  const od = data?.data;
+  if (!od?.orderId) return null;
+
+  const cents = (obj) => (obj?.unitAmount || 0) / 100;
+  const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
+
+  const subtotal = cents(od.preTaxTotal);
+  const tax = cents(od.tax || od.totalTax);
+  const commission = cents(od.commission);
+  const totalFees = Math.abs(cents(od.totalFees));
+  const netPayout = cents(od.netPayout);
+  const tip = cents(od.merchantTipAmount);
+  const errorCharges = cents(od.errorCharges);
+  const refunds = cents(od.refunds);
+
+  // Extract marketing/ad fees from feeGroups
+  let marketingFee = 0;
+  if (od.feeGroups?.ad_fees?.totalAmount) {
+    marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
+  }
+
+  // Extract items from nested orders array
+  const items = [];
+  if (od.orders && Array.isArray(od.orders)) {
+    for (const orderGroup of od.orders) {
+      if (orderGroup.orderItems && Array.isArray(orderGroup.orderItems)) {
+        for (const item of orderGroup.orderItems) {
+          const extras = (item.itemExtras || []).map(e => {
+            const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
+            return {
+              name: e.name || e.title || "",
+              option: opt?.name || "",
+              price: cents(opt?.price),
+            };
+          }).filter(e => e.option);
+
+          items.push({
+            name: item.name,
+            quantity: item.quantity,
+            price: cents(item.price),
+            category: item.category || "",
+            extras,
+          });
+        }
+      }
+    }
+  }
+
+  const orderDate = completedAt.toISOString().slice(0, 10);
+  const orderTime = completedAt.toISOString().slice(11, 16);
+
+  return {
+    orderUUID: od.deliveryUuid || od.orderId,
+    orderId: od.orderId,
+    platform: "doordash",
+    netPayout,
+    items,
+    csvRow: {
+      "order_id": od.orderId,
+      "date": orderDate,
+      "time": orderTime,
+      "subtotal": subtotal.toFixed(2),
+      "tax": tax.toFixed(2),
+      "tip": tip.toFixed(2),
+      "commission": (-commission).toFixed(2),
+      "commission_rate": String(od.commissionRate || 0),
+      "marketing_fee": (-marketingFee).toFixed(2),
+      "total_fees": (-totalFees).toFixed(2),
+      "error_charges": (-errorCharges).toFixed(2),
+      "refunds": (-refunds).toFixed(2),
+      "estimated_payout": netPayout.toFixed(2),
+      "customer_name": od.consumer?.formalNameAbbreviated || "",
+      "status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
+      "fulfillment_type": od.fulfillmentType || "dasher",
+      "items_json": JSON.stringify(items),
+      "raw_json": JSON.stringify(data),
+      "source": "extension",
+    },
+  };
 }
 
 // ---- Server communication ----
@@ -296,17 +373,24 @@ async function triggerSync(mode, options = {}) {
 }
 
 async function triggerStop() {
-  const tabs = await chrome.tabs.query({ url: "https://merchants.ubereats.com/*" });
-  const tabId = tabs[0]?.id;
-  if (tabId) {
-    try {
-      await chrome.debugger.attach({ tabId }, "1.3");
-      await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
-        expression: 'window.postMessage({ type: "PROFITDUCK_CRAWL", command: "stop" }, "*")'
-      });
-      await chrome.debugger.detach({ tabId });
-    } catch (e) {
-      try { await chrome.debugger.detach({ tabId }); } catch (_) {}
+  // Stop crawl on all supported platform tabs
+  const platformUrls = [
+    "https://merchants.ubereats.com/*",
+    "https://merchant-portal.doordash.com/*",
+  ];
+  for (const urlPattern of platformUrls) {
+    const tabs = await chrome.tabs.query({ url: urlPattern });
+    const tabId = tabs[0]?.id;
+    if (tabId) {
+      try {
+        await chrome.debugger.attach({ tabId }, "1.3");
+        await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
+          expression: 'window.postMessage({ type: "PROFITDUCK_CRAWL", command: "stop" }, "*")'
+        });
+        await chrome.debugger.detach({ tabId });
+      } catch (e) {
+        try { await chrome.debugger.detach({ tabId }); } catch (_) {}
+      }
     }
   }
 }
