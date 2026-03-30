@@ -26,7 +26,7 @@ const SUPPORTED_PLATFORMS = {
   "merchants.ubereats.com": { platform: "ubereats", label: "Uber Eats", color: "#34d399", pages: {
     "/orders": "Orders", "/payments": "Payments", "/menu": "Menu", "/analytics": "Analytics",
   }},
-  "merchant-portal.doordash.com": { platform: "doordash", label: "DoorDash", color: "#ef4444", pages: {
+  "doordash.com/merchant": { platform: "doordash", label: "DoorDash", color: "#ef4444", pages: {
     "/orders": "Orders", "/financials": "Financials", "/menu": "Menu",
   }},
 };
@@ -316,7 +316,7 @@ async function triggerSync(mode, options = {}) {
 
   const platformUrls = {
     ubereats: { match: "https://merchants.ubereats.com/*", open: "https://merchants.ubereats.com/manager/orders" },
-    doordash: { match: "https://merchant-portal.doordash.com/*", open: "https://merchant-portal.doordash.com/orders" },
+    doordash: { match: ["https://www.doordash.com/merchant/*", "https://doordash.com/merchant/*"], open: "https://www.doordash.com/merchant/orders" },
   };
   const pConfig = platformUrls[platform] || platformUrls.ubereats;
 
@@ -376,7 +376,7 @@ async function triggerStop() {
   // Stop crawl on all supported platform tabs
   const platformUrls = [
     "https://merchants.ubereats.com/*",
-    "https://merchant-portal.doordash.com/*",
+    ["https://www.doordash.com/merchant/*", "https://doordash.com/merchant/*"],
   ];
   for (const urlPattern of platformUrls) {
     const tabs = await chrome.tabs.query({ url: urlPattern });
