@@ -272,7 +272,7 @@ export default function RevenueChart({
       futureDate.setDate(futureDate.getDate() + j);
       const futureMonth = futureDate.getMonth() + 1;
       const factor = seasonalIndices ? (seasonalIndices[futureMonth] ?? 1.0) : 1.0;
-      const seasonalVal = Math.max(0, trendVal * factor);
+      const seasonalVal = trendVal * factor;
       dailySeasonalSum += seasonalVal;
 
       // Determine which display bucket this day falls into
@@ -407,12 +407,15 @@ export default function RevenueChart({
       : 0;
     const errorMargin = se * Math.sqrt(forecastDaysCount);
 
-    const seasonalRatio = trendRevenue > 0 ? seasonalRevenue / trendRevenue : 1;
+    // Compute seasonal error margin using average seasonal factor over forecast period
+    // This avoids the ratio blowup when trendRevenue is near zero
+    const avgSeasonalFactor = trendRevenue !== 0 ? seasonalRevenue / trendRevenue : 1;
+    const seasonalErrorMargin = Math.abs(errorMargin * (Math.abs(avgSeasonalFactor) > 5 ? 1 : avgSeasonalFactor));
 
     const scenarios = {
       worst: {
-        trend: Math.round(Math.max(0, trendRevenue - errorMargin) * 100) / 100,
-        seasonal: Math.round(Math.max(0, (trendRevenue - errorMargin) * seasonalRatio) * 100) / 100,
+        trend: Math.round((trendRevenue - errorMargin) * 100) / 100,
+        seasonal: Math.round((seasonalRevenue - seasonalErrorMargin) * 100) / 100,
       },
       mid: {
         trend: Math.round(trendRevenue * 100) / 100,
@@ -420,7 +423,7 @@ export default function RevenueChart({
       },
       best: {
         trend: Math.round((trendRevenue + errorMargin) * 100) / 100,
-        seasonal: Math.round((trendRevenue + errorMargin) * seasonalRatio * 100) / 100,
+        seasonal: Math.round((seasonalRevenue + seasonalErrorMargin) * 100) / 100,
       },
     };
 

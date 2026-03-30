@@ -7,10 +7,11 @@ import Database from "better-sqlite3";
 import path from "path";
 import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");
 function openDb(name: string) {
-  return new Database(path.join(DB_DIR, name), { readonly: true });
+  return new Database(path.join(DB_DIR, name));
 }
 
 // Schedule C line mappings
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
 
   const salesDb = openDb("sales.db");
   const bankDb = openDb("bank.db");
+  ensureBankView(bankDb);
 
   try {
     // ── Sales Tax: Annual ──
@@ -141,7 +143,7 @@ export async function GET(request: NextRequest) {
 
     const allExpenses = bankDb.prepare(
       `SELECT name, custom_name, description, category, amount
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${payoutPlaceholders})
        AND category IS NOT NULL AND date >= ? AND date <= ?`
     ).all(...PAYOUT_CATEGORIES, yearStart, yearEnd) as {
@@ -219,7 +221,7 @@ export async function GET(request: NextRequest) {
     // ── Tax Payments Made (from bank.db) ──
     const taxPayments = bankDb.prepare(
       `SELECT date, name, custom_name, description, amount
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND (category = 'Taxes' OR LOWER(name) LIKE '%tax%' OR LOWER(description) LIKE '%tax%')
        AND date >= ? AND date <= ?
        ORDER BY date DESC`

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 /**
  * Returns the min/max date range across all data, plus available
@@ -17,7 +18,8 @@ export async function GET(request: NextRequest) {
 
   try {
     salesDb = new Database(salesDbPath, { readonly: true });
-    bankDb = new Database(bankDbPath, { readonly: true });
+    bankDb = new Database(bankDbPath);
+    ensureBankView(bankDb);
 
     // Date range from sales.db orders
     const salesRange = salesDb.prepare(
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     // Date range from bank.db rocketmoney
     const bankRange = bankDb.prepare(
-      "SELECT MIN(date) as min_date, MAX(date) as max_date FROM rocketmoney"
+      "SELECT MIN(date) as min_date, MAX(date) as max_date FROM all_bank_transactions"
     ).get() as { min_date: string | null; max_date: string | null };
 
     // Combine date ranges
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Bank sources
     const bankSources = bankDb.prepare(
-      "SELECT DISTINCT category FROM rocketmoney WHERE category IS NOT NULL AND category != '' ORDER BY category"
+      "SELECT DISTINCT category FROM all_bank_transactions WHERE category IS NOT NULL AND category != '' ORDER BY category"
     ).all() as { category: string }[];
 
     return NextResponse.json({

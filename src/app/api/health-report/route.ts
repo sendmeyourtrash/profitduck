@@ -27,7 +27,12 @@ import { getSetting, SETTING_KEYS } from "@/lib/services/settings";
 const DB_DIR = path.join(process.cwd(), "databases");
 
 function openDb(name: string) {
-  return new Database(path.join(DB_DIR, name), { readonly: true });
+  const db = new Database(path.join(DB_DIR, name));
+  if (name === "bank.db") {
+    const { ensureBankView } = require("@/lib/db/bank-db-setup");
+    ensureBankView(db);
+  }
+  return db;
 }
 
 function dateStr(d: Date): string {
@@ -280,7 +285,7 @@ export async function GET(request: NextRequest) {
 
     const sumExpenses = (start: Date, end: Date): number => {
       const r = bankDb.prepare(
-        `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total FROM rocketmoney
+        `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total FROM all_bank_transactions
          WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
          AND category IS NOT NULL AND date >= ? AND date <= ?`
       ).get(...PAYOUT_CATEGORIES, dateStr(start), dateStr(end)) as { total: number };
@@ -354,7 +359,7 @@ export async function GET(request: NextRequest) {
 
     const rawExpensesByCategory = bankDb.prepare(
       `SELECT category, ROUND(SUM(CAST(amount AS REAL)), 2) as total, COUNT(*) as cnt
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
        AND category IS NOT NULL AND date >= ? AND date <= ?
        GROUP BY category ORDER BY total DESC LIMIT 10`
@@ -372,7 +377,7 @@ export async function GET(request: NextRequest) {
     // Previous period expense breakdown by category (for comparison)
     const prevExpensesByCategory = bankDb.prepare(
       `SELECT category, ROUND(SUM(CAST(amount AS REAL)), 2) as total
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
        AND category IS NOT NULL AND date >= ? AND date <= ?
        GROUP BY category`
@@ -420,14 +425,14 @@ export async function GET(request: NextRequest) {
 
     const curLaborRow = bankDb.prepare(
       `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND (category IN (${laborPlaceholders}) OR LOWER(name) LIKE '%salary%' OR LOWER(name) LIKE '%payroll%' OR LOWER(name) LIKE '%gusto%')
        AND date >= ? AND date <= ?`
     ).get(...laborCategories, dateStr(dates.currentStart), dateStr(dates.currentEnd)) as { total: number };
 
     const prevLaborRow = bankDb.prepare(
       `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND (category IN (${laborPlaceholders}) OR LOWER(name) LIKE '%salary%' OR LOWER(name) LIKE '%payroll%' OR LOWER(name) LIKE '%gusto%')
        AND date >= ? AND date <= ?`
     ).get(...laborCategories, dateStr(dates.previousStart), dateStr(dates.previousEnd)) as { total: number };
@@ -441,7 +446,7 @@ export async function GET(request: NextRequest) {
 
     const dailyExpenses = bankDb.prepare(
       `SELECT date, ROUND(SUM(CAST(amount AS REAL)), 2) as total
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
        AND category IS NOT NULL AND date >= ?
        GROUP BY date ORDER BY date ASC`
@@ -452,7 +457,7 @@ export async function GET(request: NextRequest) {
 
     const breakEvenData = bankDb.prepare(
       `SELECT COUNT(DISTINCT strftime('%Y-%m', date)) as months, ROUND(SUM(CAST(amount AS REAL)), 2) as total
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
        AND category IS NOT NULL`
     ).get(...PAYOUT_CATEGORIES) as { months: number; total: number };

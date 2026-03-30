@@ -7,11 +7,12 @@ import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
 import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");
 
 function openDb(name: string) {
-  return new Database(path.join(DB_DIR, name), { readonly: true });
+  return new Database(path.join(DB_DIR, name));
 }
 
 const PAYOUT_CATEGORIES = [
@@ -47,7 +48,7 @@ function fetchAndResolve(
 ): ProcessedExpense[] {
   const rows = bankDb.prepare(
     `SELECT id, date, name, custom_name, description, category, amount, account_name, note
-     FROM rocketmoney
+     FROM all_bank_transactions
      WHERE CAST(amount AS REAL) > 0
      AND category NOT IN (${payoutPlaceholders})
      AND category IS NOT NULL
@@ -88,6 +89,7 @@ export async function GET(
   const limit = parseInt(searchParams.get("limit") || "50");
 
   const bankDb = openDb("bank.db");
+  ensureBankView(bankDb);
 
   try {
     let startDate: string;
@@ -98,7 +100,7 @@ export async function GET(
       if (rawEnd) endDate = rawEnd;
     } else {
       const earliest = bankDb.prepare(
-        `SELECT MIN(date) as d FROM rocketmoney WHERE CAST(amount AS REAL) > 0`
+        `SELECT MIN(date) as d FROM all_bank_transactions WHERE CAST(amount AS REAL) > 0`
       ).get() as { d: string | null };
       startDate = earliest?.d || "2020-01-01";
     }

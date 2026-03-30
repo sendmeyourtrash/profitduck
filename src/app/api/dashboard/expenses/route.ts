@@ -11,11 +11,12 @@ import Database from "better-sqlite3";
 import path from "path";
 import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");
 
 function openDb(name: string) {
-  return new Database(path.join(DB_DIR, name), { readonly: true });
+  return new Database(path.join(DB_DIR, name));
 }
 
 const PAYOUT_CATEGORIES = [
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
   const rawEnd = searchParams.get("endDate");
 
   const bankDb = openDb("bank.db");
+  ensureBankView(bankDb);
   const salesDb = openDb("sales.db");
 
   try {
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
     } else {
       // All time — find earliest
       const earliest = bankDb.prepare(
-        `SELECT MIN(date) as d FROM rocketmoney WHERE CAST(amount AS REAL) > 0`
+        `SELECT MIN(date) as d FROM all_bank_transactions WHERE CAST(amount AS REAL) > 0`
       ).get() as { d: string | null };
       startDate = earliest?.d || "2020-01-01";
     }
@@ -77,7 +79,7 @@ export async function GET(request: NextRequest) {
 
     const allExpenses = bankDb.prepare(
       `SELECT id, date, name, custom_name, description, category, amount, account_name, note
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0
        AND category NOT IN (${payoutPlaceholders})
        AND category IS NOT NULL
@@ -222,7 +224,7 @@ export async function GET(request: NextRequest) {
     // ---------- Prior period expenses ----------
     const prevAllExpenses = bankDb.prepare(
       `SELECT id, date, name, custom_name, description, category, amount, account_name, note
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0
        AND category NOT IN (${payoutPlaceholders})
        AND category IS NOT NULL
@@ -296,7 +298,7 @@ export async function GET(request: NextRequest) {
 
     const transferExpenses = bankDb.prepare(
       `SELECT category, ROUND(SUM(ABS(CAST(amount AS REAL))), 2) as total, COUNT(*) as cnt
-       FROM rocketmoney
+       FROM all_bank_transactions
        WHERE category IN (${transferPlaceholders})
        ${transferDateClause}
        GROUP BY category

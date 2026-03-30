@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 import { v4 as uuidv4 } from "uuid";
 import {
   getAllExpenseCategories,
@@ -50,11 +51,12 @@ export async function GET() {
 
   try {
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
     const rows = bankDb.prepare(`
       SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
              COUNT(*) as cnt,
              COALESCE(SUM(CAST(amount AS REAL)), 0) as total_amount
-      FROM rocketmoney
+      FROM all_bank_transactions
       WHERE 1=1
       GROUP BY vendor_name
     `).all() as { vendor_name: string; cnt: number; total_amount: number }[];

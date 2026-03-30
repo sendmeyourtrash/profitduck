@@ -19,11 +19,12 @@ import {
 } from "date-fns";
 import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");
 
 function openDb(name: string) {
-  return new Database(path.join(DB_DIR, name), { readonly: true });
+  return new Database(path.join(DB_DIR, name));
 }
 
 export async function GET(request: NextRequest) {
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
 
   const salesDb = openDb("sales.db");
   const bankDb = openDb("bank.db");
+  ensureBankView(bankDb);
 
   try {
     const now = new Date();
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
       const params: string[] = [...PAYOUT_CATEGORIES];
       if (start) { conds.push("date >= ?"); params.push(start); }
       if (end) { conds.push("date <= ?"); params.push(end); }
-      const r = bankDb.prepare(`SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total FROM rocketmoney WHERE ${conds.join(" AND ")}`).get(...params) as { total: number };
+      const r = bankDb.prepare(`SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total FROM all_bank_transactions WHERE ${conds.join(" AND ")}`).get(...params) as { total: number };
       return r.total || 0;
     };
 
@@ -126,7 +128,7 @@ export async function GET(request: NextRequest) {
     }
     const transfers = bankDb.prepare(`
       SELECT COUNT(*) as count, ROUND(SUM(ABS(CAST(amount AS REAL))), 2) as total
-      FROM rocketmoney WHERE ${transferConds.join(" AND ")}
+      FROM all_bank_transactions WHERE ${transferConds.join(" AND ")}
     `).get(...transferParams) as { count: number; total: number };
 
     // Expense category breakdown from bank.db — with vendor alias resolution
@@ -142,7 +144,7 @@ export async function GET(request: NextRequest) {
     }
     const rawExpenses = bankDb.prepare(`
       SELECT category, ROUND(SUM(CAST(amount AS REAL)), 2) as total, COUNT(*) as cnt
-      FROM rocketmoney
+      FROM all_bank_transactions
       WHERE ${expConds.join(" AND ")}
       GROUP BY category ORDER BY total DESC LIMIT 10
     `).all(...expParams) as { category: string; total: number; cnt: number }[];
@@ -161,7 +163,7 @@ export async function GET(request: NextRequest) {
     }
     const recentTransactions = bankDb.prepare(`
       SELECT date, name, custom_name, description, amount, category, account_type, account_name
-      FROM rocketmoney
+      FROM all_bank_transactions
       WHERE ${recentConds.join(" AND ")}
       ORDER BY date DESC LIMIT 10
     `).all(...recentParams) as { date: string; name: string; custom_name: string; description: string; amount: string; category: string; account_type: string; account_name: string }[];
@@ -220,7 +222,7 @@ export async function GET(request: NextRequest) {
       SELECT
         ROUND(SUM(CASE WHEN CAST(amount AS REAL) < 0 THEN ABS(CAST(amount AS REAL)) ELSE 0 END), 2) as deposits,
         ROUND(SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN CAST(amount AS REAL) ELSE 0 END), 2) as outflows
-      FROM rocketmoney ${cashFlowWhere}
+      FROM all_bank_transactions ${cashFlowWhere}
     `).get(...cashFlowParams) as { deposits: number; outflows: number };
     const cashFlow = {
       deposits: cashFlowRow.deposits || 0,

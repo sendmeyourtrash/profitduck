@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 import { v4 as uuidv4 } from "uuid";
 import {
   getAllCategorizationRules,
@@ -108,12 +109,13 @@ function getUncategorizedSuggestions() {
 
   try {
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
     const rows = bankDb.prepare(`
       SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
              category as rm_category,
              COUNT(*) as cnt,
              ROUND(SUM(CAST(amount AS REAL)), 2) as total_amount
-      FROM rocketmoney
+      FROM all_bank_transactions
       GROUP BY vendor_name, rm_category
       ORDER BY cnt DESC
     `).all() as { vendor_name: string; rm_category: string; cnt: number; total_amount: number }[];
@@ -208,9 +210,10 @@ export async function POST(request: NextRequest) {
 
       try {
         const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
         const rows = bankDb.prepare(`
           SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name, COUNT(*) as cnt
-          FROM rocketmoney
+          FROM all_bank_transactions
           WHERE 1=1
           GROUP BY vendor_name
         `).all() as { vendor_name: string; cnt: number }[];

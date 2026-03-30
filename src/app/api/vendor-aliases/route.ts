@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureBankView } from "@/lib/db/bank-db-setup";
 import { v4 as uuidv4 } from "uuid";
 import {
   getAllVendorAliases,
@@ -80,12 +81,13 @@ function getSuggestedGroups() {
     const Database = require("better-sqlite3");
     const path = require("path");
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
 
     const rows = bankDb.prepare(`
       SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
              COUNT(*) as cnt,
              ROUND(SUM(CAST(amount AS REAL)), 2) as total_amount
-      FROM rocketmoney
+      FROM all_bank_transactions
       GROUP BY vendor_name
       ORDER BY cnt DESC
     `).all() as { vendor_name: string; cnt: number; total_amount: number }[];
@@ -309,9 +311,10 @@ export async function GET(req: NextRequest) {
     const Database = require("better-sqlite3");
     const path = require("path");
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
     const rows = bankDb.prepare(`
       SELECT DISTINCT COALESCE(NULLIF(custom_name, ''), name) as vendor_name
-      FROM rocketmoney
+      FROM all_bank_transactions
       WHERE vendor_name IS NOT NULL AND vendor_name != ''
     `).all() as { vendor_name: string }[];
     allVendorNames = rows.map(r => r.vendor_name);
@@ -406,11 +409,12 @@ export async function GET(req: NextRequest) {
         const Database = require("better-sqlite3");
         const path = require("path");
         const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
 
         const result = unmatched.map((u) => {
           const row = bankDb.prepare(`
             SELECT COUNT(*) as cnt, COALESCE(ROUND(SUM(CAST(amount AS REAL)), 2), 0) as total
-            FROM rocketmoney
+            FROM all_bank_transactions
             WHERE COALESCE(NULLIF(custom_name, ''), name) = ?
           `).get(u.raw_name) as { cnt: number; total: number } | undefined;
 
@@ -443,13 +447,14 @@ export async function GET(req: NextRequest) {
         const Database = require("better-sqlite3");
         const path = require("path");
         const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(bankDb);
         const allAliases = getAllVendorAliases();
 
         const result = ignored.map((i) => {
           // Check if this ignored name matches any alias pattern to get the right raw names
           const row = bankDb.prepare(`
             SELECT COUNT(*) as cnt, COALESCE(ROUND(SUM(CAST(amount AS REAL)), 2), 0) as total
-            FROM rocketmoney
+            FROM all_bank_transactions
             WHERE COALESCE(NULLIF(custom_name, ''), name) LIKE ?
           `).get(`%${i.vendor_name}%`) as { cnt: number; total: number } | undefined;
 
@@ -511,7 +516,8 @@ export async function POST(req: NextRequest) {
             const Database = require("better-sqlite3");
             const path = require("path");
             const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
-            const row = bankDb.prepare("SELECT COUNT(*) as cnt FROM rocketmoney WHERE name = ?").get(vendorName) as { cnt: number } | undefined;
+    ensureBankView(bankDb);
+            const row = bankDb.prepare("SELECT COUNT(*) as cnt FROM all_bank_transactions WHERE name = ?").get(vendorName) as { cnt: number } | undefined;
             if (row) count = row.cnt;
             bankDb.close();
           } catch { /* fallback to count=1 */ }
