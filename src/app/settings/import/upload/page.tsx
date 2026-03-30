@@ -87,9 +87,9 @@ const PLATFORMS: { value: SourcePlatform; label: string }[] = [
 ];
 
 const PLATFORM_CARDS = [
-  { key: "doordash", name: "DoorDash", color: "bg-red-50 border-red-200", icon: "🔴" },
-  { key: "ubereats", name: "Uber Eats", color: "bg-green-50 border-green-200", icon: "🟢" },
-  { key: "grubhub", name: "Grubhub", color: "bg-orange-50 border-orange-200", icon: "🟠" },
+  { key: "doordash", name: "DoorDash", color: "bg-red-50 border-red-200", icon: "🔴", portal: "https://merchant-portal.doordash.com" },
+  { key: "ubereats", name: "Uber Eats", color: "bg-green-50 border-green-200", icon: "🟢", portal: "https://merchants.ubereats.com" },
+  { key: "grubhub", name: "Grubhub", color: "bg-orange-50 border-orange-200", icon: "🟠", portal: "https://restaurant.grubhub.com" },
 ];
 
 const SUPPORTED_FORMATS = [
@@ -138,10 +138,12 @@ export default function UploadPage() {
   // History
   const [syncHistory, setSyncHistory] = useState<SyncHistory[]>([]);
 
-  // Uber Eats scraper state
-  const [ueScraperActive, setUeScraperActive] = useState(false);
-  const [ueScraperStatus, setUeScraperStatus] = useState<{
-    stage: string; message: string; ordersScraped?: number;
+  // Extension status
+  const [extensionStatus, setExtensionStatus] = useState<{
+    connected: boolean;
+    lastSync?: string;
+    inserted?: number;
+    skipped?: number;
   } | null>(null);
 
 
@@ -192,7 +194,34 @@ export default function UploadPage() {
     loadSettings();
     loadSyncStatus();
     loadSyncHistory();
+    loadExtensionStatus();
   }, []);
+
+  async function loadExtensionStatus() {
+    try {
+      const res = await fetch("/api/ingest/extension");
+      if (res.ok) {
+        const data = await res.json();
+        setExtensionStatus({ connected: true, ...data });
+      }
+    } catch {
+      setExtensionStatus({ connected: false });
+    }
+    // Also check last extension import
+    try {
+      const res = await fetch("/api/imports?source=ubereats-extension&limit=1");
+      const data = await res.json();
+      if (data.imports?.length > 0) {
+        const last = data.imports[0];
+        setExtensionStatus((prev) => ({
+          ...prev,
+          connected: prev?.connected ?? false,
+          lastSync: last.importedAt,
+          inserted: last.rowsProcessed,
+        }));
+      }
+    } catch { /* ignore */ }
+  }
 
   async function loadSettings() {
     try {
@@ -580,83 +609,51 @@ export default function UploadPage() {
               <div>
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{p.name}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {p.key === "ubereats" ? "CSV import or auto-scrape" : "CSV import only — no API available"}
+                  CSV import or extension auto-capture
                 </p>
               </div>
             </div>
-            {p.key === "ubereats" ? (
-              <button
-                onClick={async () => {
-                  if (ueScraperActive) {
-                    // Abort
-                    await fetch("/api/scrape/ubereats", { method: "DELETE" });
-                    setUeScraperActive(false);
-                    setUeScraperStatus(null);
-                    return;
-                  }
-                  setUeScraperActive(true);
-                  setUeScraperStatus({ stage: "launching", message: "Launching Chrome..." });
-                  try {
-                    await fetch("/api/scrape/ubereats", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({}),
-                    });
-                    // Poll for status
-                    const poll = setInterval(async () => {
-                      try {
-                        const res = await fetch("/api/scrape/ubereats");
-                        const data = await res.json();
-                        setUeScraperStatus(data);
-                        if (data.stage === "done" || data.stage === "error" || !data.active) {
-                          clearInterval(poll);
-                          setUeScraperActive(false);
-                        }
-                      } catch { /* ignore */ }
-                    }, 2000);
-                  } catch {
-                    setUeScraperActive(false);
-                    setUeScraperStatus({ stage: "error", message: "Failed to start scraper" });
-                  }
-                }}
-                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                  ueScraperActive
-                    ? "bg-red-100 text-red-700 hover:bg-red-200"
-                    : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                }`}
-              >
-                {ueScraperActive ? "Stop Scraper" : "Scrape Orders"}
-              </button>
-            ) : (
-              <span className="text-xs text-gray-400 dark:text-gray-500 px-2.5 py-1 bg-gray-100 dark:bg-gray-700 rounded-full">CSV Only</span>
-            )}
+            <a
+              href={p.portal}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            >
+              Open Portal &rarr;
+            </a>
           </div>
         ))}
-        {/* Uber Eats Scraper Status */}
-        {ueScraperStatus && ueScraperStatus.stage !== "done" && (
-          <div className={`rounded-lg p-3 text-sm ${
-            ueScraperStatus.stage === "error"
-              ? "bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 text-red-700 dark:text-red-400"
-              : "bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 text-blue-700 dark:text-blue-400"
-          }`}>
+        {/* Chrome Extension Status */}
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-1">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {ueScraperStatus.stage !== "error" && (
-                <div className="animate-spin h-3.5 w-3.5 border-2 border-blue-400 border-t-transparent rounded-full" />
-              )}
-              <span className="text-xs">{ueScraperStatus.message}</span>
+              <span className="text-sm">🧩</span>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Profit Duck Extension</p>
             </div>
-            {ueScraperStatus.ordersScraped != null && ueScraperStatus.ordersScraped > 0 && (
-              <p className="text-xs mt-1 ml-5">
-                {ueScraperStatus.ordersScraped} orders found
-              </p>
+            {extensionStatus?.connected ? (
+              <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Connected
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600" />
+                Not detected
+              </span>
             )}
           </div>
-        )}
-        {ueScraperStatus && ueScraperStatus.stage === "done" && ueScraperStatus.message !== "Ready" && (
-          <div className="rounded-lg p-3 text-xs bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-400">
-            {ueScraperStatus.message}
-          </div>
-        )}
+          {extensionStatus?.lastSync && (
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 ml-6">
+              Last sync: {new Date(extensionStatus.lastSync).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              {extensionStatus.inserted ? ` — ${extensionStatus.inserted} orders` : ""}
+            </p>
+          )}
+          {!extensionStatus?.connected && (
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 ml-6">
+              Install the extension to auto-capture orders when browsing delivery portals.
+            </p>
+          )}
+        </div>
 
         {/* ── Sync History ────────────────────────────────────────── */}
         {syncHistory.length > 0 && (
