@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ingestUberEatsOrders } from "@/lib/services/pipeline-step1-ingest";
 import { unifyUberEats } from "@/lib/services/pipeline-step2-unify";
 import { step3ApplyAliases } from "@/lib/services/pipeline-step3-aliases";
+import { createImport } from "@/lib/db/config-db";
 
 // CORS headers for chrome-extension:// origin
 const corsHeaders = {
@@ -127,6 +128,15 @@ export async function POST(request: NextRequest) {
     console.log(
       `[Extension Ingest] ${platform}: ${inserted} inserted, ${skipped} skipped`
     );
+
+    // Record in import history
+    if (inserted > 0) {
+      createImport(
+        `${platform} extension sync (${orders.length} orders)`,
+        `${platform}-extension`,
+        inserted
+      );
+    }
 
     return NextResponse.json(
       {

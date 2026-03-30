@@ -30,6 +30,7 @@ import {
 } from "./square-api";
 import { unifySquare } from "./pipeline-step2-unify";
 import { step3ApplyAliases } from "./pipeline-step3-aliases";
+import { createImport } from "../db/config-db";
 import { ProgressCallback } from "./progress";
 
 const DB_DIR = path.join(process.cwd(), "databases");
@@ -335,6 +336,17 @@ export async function syncSquareFees(
   };
 
   console.log("[Square Sync] Complete:", result);
+
+  // Record in import history
+  createImport(
+    `Square API Sync`,
+    "square-api",
+    result.newOrders,
+    undefined,
+    startDate ? new Date(startDate).toISOString().slice(0, 10) : undefined,
+    new Date().toISOString().slice(0, 10)
+  );
+
   return result;
 }
 
