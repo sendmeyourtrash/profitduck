@@ -39,6 +39,7 @@ const pauseToggle = $("#pause-toggle");
 
 // ---- State ----
 let syncing = false;
+let lastLoggedCrawlMessage = "";
 
 // ---- Pause toggle ----
 pauseToggle.addEventListener("click", async () => {
@@ -103,6 +104,7 @@ async function triggerSync(mode, options = {}) {
   const label = mode === "full" ? "Full re-sync" : mode === "date-range" ? "Date range sync" : "Smart sync";
   smartSyncBtn.textContent = `${label}...`;
   crawlMessage.textContent = "Starting...";
+  lastLoggedCrawlMessage = ""; // Reset so next completion logs
   addLog(`Starting ${label}...`);
 
   try {
@@ -204,11 +206,15 @@ async function refreshStatus() {
         if (!syncing) disableSyncButtons();
       } else if (["done", "aborted", "error"].includes(cs.state)) {
         crawlMessage.textContent = cs.message || "Done";
-        if (cs.state === "done") {
-          crawlBar.style.width = "100%";
-          addLog(cs.message, "success");
-        } else if (cs.state === "error") {
-          addLog(cs.message, "error");
+        // Only log once per unique message to avoid spam
+        if (cs.message && cs.message !== lastLoggedCrawlMessage) {
+          lastLoggedCrawlMessage = cs.message;
+          if (cs.state === "done") {
+            crawlBar.style.width = "100%";
+            addLog(cs.message, "success");
+          } else if (cs.state === "error") {
+            addLog(cs.message, "error");
+          }
         }
         enableSyncButtons();
       }
