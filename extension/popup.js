@@ -33,9 +33,30 @@ const serverUrlInput = $("#server-url");
 const apiKeyInput = $("#api-key");
 const saveSettingsBtn = $("#save-settings");
 const logEl = $("#log");
+const pauseBar = $("#pause-bar");
+const pauseLabel = $("#pause-label");
+const pauseToggle = $("#pause-toggle");
 
 // ---- State ----
 let syncing = false;
+
+// ---- Pause toggle ----
+pauseToggle.addEventListener("click", async () => {
+  const result = await chrome.runtime.sendMessage({ action: "toggle_pause" });
+  updatePauseUI(result.paused);
+});
+
+function updatePauseUI(isPaused) {
+  if (isPaused) {
+    pauseBar.className = "pause-bar paused";
+    pauseLabel.textContent = "Auto-capture paused";
+    pauseToggle.textContent = "Resume";
+  } else {
+    pauseBar.className = "pause-bar active";
+    pauseLabel.textContent = "Auto-capture active";
+    pauseToggle.textContent = "Pause";
+  }
+}
 
 // ---- Load settings ----
 chrome.storage.local
@@ -156,6 +177,7 @@ async function refreshStatus() {
     capturedEl.textContent = status.capturedCount || 0;
     syncedEl.textContent = status.sentCount || 0;
     queuedEl.textContent = status.queueSize || 0;
+    updatePauseUI(status.paused);
 
     if (status.lastSync?.time) {
       const ago = timeAgo(new Date(status.lastSync.time));

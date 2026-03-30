@@ -14,6 +14,7 @@ const sentIds = new Set();
 let capturedCount = 0;
 let lastSync = { time: null, inserted: 0, skipped: 0, error: null };
 let crawlStatus = { state: "idle", message: "" };
+let paused = true; // Start paused — user must explicitly sync
 
 // ---- Constants ----
 const FLUSH_ALARM = "profitduck-flush";
@@ -170,8 +171,13 @@ async function flushQueue() {
 }
 
 function updateBadge() {
-  chrome.action.setBadgeText({ text: capturedCount > 0 ? String(capturedCount) : "" });
-  chrome.action.setBadgeBackgroundColor({ color: "#6366f1" });
+  if (paused) {
+    chrome.action.setBadgeText({ text: "||" });
+    chrome.action.setBadgeBackgroundColor({ color: "#9ca3af" });
+  } else {
+    chrome.action.setBadgeText({ text: capturedCount > 0 ? String(capturedCount) : "" });
+    chrome.action.setBadgeBackgroundColor({ color: "#6366f1" });
+  }
 }
 
 // ---- Trigger sync in content script via chrome.debugger ----
@@ -258,7 +264,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       flushQueue().then(() => sendResponse({ ok: true, lastSync }));
       return true;
     case "get_status":
-      sendResponse({ capturedCount, queueSize: orderQueue.size, sentCount: sentIds.size, lastSync, crawlStatus });
+      sendResponse({ capturedCount, queueSize: orderQueue.size, sentCount: sentIds.size, lastSync, crawlStatus, paused });
+      break;
+    case "toggle_pause":
+      paused = !paused;
+      chrome.storage.local.set({ paused });
+      updateBadge();
+      sendResponse({ paused });
       break;
     case "flush_now":
       flushQueue().then(() => sendResponse({ ok: true, lastSync }));
@@ -267,6 +279,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       healthCheck().then(d => sendResponse({ connected: true, version: d.version })).catch(() => sendResponse({ connected: false }));
       return true;
     case "start_sync":
+      paused = false; // Auto-unpause when user triggers sync
+      chrome.storage.local.set({ paused });
       triggerSync(message.mode || "smart", { startDate: message.startDate, endDate: message.endDate });
       sendResponse({ ok: true });
       break;
@@ -283,6 +297,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function handleIntercepted(message) {
+  if (paused) return; // Skip capture when paused
   const order = normalizeOrderDetails(message.data);
   if (!order) return;
   const id = order.orderUUID;
@@ -299,4 +314,9 @@ chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === FLUSH_ALARM) f
 
 // ---- Startup ----
 chrome.runtime.onInstalled.addListener(() => { console.log("[Profit Duck] Extension installed"); updateBadge(); });
-chrome.storage.local.get("lastSync").then((result) => { if (result.lastSync) lastSync = result.lastSync; });
+chrome.storage.local.get(["lastSync", "paused"]).then((result) => {
+  if (result.lastSync) lastSync = result.lastSync;
+  if (result.paused !== undefined) paused = result.paused;
+  else paused = true; // Default to paused
+  updateBadge();
+});
