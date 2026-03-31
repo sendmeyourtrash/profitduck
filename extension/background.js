@@ -133,26 +133,32 @@ function normalizeOrderDetails(data) {
   };
 }
 
-// ---- DoorDash normalizer (stub — will be completed after API research) ----
+// ---- DoorDash normalizer ----
 
 function normalizeDoorDashOrder(data) {
-  // Handle order detail response (from /orders_details/ endpoint)
   const od = data?.data;
   if (!od?.orderId) return null;
 
   const cents = (obj) => (obj?.unitAmount || 0) / 100;
+  const fmt = (n) => n.toFixed(2);
   const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
+  const pickupAt = od.pickupTime ? new Date(od.pickupTime) : null;
 
+  // Financial fields
   const subtotal = cents(od.preTaxTotal);
   const tax = cents(od.tax || od.totalTax);
   const commission = cents(od.commission);
-  const totalFees = Math.abs(cents(od.totalFees));
   const netPayout = cents(od.netPayout);
   const tip = cents(od.merchantTipAmount);
   const errorCharges = cents(od.errorCharges);
   const refunds = cents(od.refunds);
+  const procFee = cents(od.paymentProcessingFee || od.processingFee);
+  const tabletFee = cents(od.tabletFee);
+  const adjustments = cents(od.adjustments);
+  const discYou = cents(od.customerDiscountsFundedByYou || od.merchantFundedDiscount);
+  const discDD = cents(od.customerDiscountsFundedByDoordash || od.doordashFundedDiscount);
+  const ddCredit = cents(od.doordashMarketingCredit);
 
-  // Extract marketing/ad fees from feeGroups
   let marketingFee = 0;
   if (od.feeGroups?.ad_fees?.totalAmount) {
     marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
@@ -185,9 +191,19 @@ function normalizeDoorDashOrder(data) {
     }
   }
 
-  const orderDate = completedAt.toISOString().slice(0, 10);
-  const orderTime = completedAt.toISOString().slice(11, 16);
+  // Use local time (restaurant's timezone), not UTC
+  const pad = (n) => String(n).padStart(2, "0");
+  const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
+  const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
+  const utcDate = completedAt.toISOString().slice(0, 10);
+  const utcTime = completedAt.toISOString().slice(11, 19);
 
+  // Determine channel/dining option
+  const fulfillment = od.fulfillmentType || "";
+  const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
+    : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
+
+  // Map to detailed_transactions column names (matching DoorDash CSV schema)
   return {
     orderUUID: od.deliveryUuid || od.orderId,
     orderId: od.orderId,
@@ -195,22 +211,36 @@ function normalizeDoorDashOrder(data) {
     netPayout,
     items,
     csvRow: {
-      "order_id": od.orderId,
-      "date": orderDate,
-      "time": orderTime,
-      "subtotal": subtotal.toFixed(2),
-      "tax": tax.toFixed(2),
-      "tip": tip.toFixed(2),
-      "commission": (-commission).toFixed(2),
-      "commission_rate": String(od.commissionRate || 0),
-      "marketing_fee": (-marketingFee).toFixed(2),
-      "total_fees": (-totalFees).toFixed(2),
-      "error_charges": (-errorCharges).toFixed(2),
-      "refunds": (-refunds).toFixed(2),
-      "estimated_payout": netPayout.toFixed(2),
+      "doordash_order_id": od.orderId,
+      "delivery_uuid": od.deliveryUuid || "",
+      "timestamp_local_date": orderDate,
+      "timestamp_local_time": orderTime,
+      "timestamp_utc_date": utcDate,
+      "timestamp_utc_time": utcTime,
+      "order_received_local_time": od.orderReceivedTime || "",
+      "order_pickup_local_time": pickupAt ? pickupAt.toISOString() : "",
+      "transaction_type": "Order",
+      "channel": channel,
+      "final_order_status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
+      "currency": "USD",
+      // Financial — stored as strings matching CSV format
+      "subtotal": fmt(subtotal),
+      "subtotal_tax_passed_to_merchant": fmt(tax),
+      "commission": fmt(-Math.abs(commission)),
+      "payment_processing_fee": fmt(-Math.abs(procFee)),
+      "tablet_fee": fmt(-Math.abs(tabletFee)),
+      "marketing_fees": fmt(-Math.abs(marketingFee)),
+      "customer_discounts_funded_by_you": fmt(-Math.abs(discYou)),
+      "customer_discounts_funded_by_doordash": fmt(discDD),
+      "doordash_marketing_credit": fmt(ddCredit),
+      "error_charges": fmt(-Math.abs(errorCharges)),
+      "adjustments": fmt(adjustments),
+      "net_total": fmt(netPayout),
+      // Extra fields from API (not in CSV) — stored for enrichment
+      "description": items.map(i => `${i.quantity}x ${i.name}`).join(", "),
       "customer_name": od.consumer?.formalNameAbbreviated || "",
-      "status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
-      "fulfillment_type": od.fulfillmentType || "dasher",
+      "tip": fmt(tip),
+      "commission_rate": String(od.commissionRate || ""),
       "items_json": JSON.stringify(items),
       "raw_json": JSON.stringify(data),
       "source": "extension",

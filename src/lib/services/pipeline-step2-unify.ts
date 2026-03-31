@@ -366,7 +366,7 @@ export function unifyDoordash(): UnifyResult {
     INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
       unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
       event_type, dining_option)
-    VALUES (?, 'doordash', ?, ?, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
+    VALUES (?, 'doordash', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -404,25 +404,57 @@ export function unifyDoordash(): UnifyResult {
       const txnType = (r.transaction_type as string) || "";
       const status = txnType === "Order" ? "completed" : txnType.toLowerCase().replace(/ /g, "_");
       const channel = (r.channel as string) || "";
-      const diningOption = channel === "Storefront" ? "Storefront" : "Delivery";
+      const diningOption = channel === "Storefront" ? "Storefront"
+        : channel === "Pickup" ? "Pickup" : "Delivery";
+      const tip = parseAmount(r.tip as string);
+      const customerName = (r.customer_name as string) || null;
+
+      // Parse items from extension data
+      let itemsJson: { name: string; quantity: number; price: number; category?: string; extras?: unknown[] }[] = [];
+      let itemDescription: string | null = null;
+      let itemCount = 0;
+      try {
+        if (r.items_json) {
+          itemsJson = JSON.parse(r.items_json as string);
+          itemCount = itemsJson.reduce((sum, i) => sum + (i.quantity || 1), 0);
+          itemDescription = itemsJson.map(i => `${i.quantity}x ${i.name}`).join(", ");
+        }
+      } catch {}
 
       insert.run(
         r.timestamp_local_date, r.timestamp_local_time, "doordash", orderId,
         gross, tax, totalFees, net,
-        status, null, null, null,
-        0, 0, diningOption, null, null,
+        status, itemDescription, itemCount, null,
+        tip, 0, diningOption, customerName, null,
         commissionFee, processingFee, 0, marketingFee,
         feesTotal, marketingTotal, 0, adjustmentsTotal, 0
       );
 
-      // order_items: 1 row per order (no item detail from DoorDash)
-      insertItem.run(
-        orderId,
-        r.timestamp_local_date, r.timestamp_local_time,
-        "DoorDash Order", status, gross, gross, net,
-        "DoorDash Order", status,
-        "Payment", diningOption
-      );
+      // Insert real item rows if available (from extension), otherwise synthetic row
+      if (itemsJson.length > 0) {
+        for (const item of itemsJson) {
+          const qty = item.quantity || 1;
+          const unitPrice = item.price || 0;
+          const itemGross = Math.round(unitPrice * qty * 100) / 100;
+          const modifiers = item.extras && item.extras.length > 0
+            ? JSON.stringify(item.extras) : "";
+          insertItem.run(
+            orderId,
+            r.timestamp_local_date, r.timestamp_local_time,
+            item.name, item.category || "", qty, unitPrice, itemGross, itemGross,
+            modifiers, item.name, item.category || "",
+            "Payment", diningOption
+          );
+        }
+      } else {
+        insertItem.run(
+          orderId,
+          r.timestamp_local_date, r.timestamp_local_time,
+          "DoorDash Order", status, 1, gross, gross, net,
+          "", "DoorDash Order", status,
+          "Payment", diningOption
+        );
+      }
 
       result.inserted++;
     }

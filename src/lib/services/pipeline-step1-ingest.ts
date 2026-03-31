@@ -335,8 +335,14 @@ export function ingestDoordashOrders(rows: Record<string, string>[]): IngestResu
     customer_discounts_funded_by_third_party TEXT, doordash_marketing_credit TEXT,
     third_party_contribution TEXT, error_charges TEXT, adjustments TEXT, net_total TEXT,
     pre_adjusted_subtotal TEXT, pre_adjusted_tax_subtotal TEXT, subtotal_for_tax TEXT,
-    subtotal_tax_remitted_by_doordash TEXT, payout_id TEXT
+    subtotal_tax_remitted_by_doordash TEXT, payout_id TEXT,
+    tip TEXT, customer_name TEXT, commission_rate TEXT, items_json TEXT, raw_json TEXT, source TEXT
   )`);
+
+  // Add extension columns to existing tables (safe — SQLite ignores if already exists)
+  for (const col of ["tip", "customer_name", "commission_rate", "items_json", "raw_json", "source"]) {
+    try { db.exec(`ALTER TABLE detailed_transactions ADD COLUMN ${col} TEXT`); } catch {}
+  }
 
   const cols = [
     "timestamp_utc_time", "timestamp_utc_date", "timestamp_local_time", "timestamp_local_date",
@@ -350,7 +356,8 @@ export function ingestDoordashOrders(rows: Record<string, string>[]): IngestResu
     "customer_discounts_funded_by_third_party", "doordash_marketing_credit",
     "third_party_contribution", "error_charges", "adjustments", "net_total",
     "pre_adjusted_subtotal", "pre_adjusted_tax_subtotal", "subtotal_for_tax",
-    "subtotal_tax_remitted_by_doordash", "payout_id"
+    "subtotal_tax_remitted_by_doordash", "payout_id",
+    "tip", "customer_name", "commission_rate", "items_json", "raw_json", "source"
   ];
 
   const insertMany = db.transaction(() => {
