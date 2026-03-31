@@ -93,6 +93,15 @@
 
   // ---- Scroll to load all orders (infinite scroll) ----
 
+  function isSpinnerVisible() {
+    // Check for Uber Eats loading spinners / progress indicators
+    const spinners = document.querySelectorAll('[role="progressbar"], [data-testid="loading"], [class*="spinner"], [class*="Spinner"], [class*="loading"], svg[class*="circular"]');
+    for (const el of spinners) {
+      if (el.offsetParent !== null) return true; // visible
+    }
+    return false;
+  }
+
   async function scrollToLoadAll() {
     console.log("[Profit Duck] Scrolling to load all orders...");
     postCrawlStatus({ state: "scanning", message: "Loading all orders..." });
@@ -100,15 +109,28 @@
     let lastCount = 0;
     let stableRounds = 0;
 
-    while (stableRounds < 3) {
+    while (stableRounds < 5) {
       if (crawlAbort) return 0;
       window.scrollTo(0, document.body.scrollHeight);
-      await new Promise(r => setTimeout(r, 1500));
+
+      // Wait for spinner to appear then disappear, or 2s timeout
+      let waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 500));
+        waited += 500;
+        if (!isSpinnerVisible() && waited >= 1000) break;
+      }
 
       const currentCount = document.querySelectorAll('tr[data-testid="ordersRevamped-row"]').length;
-      console.log(`[Profit Duck] Scrolled — ${currentCount} rows visible`);
+      console.log(`[Profit Duck] Scrolled — ${currentCount} rows visible${isSpinnerVisible() ? " (still loading)" : ""}`);
+      postCrawlStatus({ state: "scanning", message: `Loading orders... ${currentCount} found` });
 
       if (currentCount === lastCount) {
+        // If spinner is still visible, don't count as stable
+        if (isSpinnerVisible()) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
         stableRounds++;
       } else {
         stableRounds = 0;
