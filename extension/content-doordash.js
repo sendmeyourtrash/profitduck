@@ -44,7 +44,6 @@
   const WEEK_MS = 7 * 86400000;
 
   function crawlFetch(url, body) {
-    // Use XMLHttpRequest — NOT fetch() which hangs due to DoorDash's service worker
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", url, true);
@@ -64,6 +63,9 @@
       xhr.send(JSON.stringify(body));
     });
   }
+
+  // fetchOrderDetail removed — orders_details endpoint hangs from content script context.
+  // We normalize from list data instead.
 
   function getStoreAndBusinessIds() {
     const storeId = extractStoreId();
@@ -90,15 +92,7 @@
     return crawlFetch(ORDER_LIST_URL, requestBody);
   }
 
-  async function fetchOrderDetail(deliveryUuid) {
-    const json = await crawlFetch(ORDER_DETAIL_URL + "/", { deliveryUuid });
-    // Post lightweight capture event (full data is too large for message channel)
-    const orderId = json?.data?.orderId || deliveryUuid;
-    try {
-      window.postMessage({ type: "PROFITDUCK_CAPTURED", platform: "doordash", orderId }, "*");
-    } catch {}
-    return json;
-  }
+
 
   function extractStoreId() {
     // Try to find storeId from URL params or page content
@@ -141,63 +135,36 @@
     return null;
   }
 
-  // ---- Normalize order detail into csvRow for server ----
+  // ---- Normalize order list entry into csvRow for server ----
+  // Uses data from get_orders (list endpoint), NOT orders_details (which hangs)
 
-  function normalizeOrderToCsvRow(json) {
-    const od = json?.data;
-    if (!od?.orderId) return null;
-    const cents = (obj) => (obj?.unitAmount || 0) / 100;
+  function normalizeListOrderToCsvRow(order) {
+    if (!order?.orderId) return null;
     const fmt = (n) => n.toFixed(2);
-    const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
     const pad = (n) => String(n).padStart(2, "0");
+
+    const completedAt = order.completedTime ? new Date(order.completedTime) : new Date();
     const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
     const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
 
-    const items = [];
-    if (od.orders && Array.isArray(od.orders)) {
-      for (const g of od.orders) {
-        for (const item of (g.orderItems || [])) {
-          const extras = (item.itemExtras || []).map(e => {
-            const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
-            return { name: e.name || "", option: opt?.name || "", price: cents(opt?.price) };
-          }).filter(e => e.option);
-          items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
-        }
-      }
-    }
-
-    let marketingFee = 0;
-    if (od.feeGroups?.ad_fees?.totalAmount) marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
-
-    const fulfillment = od.fulfillmentType || "";
-    const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
-      : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
+    // orderValue from list has unitAmount in cents
+    const subtotal = (order.orderValue?.unitAmount || 0) / 100;
+    const customerName = order.consumer?.formalNameAbbreviated || order.consumer?.formalName || "";
+    const status = order.orderStatusDisplay || order.orderStatusValue || "Completed";
 
     return {
-      "doordash_order_id": od.orderId,
-      "delivery_uuid": od.deliveryUuid || "",
+      "doordash_order_id": order.orderId,
+      "delivery_uuid": order.deliveryUuid || "",
       "timestamp_local_date": orderDate,
       "timestamp_local_time": orderTime,
       "timestamp_utc_date": completedAt.toISOString().slice(0, 10),
       "timestamp_utc_time": completedAt.toISOString().slice(11, 19),
       "transaction_type": "Order",
-      "channel": channel,
-      "final_order_status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
-      "currency": "USD",
-      "subtotal": fmt(cents(od.preTaxTotal)),
-      "subtotal_tax_passed_to_merchant": fmt(cents(od.tax || od.totalTax)),
-      "commission": fmt(-Math.abs(cents(od.commission))),
-      "payment_processing_fee": fmt(-Math.abs(cents(od.paymentProcessingFee || od.processingFee))),
-      "tablet_fee": fmt(-Math.abs(cents(od.tabletFee))),
-      "marketing_fees": fmt(-Math.abs(marketingFee)),
-      "error_charges": fmt(-Math.abs(cents(od.errorCharges))),
-      "adjustments": fmt(cents(od.adjustments)),
-      "net_total": fmt(cents(od.netPayout)),
-      "description": items.map(i => `${i.quantity}x ${i.name}`).join(", "),
-      "customer_name": od.consumer?.formalNameAbbreviated || "",
-      "tip": fmt(cents(od.merchantTipAmount)),
-      "commission_rate": String(od.commissionRate || ""),
-      "items_json": JSON.stringify(items),
+      "channel": "Marketplace",
+      "final_order_status": status,
+      "currency": order.orderValue?.currency || "USD",
+      "subtotal": fmt(subtotal),
+      "customer_name": customerName,
       "source": "extension",
     };
   }
@@ -326,49 +293,25 @@
         current: 0,
       });
 
-      console.log(`[Profit Duck] Starting detail fetch for ${newOrders.length} orders. First: ${newOrders[0]?.orderId}, UUID: ${newOrders[0]?.deliveryUuid}`);
-
-      let fetched = 0;
+      // Normalize directly from list data (detail endpoint hangs from content script)
       const csvRows = [];
       for (const order of newOrders) {
-        if (crawlAbort) {
-          postCrawlStatus({ state: "done", message: `Stopped — ${fetched} orders captured.` });
-          break;
-        }
-
-        try {
-          const json = await fetchOrderDetail(order.deliveryUuid);
-          const row = normalizeOrderToCsvRow(json);
-          if (row) csvRows.push(row);
-          fetched++;
-          postCrawlStatus({
-            state: "fetching",
-            message: `Fetching order ${fetched}/${newOrders.length}...`,
-            total: newOrders.length,
-            current: fetched,
-          });
-        } catch (err) {
-          console.warn(`[Profit Duck] Failed to fetch order ${order.orderId}:`, err.message);
-        }
-
-        // Rate limit: 400ms between detail requests
-        await new Promise(r => setTimeout(r, 400));
+        const row = normalizeListOrderToCsvRow(order);
+        if (row) csvRows.push(row);
       }
 
-      // Send normalized csvRows to server via bridge one at a time (large batches fail postMessage)
+      console.log(`[Profit Duck] Normalized ${csvRows.length} orders from list data`);
+
+      // Send to server via bridge (MAIN world can't reach localhost due to CSP)
       if (csvRows.length > 0) {
         postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} orders to server...` });
-        for (let i = 0; i < csvRows.length; i++) {
-          window.postMessage({
-            type: "PROFITDUCK_SEND_ORDERS",
-            platform: "doordash",
-            csvRows: [csvRows[i]],
-          }, "*");
-          // Small delay between sends
-          if (i % 5 === 4) await new Promise(r => setTimeout(r, 1000));
-        }
-        // Wait for bridge to finish sending
-        await new Promise(r => setTimeout(r, 3000));
+        window.postMessage({
+          type: "PROFITDUCK_SEND_ORDERS",
+          platform: "doordash",
+          csvRows: csvRows,
+        }, "*");
+        // Wait for bridge to send to server
+        await new Promise(r => setTimeout(r, 5000));
       }
 
       postCrawlStatus({
