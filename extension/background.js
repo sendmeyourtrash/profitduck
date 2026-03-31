@@ -396,18 +396,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
     case "send_doordash_orders":
-      // DoorDash orders sent in batches from content script via bridge
+      // Legacy handler — kept for compatibility
+      sendResponse({ ok: true, inserted: 0 });
+      break;
+    case "send_doordash_csvrows":
+      // DoorDash csvRows sent from content script via bridge — send directly to server
       (async () => {
         try {
-          const orders = (message.orders || []).map(json => normalizeDoorDashOrder(json)).filter(Boolean);
-          if (orders.length === 0) { sendResponse({ ok: true, inserted: 0 }); return; }
-          for (const o of orders) o._platform = "doordash";
-          const result = await sendToServer(orders, "doordash");
-          for (const o of orders) sentIds.add(o.orderUUID);
+          const { serverUrl, apiKey } = await getConfig();
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers["x-api-key"] = apiKey;
+          const resp = await fetch(`${serverUrl}${SERVER_ENDPOINT}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              platform: "doordash",
+              orders: message.csvRows || [],
+              source: "extension",
+              extensionVersion: chrome.runtime.getManifest().version,
+            }),
+          });
+          if (!resp.ok) throw new Error(`Server ${resp.status}`);
+          const result = await resp.json();
           lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
           await chrome.storage.local.set({ lastSync });
-          console.log(`[Profit Duck] [doordash] Sent ${orders.length}: ${result.inserted} new, ${result.skipped} skipped`);
-          sendResponse({ ok: true, ...result });
+          console.log(`[Profit Duck] [doordash] Sent ${message.csvRows?.length || 0}: ${result.inserted} new, ${result.skipped} skipped`);
+          sendResponse({ ok: true, inserted: result.inserted, skipped: result.skipped });
         } catch (e) {
           console.error(`[Profit Duck] [doordash] Send failed: ${e.message}`);
           sendResponse({ ok: false, error: e.message });
