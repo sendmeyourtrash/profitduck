@@ -83,9 +83,11 @@
     if (!orderId) return null;
 
     const orderDate = txn.transaction_time ? new Date(txn.transaction_time) : new Date();
+    const placedAt = txn.placed_at_time ? new Date(txn.placed_at_time) : null;
     const pad = (n) => String(n).padStart(2, "0");
     const dateStr = `${orderDate.getFullYear()}-${pad(orderDate.getMonth() + 1)}-${pad(orderDate.getDate())}`;
     const timeStr = `${pad(orderDate.getHours())}:${pad(orderDate.getMinutes())}:${pad(orderDate.getSeconds())}`;
+    const placedTimeStr = placedAt ? `${pad(placedAt.getHours())}:${pad(placedAt.getMinutes())}:${pad(placedAt.getSeconds())}` : "";
 
     // Extract items from detail response
     const items = [];
@@ -136,8 +138,13 @@
       "merchant_funded_promotion": cents(txn.restaurant_funded_promo),
       "merchant_funded_loyalty": cents(txn.restaurant_funded_reward),
       "merchant_net_total": cents(txn.net_amount),
-      // Enriched data from detail API
-      "customer_name": "",  // Not available in GrubHub API
+      // Enriched data from API
+      "order_uuid": txn.order_uuid || "",
+      "group_order_uuid": txn.group_order_uuid || "",
+      "channel_brand": txn.channel_brand || "",
+      "order_source": txn.source || "",
+      "prepaid_amount": cents(txn.prepaid_amount),
+      "placed_at_time": placedTimeStr,
       "items_json": items.length > 0 ? JSON.stringify(items) : "",
       "special_instructions": detail?.dining_supplies === "EXCLUDE" ? "No utensils/plates" : "",
       "order_status": detail?.order_status || "completed",
