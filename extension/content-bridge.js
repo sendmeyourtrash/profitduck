@@ -34,14 +34,10 @@
     }
   });
 
-  // Relay crawl commands from background → MAIN world
+  // Relay crawl commands from background → MAIN world via DOM attribute
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === "PROFITDUCK_RELAY" && message.crawl) {
-      // Forward crawl command to MAIN world via CustomEvent (crosses world boundary)
-      document.dispatchEvent(new CustomEvent("profitduck-crawl", { detail: message.crawl }));
-      console.log("[Profit Duck] Bridge relayed crawl command:", message.crawl.command);
-      sendResponse({ ok: true });
-    } else if (message.action === "start_crawl") {
+    if (message.action === "start_crawl") {
+      // Set DOM attribute that MAIN world polls for
       document.documentElement.setAttribute('data-pd-cmd', 'start');
       console.log("[Profit Duck] Bridge set data-pd-cmd=start");
       sendResponse({ ok: true });
@@ -66,6 +62,26 @@
         sendResponse({ links: [], restaurantUUID: null });
       }, 5000);
       return true; // async response
+    }
+  });
+
+  // Watch for sync requests via chrome.storage (background → bridge → MAIN world)
+  let lastSyncTs = 0;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.syncRequest?.newValue) {
+      const req = changes.syncRequest.newValue;
+      if (req.ts > lastSyncTs) {
+        lastSyncTs = req.ts;
+        console.log("[Profit Duck] Bridge relaying sync request:", req.command);
+        window.postMessage({
+          type: "PROFITDUCK_CRAWL",
+          command: req.command,
+          startDate: req.startDate,
+          endDate: req.endDate,
+        }, "*");
+        // Clear the request
+        chrome.storage.local.remove("syncRequest");
+      }
     }
   });
 

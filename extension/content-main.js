@@ -322,7 +322,7 @@
   // ---- Listen for commands ----
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || !event.data) return;
+    if (!event.data) return;
 
     if (event.data.type === "PROFITDUCK_CRAWL") {
       const cmd = event.data.command;
@@ -344,6 +344,10 @@
       }
     }
   });
+
+  // ---- Idle by default: do NOT auto-start ----
+  // The user must click a button or enable sync from the popup.
+  // This replaces the old auto-start behavior.
 
   console.log("[Profit Duck] Extension ready (idle). Waiting for sync command.");
 })();

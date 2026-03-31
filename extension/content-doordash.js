@@ -300,20 +300,5 @@
     }
   });
 
-  // ---- Listen for CustomEvent commands (from background via debugger) ----
-
-  document.addEventListener("profitduck-crawl", (e) => {
-    const cmd = e.detail?.command;
-    console.log("[Profit Duck] DoorDash received command:", cmd);
-    if (cmd === "stop") {
-      crawlAbort = true;
-      crawlActive = false;
-      postCrawlStatus({ state: "done", message: "Stopped." });
-    } else {
-      // Dispatch as postMessage so the existing listener handles it
-      window.postMessage({ type: "PROFITDUCK_CRAWL", command: cmd, startDate: e.detail?.startDate, endDate: e.detail?.endDate }, "*");
-    }
-  });
-
   console.log("[Profit Duck] DoorDash content script loaded — intercepting order API calls");
 })();

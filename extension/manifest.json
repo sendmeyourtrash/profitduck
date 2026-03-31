@@ -3,7 +3,7 @@
   "name": "Profit Duck - Delivery Platform Data Sync",
   "version": "1.0.0",
   "description": "Automatically captures order data from delivery platform merchant portals and syncs to Profit Duck.",
-  "permissions": ["storage", "alarms", "tabs", "activeTab", "cookies", "scripting", "debugger"],
+  "permissions": ["storage", "alarms", "tabs", "activeTab", "cookies", "scripting"],
   "host_permissions": [
     "https://merchants.ubereats.com/*",
     "https://www.doordash.com/merchant/*",

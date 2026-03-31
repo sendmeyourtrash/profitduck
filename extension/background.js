@@ -49,7 +49,7 @@ async function detectActivePlatform() {
   return { platform: null, page: null, label: null, color: null };
 }
 
-// ---- GraphQL normalizer ----
+// ---- GraphQL normalizer (Uber Eats) ----
 
 function parseDollar(val) {
   if (typeof val === "number") return val;
@@ -83,8 +83,6 @@ function normalizeOrderDetails(data) {
   const smallOrderFee = Math.abs(checkout.SmallOrderFee || 0);
   const promotions = checkout.Promotion || checkout.PickupPromotion || checkout.EatsPassDiscount || 0;
   const netPayout = parseDollar(od.netPayout || 0);
-
-  // Refunds and adjustments from issueSummary
   const customerRefund = parseDollar(od.issueSummary?.customerRefund || 0);
   const adjustmentAmount = parseDollar(od.issueSummary?.adjustmentAmount || 0);
 
@@ -158,14 +156,12 @@ function normalizeDoorDashOrder(data) {
   const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
   const pickupAt = od.pickupTime ? new Date(od.pickupTime) : null;
 
-  // Financial fields
   const subtotal = cents(od.preTaxTotal);
   const tax = cents(od.tax || od.totalTax);
   const commission = cents(od.commission);
   const netPayout = cents(od.netPayout);
   const tip = cents(od.merchantTipAmount);
   const errorCharges = cents(od.errorCharges);
-  const refunds = cents(od.refunds);
   const procFee = cents(od.paymentProcessingFee || od.processingFee);
   const tabletFee = cents(od.tabletFee);
   const adjustments = cents(od.adjustments);
@@ -178,7 +174,6 @@ function normalizeDoorDashOrder(data) {
     marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
   }
 
-  // Extract items from nested orders array
   const items = [];
   if (od.orders && Array.isArray(od.orders)) {
     for (const orderGroup of od.orders) {
@@ -186,38 +181,24 @@ function normalizeDoorDashOrder(data) {
         for (const item of orderGroup.orderItems) {
           const extras = (item.itemExtras || []).map(e => {
             const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
-            return {
-              name: e.name || e.title || "",
-              option: opt?.name || "",
-              price: cents(opt?.price),
-            };
+            return { name: e.name || e.title || "", option: opt?.name || "", price: cents(opt?.price) };
           }).filter(e => e.option);
-
-          items.push({
-            name: item.name,
-            quantity: item.quantity,
-            price: cents(item.price),
-            category: item.category || "",
-            extras,
-          });
+          items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
         }
       }
     }
   }
 
-  // Use local time (restaurant's timezone), not UTC
   const pad = (n) => String(n).padStart(2, "0");
   const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
   const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
   const utcDate = completedAt.toISOString().slice(0, 10);
   const utcTime = completedAt.toISOString().slice(11, 19);
 
-  // Determine channel/dining option
   const fulfillment = od.fulfillmentType || "";
   const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
     : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
 
-  // Map to detailed_transactions column names (matching DoorDash CSV schema)
   return {
     orderUUID: od.deliveryUuid || od.orderId,
     orderId: od.orderId,
@@ -237,7 +218,6 @@ function normalizeDoorDashOrder(data) {
       "channel": channel,
       "final_order_status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
       "currency": "USD",
-      // Financial — stored as strings matching CSV format
       "subtotal": fmt(subtotal),
       "subtotal_tax_passed_to_merchant": fmt(tax),
       "commission": fmt(-Math.abs(commission)),
@@ -250,7 +230,6 @@ function normalizeDoorDashOrder(data) {
       "error_charges": fmt(-Math.abs(errorCharges)),
       "adjustments": fmt(adjustments),
       "net_total": fmt(netPayout),
-      // Extra fields from API (not in CSV) — stored for enrichment
       "description": items.map(i => `${i.quantity}x ${i.name}`).join(", "),
       "customer_name": od.consumer?.formalNameAbbreviated || "",
       "tip": fmt(tip),
@@ -308,7 +287,7 @@ function scheduleFlush() {
 async function flushQueue() {
   if (orderQueue.size === 0) return;
 
-  // Group orders by platform
+  // Group by platform
   const byPlatform = new Map();
   for (const [id, order] of orderQueue) {
     const p = order._platform || "ubereats";
@@ -330,7 +309,6 @@ async function flushQueue() {
       console.log(`[Profit Duck] [${platform}] Synced ${batch.orders.length}: ${result.inserted} new, ${result.skipped} skipped`);
     } catch (err) {
       lastError = err.message;
-      // Re-queue failed orders
       for (let i = 0; i < batch.orders.length; i++) orderQueue.set(batch.ids[i], batch.orders[i]);
       console.error(`[Profit Duck] [${platform}] Sync failed: ${err.message}`);
     }
@@ -351,10 +329,9 @@ function updateBadge() {
   }
 }
 
-// ---- Trigger sync in content script via chrome.debugger ----
+// ---- Trigger sync via chrome.storage (bridge watches for changes) ----
 
 async function triggerSync(mode, options = {}) {
-  // Detect which platform to sync — prefer active tab, fall back to finding one
   const detected = await detectActivePlatform();
   const platform = options.platform || detected.platform || "ubereats";
 
@@ -368,7 +345,6 @@ async function triggerSync(mode, options = {}) {
   if (!tabs[0]?.id) {
     const tab = await chrome.tabs.create({ url: pConfig.open });
     crawlStatus = { state: "starting", message: `Opening ${detected.label || platform}...` };
-    // Wait for tab to load
     await new Promise((resolve) => {
       const listener = (tabId, info) => {
         if (tabId === tab.id && info.status === "complete") {
@@ -377,66 +353,26 @@ async function triggerSync(mode, options = {}) {
         }
       };
       chrome.tabs.onUpdated.addListener(listener);
-      // Timeout after 30s
       setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 30000);
     });
-    // Give content script time to initialize
     await new Promise(r => setTimeout(r, 3000));
     return triggerSync(mode, options);
   }
 
-  const tabId = tabs[0].id;
   crawlStatus = { state: "starting", message: "Starting..." };
+  const crawlCmd = mode === "smart" ? "smart-sync" : mode === "date-range" ? "date-range-sync" : mode === "full" ? "full-sync" : "start";
 
-  // Build the command based on mode
-  let command;
-  if (mode === "smart") {
-    command = `window.postMessage({ type: "PROFITDUCK_CRAWL", command: "smart-sync" }, "*")`;
-  } else if (mode === "full") {
-    command = `window.postMessage({ type: "PROFITDUCK_CRAWL", command: "full-sync" }, "*")`;
-  } else if (mode === "date-range") {
-    command = `window.postMessage({ type: "PROFITDUCK_CRAWL", command: "date-range-sync", startDate: "${options.startDate}", endDate: "${options.endDate}" }, "*")`;
-  } else {
-    command = `window.postMessage({ type: "PROFITDUCK_CRAWL", command: "start" }, "*")`;
-  }
-
-  try {
-    await chrome.debugger.attach({ tabId }, "1.3");
-    const result = await chrome.debugger.sendCommand(
-      { tabId },
-      "Runtime.evaluate",
-      { expression: `${command}; "triggered-${mode}"` }
-    );
-    await chrome.debugger.detach({ tabId });
-    console.log(`[Profit Duck] Sync triggered (${mode}):`, result?.result?.value);
-  } catch (e) {
-    try { await chrome.debugger.detach({ tabId }); } catch (_) {}
-    crawlStatus = { state: "error", message: `Trigger failed: ${e.message}` };
-    console.error("[Profit Duck] Debugger error:", e.message);
-  }
+  await chrome.storage.local.set({
+    syncRequest: { command: crawlCmd, startDate: options.startDate || "", endDate: options.endDate || "", ts: Date.now() }
+  });
+  console.log(`[Profit Duck] Sync request stored (${crawlCmd}) for ${platform}`);
 }
 
 async function triggerStop() {
-  // Stop crawl on all supported platform tabs
-  const platformUrls = [
-    "https://merchants.ubereats.com/*",
-    ["https://www.doordash.com/merchant/*", "https://doordash.com/merchant/*"],
-  ];
-  for (const urlPattern of platformUrls) {
-    const tabs = await chrome.tabs.query({ url: urlPattern });
-    const tabId = tabs[0]?.id;
-    if (tabId) {
-      try {
-        await chrome.debugger.attach({ tabId }, "1.3");
-        await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", {
-          expression: 'window.postMessage({ type: "PROFITDUCK_CRAWL", command: "stop" }, "*")'
-        });
-        await chrome.debugger.detach({ tabId });
-      } catch (e) {
-        try { await chrome.debugger.detach({ tabId }); } catch (_) {}
-      }
-    }
-  }
+  await chrome.storage.local.set({
+    syncRequest: { command: "stop", ts: Date.now() }
+  });
+  console.log("[Profit Duck] Stop request stored");
 }
 
 // ---- Message handlers ----
@@ -476,10 +412,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "start_sync":
       paused = false; // Auto-unpause when user triggers sync
       chrome.storage.local.set({ paused });
-      triggerSync(message.mode || "smart", { startDate: message.startDate, endDate: message.endDate })
-        .then(() => sendResponse({ ok: true }))
-        .catch(e => sendResponse({ ok: false, error: e.message }));
-      return true; // Keep message channel open (prevents service worker suspension)
+      triggerSync(message.mode || "smart", { startDate: message.startDate, endDate: message.endDate });
+      sendResponse({ ok: true });
+      break;
     case "stop_sync":
       triggerStop();
       sendResponse({ ok: true });
@@ -493,11 +428,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function handleIntercepted(message) {
-  // Allow capture during active sync even when paused (user explicitly triggered it)
-  const isCrawling = ["fetching", "scanning", "starting", "syncing", "throttled"].includes(crawlStatus.state);
-  if (paused && !isCrawling) return;
-
+  if (paused) return;
   const platform = message.platform || "ubereats";
+
   let order;
   if (platform === "doordash") {
     order = normalizeDoorDashOrder(message.data);
@@ -506,9 +439,11 @@ function handleIntercepted(message) {
   }
   if (!order) return;
 
-  const id = order.orderUUID || order.orderId;
+  // Tag with platform for multi-platform flush
+  order._platform = platform === "doordash" ? "doordash" : "ubereats";
+
+  const id = order.orderUUID;
   if (!id || sentIds.has(id) || orderQueue.has(id)) return;
-  order._platform = platform;
   orderQueue.set(id, order);
   capturedCount++;
   updateBadge();
