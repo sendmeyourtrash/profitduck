@@ -184,8 +184,7 @@
   // ---- Listen for crawl commands ----
 
   window.addEventListener("message", async (event) => {
-    if (event.source !== window) return;
-    if (event.data?.type !== "PROFITDUCK_CRAWL") return;
+    if (!event.data || event.data.type !== "PROFITDUCK_CRAWL") return;
 
     const command = event.data.command;
     if (command === "stop") {
