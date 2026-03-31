@@ -30,6 +30,7 @@
     } else if (event.data.type === "PROFITDUCK_CRAWL_STATUS") {
       chrome.runtime.sendMessage({
         action: "crawl_status",
+        platform: "ubereats",
         state: event.data.state,
         message: event.data.message,
         total: event.data.total,

@@ -31,6 +31,7 @@
     if (event.data?.type === "PROFITDUCK_CRAWL_STATUS") {
       chrome.runtime.sendMessage({
         action: "crawl_status",
+        platform: "doordash",
         state: event.data.state,
         message: event.data.message,
         total: event.data.total,

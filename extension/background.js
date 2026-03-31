@@ -13,7 +13,7 @@ const orderQueue = new Map();
 const sentIds = new Set();
 let capturedCount = 0;
 let lastSync = { time: null, inserted: 0, skipped: 0, error: null };
-let crawlStatus = { state: "idle", message: "" };
+let crawlStatus = {};  // Per-platform: { ubereats: { state, message }, doordash: { state, message } }
 let paused = true; // Start paused — user must explicitly sync
 
 // ---- Constants ----
@@ -344,7 +344,7 @@ async function triggerSync(mode, options = {}) {
   const tabs = await chrome.tabs.query({ url: pConfig.match });
   if (!tabs[0]?.id) {
     const tab = await chrome.tabs.create({ url: pConfig.open });
-    crawlStatus = { state: "starting", message: `Opening ${detected.label || platform}...` };
+    crawlStatus[platform] = { state: "starting", message: `Opening ${detected.label || platform}...` };
     await new Promise((resolve) => {
       const listener = (tabId, info) => {
         if (tabId === tab.id && info.status === "complete") {
@@ -359,7 +359,7 @@ async function triggerSync(mode, options = {}) {
     return triggerSync(mode, options);
   }
 
-  crawlStatus = { state: "starting", message: "Starting..." };
+  crawlStatus[platform] = { state: "starting", message: "Starting..." };
   const crawlCmd = mode === "smart" ? "smart-sync" : mode === "date-range" ? "date-range-sync" : mode === "full" ? "full-sync" : "start";
 
   await chrome.storage.local.set({
@@ -397,9 +397,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       paused = !paused;
       chrome.storage.local.set({ paused });
       // If pausing during an active crawl, stop the crawl too
-      if (paused && ["fetching", "scanning", "starting", "syncing", "throttled"].includes(crawlStatus.state)) {
+      if (paused) {
+        const activeStates = ["fetching", "scanning", "starting", "syncing", "throttled"];
+        for (const p of Object.keys(crawlStatus)) {
+          if (activeStates.includes(crawlStatus[p]?.state)) {
+            crawlStatus[p] = { state: "done", message: "Paused — sync stopped." };
+          }
+        }
         triggerStop();
-        crawlStatus = { state: "done", message: "Paused — sync stopped." };
       }
       updateBadge();
       sendResponse({ paused });
@@ -436,7 +441,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
     case "crawl_status":
-      crawlStatus = { state: message.state, message: message.message, total: message.total, current: message.current };
+      const csPlatform = message.platform || "ubereats";
+      crawlStatus[csPlatform] = { state: message.state, message: message.message, total: message.total, current: message.current };
       break;
     default:
       sendResponse({ error: "unknown action" });

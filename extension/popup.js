@@ -218,9 +218,10 @@ async function refreshStatus() {
       }
     }
 
-    // Update crawl progress
-    if (status.crawlStatus) {
-      const cs = status.crawlStatus;
+    // Update crawl progress for detected platform only
+    const platformKey = currentPlatform === "ubereats" ? "ubereats" : currentPlatform === "doordash" ? "doordash" : null;
+    const cs = platformKey && status.crawlStatus ? status.crawlStatus[platformKey] : null;
+    if (cs) {
       if (["fetching", "scanning", "throttled", "starting", "syncing"].includes(cs.state)) {
         crawlProgress.style.display = "block";
         crawlMessage.textContent = cs.message || "Working...";
