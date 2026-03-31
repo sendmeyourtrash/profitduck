@@ -301,14 +301,16 @@
       });
 
       let fetched = 0;
+      const capturedDetails = [];
       for (const order of newOrders) {
         if (crawlAbort) {
           postCrawlStatus({ state: "done", message: `Stopped — ${fetched} orders captured.` });
-          return;
+          break;
         }
 
         try {
-          await fetchOrderDetail(order.deliveryUuid);
+          const json = await fetchOrderDetail(order.deliveryUuid);
+          capturedDetails.push(json);
           fetched++;
           postCrawlStatus({
             state: "fetching",
@@ -322,6 +324,24 @@
 
         // Rate limit: 400ms between detail requests
         await new Promise(r => setTimeout(r, 400));
+      }
+
+      // Send captured orders to server via bridge (MAIN world can't reach localhost)
+      if (capturedDetails.length > 0) {
+        postCrawlStatus({ state: "syncing", message: `Syncing ${capturedDetails.length} orders to server...` });
+        // Send in batches of 10 to avoid message size limits
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < capturedDetails.length; i += BATCH_SIZE) {
+          const batch = capturedDetails.slice(i, i + BATCH_SIZE);
+          window.postMessage({
+            type: "PROFITDUCK_SEND_ORDERS",
+            platform: "doordash",
+            orders: batch,
+          }, "*");
+          await new Promise(r => setTimeout(r, 500));
+        }
+        // Wait for server sync to complete
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       postCrawlStatus({

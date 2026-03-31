@@ -385,11 +385,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
     case "order_captured":
-      // Lightweight counter increment (for DoorDash crawl where full data is too large for messages)
       capturedCount++;
       updateBadge();
       sendResponse({ ok: true });
       break;
+    case "send_doordash_orders":
+      // DoorDash orders sent in batches from content script via bridge
+      (async () => {
+        try {
+          const orders = (message.orders || []).map(json => normalizeDoorDashOrder(json)).filter(Boolean);
+          if (orders.length === 0) { sendResponse({ ok: true, inserted: 0 }); return; }
+          for (const o of orders) o._platform = "doordash";
+          const result = await sendToServer(orders, "doordash");
+          for (const o of orders) sentIds.add(o.orderUUID);
+          lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
+          await chrome.storage.local.set({ lastSync });
+          console.log(`[Profit Duck] [doordash] Sent ${orders.length}: ${result.inserted} new, ${result.skipped} skipped`);
+          sendResponse({ ok: true, ...result });
+        } catch (e) {
+          console.error(`[Profit Duck] [doordash] Send failed: ${e.message}`);
+          sendResponse({ ok: false, error: e.message });
+        }
+      })();
+      return true;
     case "auto_flush":
       flushQueue().then(() => sendResponse({ ok: true, lastSync }));
       return true;
