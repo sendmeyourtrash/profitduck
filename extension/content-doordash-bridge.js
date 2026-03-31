@@ -9,7 +9,7 @@
 
   // MAIN world → background
   window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
+    if (!event.data) return;
 
     if (event.data?.type === "PROFITDUCK_INTERCEPTED" && event.data.platform === "doordash") {
       chrome.runtime.sendMessage({
