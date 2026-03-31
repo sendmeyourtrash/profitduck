@@ -255,7 +255,7 @@ export function unifyGrubhub(): UnifyResult {
     INSERT INTO order_items (order_id, platform, date, time, item_name, category, qty,
       unit_price, gross_sales, discounts, net_sales, modifiers, display_name, display_category,
       event_type, dining_option)
-    VALUES (?, 'grubhub', ?, ?, ?, ?, 1, ?, ?, 0, ?, '', ?, ?, ?, ?)
+    VALUES (?, 'grubhub', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = dest.transaction(() => {
@@ -313,24 +313,54 @@ export function unifyGrubhub(): UnifyResult {
 
       const totalFees = feesTotal + marketingTotal;
 
-      // Time already normalized in Step 1 (AM/PM → 24h)
+      // Parse items from extension data
+      let itemsJson: { name: string; quantity: number; price: number; lineTotal: number; category?: string; modifiers?: { name: string; price: number }[] }[] = [];
+      let itemDescription: string | null = null;
+      let itemCount = 0;
+      try {
+        if (r.items_json) {
+          itemsJson = JSON.parse(r.items_json as string);
+          itemCount = itemsJson.reduce((sum, i) => sum + (i.quantity || 1), 0);
+          itemDescription = itemsJson.map(i => `${i.quantity}x ${i.name}`).join(", ");
+        }
+      } catch {}
+
+      const customerName = (r.customer_name as string) || null;
+
       insert.run(
         r.order_date, r.order_time_local, "grubhub", orderId,
         gross, tax, totalFees, net,
-        status, null, null, null,
-        tip, 0, diningOption, null, null,
+        status, itemDescription, itemCount, null,
+        tip, 0, diningOption, customerName, null,
         commissionFee, processingFee, deliveryFee, marketingFee,
         feesTotal, marketingTotal, refundsTotal, adjustmentsTotal, 0
       );
 
-      // order_items: 1 row per order (no item detail from GrubHub)
-      insertItem.run(
-        orderId,
-        r.order_date, r.order_time_local,
-        "GrubHub Order", status, gross, gross, net,
-        "GrubHub Order", status,
-        "Payment", diningOption
-      );
+      // Insert real item rows if available (from extension), otherwise synthetic row
+      if (itemsJson.length > 0) {
+        for (const item of itemsJson) {
+          const qty = item.quantity || 1;
+          const unitPrice = item.price || 0;
+          const itemGross = Math.round((item.lineTotal || unitPrice * qty) * 100) / 100;
+          const modifiers = item.modifiers && item.modifiers.length > 0
+            ? JSON.stringify(item.modifiers) : "";
+          insertItem.run(
+            orderId,
+            r.order_date, r.order_time_local,
+            item.name, item.category || "", qty, unitPrice, itemGross, itemGross,
+            modifiers, item.name, item.category || "",
+            "Payment", diningOption
+          );
+        }
+      } else {
+        insertItem.run(
+          orderId,
+          r.order_date, r.order_time_local,
+          "GrubHub Order", status, 1, gross, gross, net,
+          "", "GrubHub Order", status,
+          "Payment", diningOption
+        );
+      }
 
       result.inserted++;
     }

@@ -248,8 +248,14 @@ export function ingestGrubhubOrders(rows: Record<string, string>[]): IngestResul
     tip TEXT, merchant_total TEXT, commission TEXT, delivery_commission TEXT,
     gh_plus_commission TEXT, processing_fee TEXT, withheld_tax TEXT, withheld_tax_exemption TEXT,
     merchant_funded_promotion TEXT, merchant_funded_loyalty TEXT,
-    merchant_net_total TEXT, transaction_note TEXT, transaction_id TEXT
+    merchant_net_total TEXT, transaction_note TEXT, transaction_id TEXT,
+    items_json TEXT, special_instructions TEXT, order_status TEXT, customer_name TEXT, source TEXT
   )`);
+
+  // Add extension columns to existing tables
+  for (const col of ["items_json", "special_instructions", "order_status", "customer_name", "source"]) {
+    try { db.exec(`ALTER TABLE orders ADD COLUMN ${col} TEXT`); } catch {}
+  }
 
   const cols = [
     "order_channel", "order_number", "order_date", "order_time_local",
@@ -266,7 +272,8 @@ export function ingestGrubhubOrders(rows: Record<string, string>[]): IngestResul
     "tip", "merchant_total", "commission", "delivery_commission",
     "gh_plus_commission", "processing_fee", "withheld_tax", "withheld_tax_exemption",
     "merchant_funded_promotion", "merchant_funded_loyalty",
-    "merchant_net_total", "transaction_note", "transaction_id"
+    "merchant_net_total", "transaction_note", "transaction_id",
+    "items_json", "special_instructions", "order_status", "customer_name", "source"
   ];
 
   const insertMany = db.transaction(() => {

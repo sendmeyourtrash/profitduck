@@ -1,11 +1,11 @@
 /**
  * MAIN world content script — Profit Duck GrubHub data capture.
  *
- * Fetches transaction data from GrubHub merchant accounting API,
- * normalizes to csvRow format matching grubhub.db schema,
- * and sends to server via bridge → background.
+ * Captures Bearer token from page's own API calls, then fetches:
+ *   1. Transaction list from accounting API (financial data)
+ *   2. Order details for each transaction (items, modifiers, special instructions)
  *
- * Data flow: transactions API → normalize → postMessage → bridge → background → server
+ * Data flow: intercept token → fetch transactions → fetch details → normalize → bridge → server
  */
 (function () {
   "use strict";
@@ -16,190 +16,190 @@
 
   let crawlActive = false;
   let crawlAbort = false;
+  let bearerToken = null;
 
   function postCrawlStatus(status) {
     window.postMessage({ type: CRAWL_STATUS_TAG, ...status }, "*");
   }
 
+  // ---- Capture Bearer token from page's own API calls ----
+
+  const nativeFetch = window.fetch;
+  window.fetch = function (...args) {
+    const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
+    if (url.includes("grubhub.com") && args[1]?.headers) {
+      const h = args[1].headers;
+      const auth = h instanceof Headers ? h.get("Authorization") : h.Authorization || h.authorization;
+      if (auth && auth.startsWith("Bearer ")) {
+        bearerToken = auth;
+      }
+    }
+    return nativeFetch.apply(this, args);
+  };
+
   // ---- Extract store ID from page URL ----
 
   function extractStoreId() {
-    // URL patterns: /dashboard/6729328, /financials/transactions/6729328, etc.
     const match = window.location.pathname.match(/\/(\d{5,})/);
     if (match) return match[1];
-    // Fallback: check for store ID in page links
     const links = document.querySelectorAll("a[href*='/dashboard/'], a[href*='/financials/']");
     for (const link of links) {
       const m = link.href.match(/\/(\d{5,})/);
       if (m) return m[1];
     }
-    // Fallback: check for store ID in script tags or page content
-    try {
-      const scripts = document.querySelectorAll("script");
-      for (const s of scripts) {
-        const m = s.textContent.match(/restaurantId["\s:=]+["']?(\d{5,})/);
-        if (m) return m[1];
-      }
-    } catch {}
     return null;
   }
 
-  // ---- Fetch transactions via XHR (avoids service worker issues) ----
+  // ---- API fetch with Bearer token ----
+
+  async function apiFetch(url) {
+    if (!bearerToken) throw new Error("No auth token captured. Navigate around the portal to capture it.");
+    const response = await nativeFetch.call(window, url, {
+      headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": bearerToken },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
 
   function fetchTransactions(storeId, startDate, endDate) {
-    return new Promise((resolve, reject) => {
-      const url = `${API_BASE}/merchant/accounting/v1/${storeId}/transactions?timeZone=America/Chicago&channelGroup=&startDate=${startDate}&endDate=${endDate}`;
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", url, true);
-      xhr.withCredentials = true;
-      xhr.timeout = 30000;
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText)); }
-          catch { resolve([]); }
-        } else {
-          reject(new Error(`HTTP ${xhr.status}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("Network error"));
-      xhr.ontimeout = () => reject(new Error("Timeout"));
-      xhr.send();
-    });
+    return apiFetch(`${API_BASE}/merchant/accounting/v1/${storeId}/transactions?timeZone=America/Chicago&channelGroup=&startDate=${startDate}&endDate=${endDate}`);
   }
 
-  // ---- Normalize API transaction to csvRow matching grubhub.db schema ----
-
-  function parseDollar(val) {
-    if (!val || val === "—" || val === "-") return "0.00";
-    const cleaned = String(val).replace(/[$,\s]/g, "");
-    const num = parseFloat(cleaned);
-    return isNaN(num) ? "0.00" : num.toFixed(2);
+  function fetchOrderDetail(storeId, transactionId) {
+    return apiFetch(`${API_BASE}/merchant/accounting/v1/${storeId}/orders/transactions/${transactionId}`);
   }
 
-  function normalizeDate(dateStr) {
-    // "3/31/26" → "2026-03-31"
-    if (!dateStr) return "";
-    const parts = dateStr.split("/");
-    if (parts.length === 3) {
-      const month = parts[0].padStart(2, "0");
-      const day = parts[1].padStart(2, "0");
-      let year = parts[2];
-      if (year.length === 2) year = "20" + year;
-      return `${year}-${month}-${day}`;
-    }
-    return dateStr;
-  }
+  // ---- Normalize ----
 
-  function normalizeTime(timeStr) {
-    // "1:16 PM" → "13:16:00"
-    if (!timeStr) return "";
-    const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    if (match) {
-      let hours = parseInt(match[1]);
-      const minutes = match[2];
-      const period = match[3].toUpperCase();
-      if (period === "PM" && hours !== 12) hours += 12;
-      if (period === "AM" && hours === 12) hours = 0;
-      return `${String(hours).padStart(2, "0")}:${minutes}:00`;
-    }
-    return timeStr;
-  }
-
-  function normalizeTransactionToCsvRow(txn) {
-    // txn can be from API JSON or from page scraping
-    // API may use camelCase or snake_case — try both
-    const orderId = (txn.transaction_id || txn.transactionId || txn.id || txn.ID || "").replace(/^O-/, "");
-    if (!orderId) {
-      console.warn("[Profit Duck] Skipping transaction with no ID. Keys:", Object.keys(txn).slice(0, 10).join(", "));
-      return null;
-    }
-
-    const row = {
-      "order_channel": txn.order_channel || txn.orderChannel || "",
-      "order_number": orderId,
-      "order_date": normalizeDate(txn.order_date || txn.date || ""),
-      "order_time_local": normalizeTime(txn.order_time_local || txn.time || ""),
-      "transaction_date": normalizeDate(txn.transaction_date || txn.date || ""),
-      "transaction_time_local": normalizeTime(txn.transaction_time_local || txn.time || ""),
-      "transaction_type": txn.transaction_type || txn.type || "",
-      "transaction_id": orderId,
-      "grubhub_store_id": extractStoreId() || "",
-      "store_name": txn.store_name || "",
-      "fulfillment_type": txn.fulfillment_type || txn.fulfillmentType || "",
-      "subtotal": parseDollar(txn.subtotal),
-      "subtotal_sales_tax": parseDollar(txn.subtotal_sales_tax || txn.tax),
-      "self_delivery_charge": parseDollar(txn.self_delivery_charge || txn.deliveryFee),
-      "merchant_service_fee": parseDollar(txn.merchant_service_fee || txn.serviceFee),
-      "tip": parseDollar(txn.tip),
-      "merchant_total": parseDollar(txn.merchant_total || txn.restaurantTotal),
-      "commission": parseDollar(txn.commission),
-      "delivery_commission": parseDollar(txn.delivery_commission || txn.deliveryCommission),
-      "processing_fee": parseDollar(txn.processing_fee || txn.processingFee),
-      "withheld_tax": parseDollar(txn.withheld_tax || txn.withheldTax),
-      "merchant_funded_promotion": parseDollar(txn.merchant_funded_promotion || txn.targetedPromotion),
-      "merchant_funded_loyalty": parseDollar(txn.merchant_funded_loyalty || txn.rewards),
-      "merchant_net_total": parseDollar(txn.merchant_net_total || txn.netTotal),
-      "gh_plus_customer": txn.gh_plus_customer || "",
-      "source": "extension",
-    };
-
-    // Warn if all financial fields are zero — likely a field name mapping mismatch
-    if (row.subtotal === "0.00" && row.merchant_net_total === "0.00" && row.merchant_total === "0.00") {
-      console.warn(`[Profit Duck] Transaction ${orderId} has all-zero financials. Raw keys:`, Object.keys(txn).join(", "));
-    }
-
-    return row;
-  }
-
-  // ---- Scrape transactions from the rendered page grid ----
-
-  function scrapeTransactionsFromPage() {
-    const grids = document.querySelectorAll('[role="grid"]');
-    const transactions = [];
-
-    for (const grid of grids) {
-      const headers = [...grid.querySelectorAll('[role="columnheader"]')].map(h => h.textContent.trim());
-      if (!headers.includes("ID") || !headers.includes("Subtotal")) continue;
-
-      const rows = grid.querySelectorAll('[role="row"]');
-      for (let i = 1; i < rows.length; i++) {
-        const cells = [...rows[i].querySelectorAll('[role="gridcell"]')].map(c => c.textContent.trim());
-        if (cells.length < headers.length) continue;
-
-        const txn = {};
-        headers.forEach((h, idx) => { txn[h] = cells[idx]; });
-
-        transactions.push({
-          order_channel: txn["Order Channel"] || "",
-          transaction_id: (txn["ID"] || "").replace(/^O-/, ""),
-          fulfillment_type: txn["Fulfillment Type"] || "",
-          transaction_type: txn["Type"] || "",
-          date: txn["Date"] || "",
-          time: txn["Time"] || "",
-          subtotal: txn["Subtotal"],
-          deliveryFee: txn["Delivery Fee"],
-          serviceFee: txn["Service Fee"],
-          tax: txn["Tax"],
-          tip: txn["Tip"],
-          restaurantTotal: txn["Restaurant Total"],
-          commission: txn["Commission"],
-          deliveryCommission: txn["Delivery Commission"],
-          processingFee: txn["Processing Fee"],
-          withheldTax: txn["Withheld Tax"],
-          targetedPromotion: txn["Targeted Promotion"],
-          rewards: txn["Rewards"],
-          netTotal: txn["Net Total"],
-        });
-      }
-    }
-    return transactions;
-  }
-
-  // ---- Format date for API params ----
+  function cents(val) { return typeof val === "number" ? (val / 100).toFixed(2) : "0.00"; }
 
   function formatDate(d) {
     const pad = (n) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function normalizeTransaction(txn, detail) {
+    const orderId = txn.transaction_id || "";
+    if (!orderId) return null;
+
+    const orderDate = txn.transaction_time ? new Date(txn.transaction_time) : new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const dateStr = `${orderDate.getFullYear()}-${pad(orderDate.getMonth() + 1)}-${pad(orderDate.getDate())}`;
+    const timeStr = `${pad(orderDate.getHours())}:${pad(orderDate.getMinutes())}:${pad(orderDate.getSeconds())}`;
+
+    // Extract items from detail response
+    const items = [];
+    if (detail?.order_details) {
+      for (const line of detail.order_details) {
+        const modifiers = (line.line_options || []).map(opt => ({
+          name: opt.name || "",
+          price: (opt.price || 0) / 100,
+          quantity: opt.quantity || 1,
+        })).filter(m => m.name);
+
+        items.push({
+          name: line.name || "",
+          quantity: line.quantity || 1,
+          price: (line.price || 0) / 100,
+          lineTotal: (line.line_total || 0) / 100,
+          category: line.category_name || "",
+          specialInstructions: line.special_instructions || "",
+          modifiers,
+        });
+      }
+    }
+
+    return {
+      "order_channel": txn.channel || txn.channel_group || "",
+      "order_number": txn.order_number || "",
+      "order_date": dateStr,
+      "order_time_local": timeStr,
+      "transaction_date": dateStr,
+      "transaction_time_local": timeStr,
+      "transaction_type": txn.transaction_type_description || txn.transaction_type || "",
+      "transaction_id": orderId,
+      "grubhub_store_id": txn.restaurant_id || extractStoreId() || "",
+      "fulfillment_type": txn.delivery_type || "",
+      "gh_plus_customer": txn.gh_plus_fee && txn.gh_plus_fee !== 0 ? "GH+" : "",
+      // Financial fields — API returns cents, convert to dollars
+      "subtotal": cents(txn.subtotal),
+      "subtotal_sales_tax": cents(txn.restaurant_sales_tax),
+      "self_delivery_charge": cents(txn.restaurant_delivery_charge),
+      "merchant_service_fee": cents(txn.restaurant_service_fee),
+      "tip": cents(txn.restaurant_tip),
+      "merchant_total": cents(txn.restaurant_total),
+      "commission": cents(txn.advertising_fee),
+      "delivery_commission": cents(txn.grubhub_delivery_fee),
+      "gh_plus_commission": cents(txn.gh_plus_fee),
+      "processing_fee": cents(txn.processing_fee),
+      "withheld_tax": cents(txn.withheld_sales_tax),
+      "merchant_funded_promotion": cents(txn.restaurant_funded_promo),
+      "merchant_funded_loyalty": cents(txn.restaurant_funded_reward),
+      "merchant_net_total": cents(txn.net_amount),
+      // Enriched data from detail API
+      "customer_name": "",  // Not available in GrubHub API
+      "items_json": items.length > 0 ? JSON.stringify(items) : "",
+      "special_instructions": detail?.dining_supplies === "EXCLUDE" ? "No utensils/plates" : "",
+      "order_status": detail?.order_status || "completed",
+      "source": "extension",
+    };
+  }
+
+  // ---- Scrape from page (fallback when API fails) ----
+
+  function scrapeTransactionsFromPage() {
+    const grids = document.querySelectorAll('[role="grid"]');
+    const transactions = [];
+    for (const grid of grids) {
+      const headers = [...grid.querySelectorAll('[role="columnheader"]')].map(h => h.textContent.trim());
+      if (!headers.includes("ID") || !headers.includes("Subtotal")) continue;
+      const rows = grid.querySelectorAll('[role="row"]');
+      for (let i = 1; i < rows.length; i++) {
+        const cells = [...rows[i].querySelectorAll('[role="gridcell"]')].map(c => c.textContent.trim());
+        if (cells.length < headers.length) continue;
+        const txn = {};
+        headers.forEach((h, idx) => { txn[h] = cells[idx]; });
+        // Build a fake API-like object for the normalizer
+        const parseDollar = (v) => Math.round(parseFloat(String(v || "0").replace(/[$,]/g, "")) * 100) || 0;
+        // Parse date from table (format: "3/31/26")
+        const dateStr = txn["Date"] || "";
+        const dateParts = dateStr.split("/");
+        let isoDate = new Date().toISOString();
+        if (dateParts.length === 3) {
+          const year = dateParts[2].length === 2 ? "20" + dateParts[2] : dateParts[2];
+          isoDate = `${year}-${dateParts[0].padStart(2, "0")}-${dateParts[1].padStart(2, "0")}T12:00:00Z`;
+        }
+        // Parse time (format: "1:16 PM")
+        const timeStr = txn["Time"] || "";
+        const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+        if (timeMatch) {
+          let h = parseInt(timeMatch[1]);
+          if (timeMatch[3].toUpperCase() === "PM" && h !== 12) h += 12;
+          if (timeMatch[3].toUpperCase() === "AM" && h === 12) h = 0;
+          isoDate = isoDate.replace("T12:00:00Z", `T${String(h).padStart(2, "0")}:${timeMatch[2]}:00Z`);
+        }
+        transactions.push({
+          transaction_id: (txn["ID"] || "").replace(/^O-/, ""),
+          order_number: (txn["ID"] || "").replace(/^O-/, ""),
+          channel: txn["Order Channel"] || "",
+          delivery_type: txn["Fulfillment Type"] || "",
+          transaction_type_description: txn["Type"] || "",
+          transaction_time: isoDate,
+          subtotal: parseDollar(txn["Subtotal"]),
+          restaurant_sales_tax: parseDollar(txn["Tax"]),
+          restaurant_tip: parseDollar(txn["Tip"]),
+          restaurant_total: parseDollar(txn["Restaurant Total"]),
+          advertising_fee: parseDollar(txn["Commission"]),
+          grubhub_delivery_fee: parseDollar(txn["Delivery Commission"]),
+          processing_fee: parseDollar(txn["Processing Fee"]),
+          withheld_sales_tax: parseDollar(txn["Withheld Tax"]),
+          restaurant_funded_promo: parseDollar(txn["Targeted Promotion"]),
+          restaurant_funded_reward: parseDollar(txn["Rewards"]),
+          net_amount: parseDollar(txn["Net Total"]),
+        });
+      }
+    }
+    return transactions;
   }
 
   // ---- Main sync ----
@@ -221,8 +221,13 @@
 
     try {
       const storeId = extractStoreId();
-      if (!storeId) {
-        throw new Error("Store ID not found. Navigate to a GrubHub page with a store ID in the URL.");
+      if (!storeId) throw new Error("Store ID not found in URL.");
+
+      if (!bearerToken) {
+        postCrawlStatus({ state: "scanning", message: "Waiting for auth token... navigate to any page first." });
+        // Wait up to 10s for token to be captured from page activity
+        for (let i = 0; i < 20 && !bearerToken; i++) await new Promise(r => setTimeout(r, 500));
+        if (!bearerToken) throw new Error("No auth token. Load the Transactions page first so the token is captured.");
       }
 
       postCrawlStatus({ state: "scanning", message: "Fetching GrubHub transactions..." });
@@ -236,7 +241,7 @@
         rangeStart = new Date(Date.now() - 30 * 86400000);
         rangeEnd = new Date();
       } else {
-        // full-sync: no fixed start, walk back until empty
+        // full-sync: walk back until 3 empty weeks (no fixed start)
         rangeStart = null;
         rangeEnd = new Date();
       }
@@ -251,37 +256,13 @@
 
       while (isFullSync ? (emptyWeeks < 3) : (windowEnd > windowStart)) {
         if (crawlAbort) break;
-        const wStart = isFullSync
-          ? windowEnd - WEEK_MS
-          : Math.max(windowEnd - WEEK_MS, windowStart);
+        const wStart = isFullSync ? windowEnd - WEEK_MS : Math.max(windowEnd - WEEK_MS, windowStart);
 
-        postCrawlStatus({
-          state: "scanning",
-          message: `Scanning week of ${new Date(wStart).toLocaleDateString()}...`,
-        });
+        postCrawlStatus({ state: "scanning", message: `Scanning week of ${new Date(wStart).toLocaleDateString()}...` });
 
         try {
-          const startStr = formatDate(new Date(wStart));
-          const endStr = formatDate(new Date(windowEnd));
-          const response = await fetchTransactions(storeId, startStr, endStr);
-
-          // Log first response for field name debugging
-          if (allTransactions.length === 0) {
-            console.log("[Profit Duck] GrubHub API response keys:", Object.keys(response).join(", "));
-            const sample = Array.isArray(response) ? response[0] : response.transactions?.[0];
-            if (sample) console.log("[Profit Duck] Sample transaction keys:", Object.keys(sample).join(", "));
-          }
-
-          // Response could be JSON array or object with transactions key
-          let txns = [];
-          if (Array.isArray(response)) {
-            txns = response;
-          } else if (response.transactions && Array.isArray(response.transactions)) {
-            txns = response.transactions;
-          } else if (response.length === 0 || Object.keys(response).length === 0) {
-            txns = [];
-          }
-
+          const response = await fetchTransactions(storeId, formatDate(new Date(wStart)), formatDate(new Date(windowEnd)));
+          const txns = Array.isArray(response) ? response : Object.values(response);
           allTransactions = allTransactions.concat(txns);
           console.log(`[Profit Duck] Week ${new Date(wStart).toLocaleDateString()}: ${txns.length} transactions`);
 
@@ -290,13 +271,10 @@
           }
         } catch (err) {
           console.warn(`[Profit Duck] Failed to fetch week:`, err.message);
-          // If API fails (401, etc.), try scraping from page as fallback
           if (allTransactions.length === 0) {
             console.log("[Profit Duck] Trying page scrape fallback...");
             allTransactions = scrapeTransactionsFromPage();
-            if (allTransactions.length > 0) {
-              console.log(`[Profit Duck] Scraped ${allTransactions.length} transactions from page`);
-            }
+            if (allTransactions.length > 0) console.log(`[Profit Duck] Scraped ${allTransactions.length} from page`);
             break;
           }
         }
@@ -333,35 +311,59 @@
         }
       }
 
-      // Normalize and filter
-      const csvRows = [];
+      // Filter out known transactions
+      const newTransactions = [];
       let skippedCount = 0;
       for (const txn of allTransactions) {
-        const row = normalizeTransactionToCsvRow(txn);
-        if (!row) continue;
-        if (knownIds.size > 0 && knownIds.has(row.transaction_id)) {
-          skippedCount++;
-          continue;
-        }
-        csvRows.push(row);
+        const id = txn.transaction_id || "";
+        if (!id) continue;
+        if (knownIds.size > 0 && knownIds.has(id)) { skippedCount++; continue; }
+        newTransactions.push(txn);
       }
 
-      console.log(`[Profit Duck] After filter: ${csvRows.length} new, ${skippedCount} skipped`);
+      console.log(`[Profit Duck] After filter: ${newTransactions.length} new, ${skippedCount} skipped`);
 
-      if (csvRows.length === 0) {
+      if (newTransactions.length === 0) {
         postCrawlStatus({ state: "done", message: `All ${allTransactions.length} transactions already synced.` });
         return;
       }
 
-      // Send to server via bridge
-      postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} transactions to server...` });
-      window.postMessage({
-        type: "PROFITDUCK_SEND_ORDERS",
-        platform: "grubhub",
-        csvRows: csvRows,
-      }, "*");
+      // Fetch order details for each new transaction (items, modifiers, instructions)
+      const csvRows = [];
+      for (let i = 0; i < newTransactions.length; i++) {
+        if (crawlAbort) break;
+        const txn = newTransactions[i];
 
-      await new Promise(r => setTimeout(r, 5000));
+        postCrawlStatus({
+          state: "fetching",
+          message: `Fetching details ${i + 1}/${newTransactions.length}...`,
+          total: newTransactions.length,
+          current: i + 1,
+        });
+
+        let detail = null;
+        try {
+          detail = await fetchOrderDetail(storeId, txn.transaction_id);
+        } catch (err) {
+          // Detail fetch failed — still include the transaction with financial data only
+          console.warn(`[Profit Duck] Detail fetch failed for ${txn.order_number}:`, err.message);
+        }
+
+        const row = normalizeTransaction(txn, detail);
+        if (row) csvRows.push(row);
+
+        // Rate limit
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      console.log(`[Profit Duck] Normalized ${csvRows.length} transactions with details`);
+
+      // Send to server via bridge
+      if (csvRows.length > 0) {
+        postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} transactions to server...` });
+        window.postMessage({ type: "PROFITDUCK_SEND_ORDERS", platform: "grubhub", csvRows }, "*");
+        await new Promise(r => setTimeout(r, 5000));
+      }
 
       postCrawlStatus({
         state: "done",
