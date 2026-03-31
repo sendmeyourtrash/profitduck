@@ -145,102 +145,6 @@ function normalizeOrderDetails(data) {
   };
 }
 
-// ---- DoorDash normalizer ----
-
-function normalizeDoorDashOrder(data) {
-  const od = data?.data;
-  if (!od?.orderId) return null;
-
-  const cents = (obj) => (obj?.unitAmount || 0) / 100;
-  const fmt = (n) => n.toFixed(2);
-  const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
-  const pickupAt = od.pickupTime ? new Date(od.pickupTime) : null;
-
-  const subtotal = cents(od.preTaxTotal);
-  const tax = cents(od.tax || od.totalTax);
-  const commission = cents(od.commission);
-  const netPayout = cents(od.netPayout);
-  const tip = cents(od.merchantTipAmount);
-  const errorCharges = cents(od.errorCharges);
-  const procFee = cents(od.paymentProcessingFee || od.processingFee);
-  const tabletFee = cents(od.tabletFee);
-  const adjustments = cents(od.adjustments);
-  const discYou = cents(od.customerDiscountsFundedByYou || od.merchantFundedDiscount);
-  const discDD = cents(od.customerDiscountsFundedByDoordash || od.doordashFundedDiscount);
-  const ddCredit = cents(od.doordashMarketingCredit);
-
-  let marketingFee = 0;
-  if (od.feeGroups?.ad_fees?.totalAmount) {
-    marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
-  }
-
-  const items = [];
-  if (od.orders && Array.isArray(od.orders)) {
-    for (const orderGroup of od.orders) {
-      if (orderGroup.orderItems && Array.isArray(orderGroup.orderItems)) {
-        for (const item of orderGroup.orderItems) {
-          const extras = (item.itemExtras || []).map(e => {
-            const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
-            return { name: e.name || e.title || "", option: opt?.name || "", price: cents(opt?.price) };
-          }).filter(e => e.option);
-          items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
-        }
-      }
-    }
-  }
-
-  const pad = (n) => String(n).padStart(2, "0");
-  const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
-  const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
-  const utcDate = completedAt.toISOString().slice(0, 10);
-  const utcTime = completedAt.toISOString().slice(11, 19);
-
-  const fulfillment = od.fulfillmentType || "";
-  const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
-    : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
-
-  return {
-    orderUUID: od.deliveryUuid || od.orderId,
-    orderId: od.orderId,
-    platform: "doordash",
-    netPayout,
-    items,
-    csvRow: {
-      "doordash_order_id": od.orderId,
-      "delivery_uuid": od.deliveryUuid || "",
-      "timestamp_local_date": orderDate,
-      "timestamp_local_time": orderTime,
-      "timestamp_utc_date": utcDate,
-      "timestamp_utc_time": utcTime,
-      "order_received_local_time": od.orderReceivedTime || "",
-      "order_pickup_local_time": pickupAt ? pickupAt.toISOString() : "",
-      "transaction_type": "Order",
-      "channel": channel,
-      "final_order_status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
-      "currency": "USD",
-      "subtotal": fmt(subtotal),
-      "subtotal_tax_passed_to_merchant": fmt(tax),
-      "commission": fmt(-Math.abs(commission)),
-      "payment_processing_fee": fmt(-Math.abs(procFee)),
-      "tablet_fee": fmt(-Math.abs(tabletFee)),
-      "marketing_fees": fmt(-Math.abs(marketingFee)),
-      "customer_discounts_funded_by_you": fmt(-Math.abs(discYou)),
-      "customer_discounts_funded_by_doordash": fmt(discDD),
-      "doordash_marketing_credit": fmt(ddCredit),
-      "error_charges": fmt(-Math.abs(errorCharges)),
-      "adjustments": fmt(adjustments),
-      "net_total": fmt(netPayout),
-      "description": items.map(i => `${i.quantity}x ${i.name}`).join(", "),
-      "customer_name": od.consumer?.formalNameAbbreviated || "",
-      "tip": fmt(tip),
-      "commission_rate": String(od.commissionRate || ""),
-      "items_json": JSON.stringify(items),
-      "raw_json": JSON.stringify(data),
-      "source": "extension",
-    },
-  };
-}
-
 // ---- Server communication ----
 
 async function getConfig() {
@@ -384,21 +288,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleIntercepted(message);
       sendResponse({ ok: true });
       break;
-    case "order_captured":
-      capturedCount++;
-      updateBadge();
-      sendResponse({ ok: true });
-      break;
-    case "sync_complete":
-      // Bridge reports successful server sync
-      lastSync = { time: new Date().toISOString(), inserted: message.inserted || 0, skipped: message.skipped || 0, error: null };
-      chrome.storage.local.set({ lastSync });
-      sendResponse({ ok: true });
-      break;
-    case "send_doordash_orders":
-      // Legacy handler — kept for compatibility
-      sendResponse({ ok: true, inserted: 0 });
-      break;
     case "send_doordash_csvrows":
       // DoorDash csvRows sent from content script via bridge — send directly to server
       (async () => {
@@ -495,18 +384,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 function handleIntercepted(message) {
   if (paused) return;
-  const platform = message.platform || "ubereats";
-
-  let order;
-  if (platform === "doordash") {
-    order = normalizeDoorDashOrder(message.data);
-  } else {
-    order = normalizeOrderDetails(message.data);
-  }
+  const order = normalizeOrderDetails(message.data);
   if (!order) return;
-
-  // Tag with platform for multi-platform flush
-  order._platform = platform === "doordash" ? "doordash" : "ubereats";
+  order._platform = "ubereats";
 
   const id = order.orderUUID;
   if (!id || sentIds.has(id) || orderQueue.has(id)) return;

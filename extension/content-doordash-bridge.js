@@ -1,8 +1,11 @@
 /**
- * ISOLATED world bridge for DoorDash — relays messages between
- * MAIN world content script and background service worker.
+ * DoorDash ISOLATED world bridge — relays messages between MAIN world
+ * content script and background service worker.
  *
- * Same pattern as content-bridge.js (Uber Eats).
+ * Data flows:
+ *   MAIN → bridge → background: csvRows for server, crawl status
+ *   background → storage → bridge → MAIN: sync trigger commands
+ *   MAIN → bridge → background → bridge → MAIN: known IDs for dedup
  */
 (function () {
   "use strict";
@@ -11,47 +14,23 @@
   window.addEventListener("message", (event) => {
     if (!event.data) return;
 
-    if (event.data?.type === "PROFITDUCK_INTERCEPTED" && event.data.platform === "doordash") {
-      chrome.runtime.sendMessage({
-        action: "api_intercepted",
-        platform: "doordash",
-        data: event.data.data,
-        url: event.data.url,
-        timestamp: event.data.timestamp,
-      }).catch(() => {});
-    }
-
-    if (event.data?.type === "PROFITDUCK_SEND_ORDERS" && event.data.platform === "doordash") {
-      console.log(`[Profit Duck] Bridge received SEND_ORDERS: ${event.data.csvRows?.length || 0} rows`);
-      // Route through background service worker (its fetch isn't subject to page CORS/loopback restrictions)
+    if (event.data.type === "PROFITDUCK_SEND_ORDERS" && event.data.platform === "doordash") {
+      // Route csvRows through background (its fetch isn't subject to page CORS)
       chrome.runtime.sendMessage({
         action: "send_doordash_csvrows",
         csvRows: event.data.csvRows || [],
       }, (response) => {
         if (response?.ok) {
-          console.log(`[Profit Duck] Bridge: server accepted ${response.inserted || 0} new, ${response.skipped || 0} skipped`);
+          console.log(`[Profit Duck] Server accepted ${response.inserted || 0} new, ${response.skipped || 0} skipped`);
         } else {
-          console.error(`[Profit Duck] Bridge: server error:`, response?.error || "unknown");
+          console.error(`[Profit Duck] Server error:`, response?.error || "unknown");
         }
       });
-    }
-
-    if (event.data?.type === "PROFITDUCK_CAPTURED" && event.data.platform === "doordash") {
-      chrome.runtime.sendMessage({
-        action: "order_captured",
-        platform: "doordash",
-        orderId: event.data.orderId,
-      }).catch(() => {});
-    }
-
-    if (event.data?.type === "PROFITDUCK_GET_KNOWN_IDS") {
-      const platform = event.data.platform || "doordash";
-      chrome.runtime.sendMessage({ action: "get_known_ids", platform }, (response) => {
+    } else if (event.data.type === "PROFITDUCK_GET_KNOWN_IDS") {
+      chrome.runtime.sendMessage({ action: "get_known_ids", platform: "doordash" }, (response) => {
         window.postMessage({ type: "PROFITDUCK_KNOWN_IDS_RESULT", orderIds: response?.orderIds || [] }, "*");
       });
-    }
-
-    if (event.data?.type === "PROFITDUCK_CRAWL_STATUS") {
+    } else if (event.data.type === "PROFITDUCK_CRAWL_STATUS") {
       chrome.runtime.sendMessage({
         action: "crawl_status",
         platform: "doordash",
@@ -63,19 +42,7 @@
     }
   });
 
-  // background → MAIN world (for crawl commands)
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === "trigger_crawl") {
-      window.postMessage({
-        type: "PROFITDUCK_CRAWL",
-        command: message.command,
-        startDate: message.startDate,
-        endDate: message.endDate,
-      }, "*");
-    }
-  });
-
-  // Watch for sync requests via chrome.storage
+  // Sync trigger: background writes syncRequest to storage, bridge relays to MAIN world
   let lastSyncTs = 0;
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.syncRequest?.newValue) {
@@ -83,7 +50,6 @@
       if (req.platform && req.platform !== "doordash" && req.platform !== "all") return;
       if (req.ts > lastSyncTs) {
         lastSyncTs = req.ts;
-        console.log("[Profit Duck] DoorDash bridge relaying sync request:", req.command);
         window.postMessage({
           type: "PROFITDUCK_CRAWL",
           command: req.command,
@@ -95,5 +61,5 @@
     }
   });
 
-  console.log("[Profit Duck] DoorDash bridge loaded");
+  console.log("[Profit Duck] DoorDash bridge active");
 })();

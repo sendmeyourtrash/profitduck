@@ -1,33 +1,20 @@
 /**
  * MAIN world content script — Profit Duck DoorDash data capture.
  *
- * Intercepts API calls to DoorDash merchant portal endpoints:
- *   - /merchant-analytics-service/api/v1/get_orders (order list)
- *   - /merchant-analytics-service/api/v1/orders_details/ (order detail with items + fees)
+ * Fetches order list from DoorDash merchant API, normalizes to csvRow format,
+ * and sends to server via bridge → background.
  *
- * Order details are posted to the bridge script → background for normalization.
+ * Data flow: get_orders API → normalize → postMessage → bridge → background → server
  */
 (function () {
   "use strict";
 
-  const INTERCEPT_TAG = "PROFITDUCK_INTERCEPTED";
   const CRAWL_STATUS_TAG = "PROFITDUCK_CRAWL_STATUS";
-
-  // API base + URL patterns to intercept
   const API_BASE = "https://merchant-portal.doordash.com";
-  const ORDER_DETAIL_PATH = "/merchant-analytics-service/api/v1/orders_details";
-  const ORDER_LIST_PATH = "/merchant-analytics-service/api/v1/get_orders";
-  const ORDER_DETAIL_URL = API_BASE + ORDER_DETAIL_PATH;
-  const ORDER_LIST_URL = API_BASE + ORDER_LIST_PATH;
+  const ORDER_LIST_URL = API_BASE + "/merchant-analytics-service/api/v1/get_orders";
 
   let crawlActive = false;
   let crawlAbort = false;
-
-  function postIntercepted(url, data) {
-    try {
-      window.postMessage({ type: INTERCEPT_TAG, platform: "doordash", url, data, timestamp: Date.now() }, "*");
-    } catch (e) {}
-  }
 
   function postCrawlStatus(status) {
     window.postMessage({ type: CRAWL_STATUS_TAG, ...status }, "*");
@@ -64,8 +51,6 @@
     });
   }
 
-  // fetchOrderDetail removed — orders_details endpoint hangs from content script context.
-  // We normalize from list data instead.
 
   function getStoreAndBusinessIds() {
     const storeId = extractStoreId();
