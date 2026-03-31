@@ -21,6 +21,12 @@
       });
     } else if (event.data.type === "PROFITDUCK_AUTO_FLUSH") {
       chrome.runtime.sendMessage({ action: "auto_flush" });
+    } else if (event.data.type === "PROFITDUCK_GET_KNOWN_IDS") {
+      // MAIN world requests known IDs — bridge fetches from server (not subject to page CSP)
+      const platform = event.data.platform || "ubereats";
+      chrome.runtime.sendMessage({ action: "get_known_ids", platform }, (response) => {
+        window.postMessage({ type: "PROFITDUCK_KNOWN_IDS_RESULT", orderIds: response?.orderIds || [] }, "*");
+      });
     } else if (event.data.type === "PROFITDUCK_CRAWL_STATUS") {
       chrome.runtime.sendMessage({
         action: "crawl_status",

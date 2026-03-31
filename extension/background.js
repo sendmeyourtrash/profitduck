@@ -409,6 +409,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "health_check":
       healthCheck().then(d => sendResponse({ connected: true, version: d.version })).catch(() => sendResponse({ connected: false }));
       return true;
+    case "get_known_ids":
+      getConfig().then(async ({ serverUrl, apiKey }) => {
+        try {
+          const headers = {};
+          if (apiKey) headers["x-api-key"] = apiKey;
+          const resp = await fetch(`${serverUrl}/api/ingest/extension?action=known_ids&platform=${message.platform || "ubereats"}`, { headers });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          sendResponse({ orderIds: data.orderIds || [] });
+        } catch (e) {
+          console.warn("[Profit Duck] Failed to load known IDs:", e.message);
+          sendResponse({ orderIds: [] });
+        }
+      });
+      return true;
     case "start_sync":
       paused = false; // Auto-unpause when user triggers sync
       chrome.storage.local.set({ paused });

@@ -261,12 +261,18 @@
       let knownIds = new Set();
       if (command === "smart-sync") {
         try {
-          const resp = await nativeFetch.call(window, "http://localhost:3000/api/ingest/extension?action=known_ids&platform=doordash");
-          if (resp.ok) {
-            const data = await resp.json();
-            knownIds = new Set(data.orderIds || []);
-            console.log(`[Profit Duck] ${knownIds.size} DoorDash orders already in database`);
-          }
+          knownIds = await new Promise((resolve) => {
+            window.postMessage({ type: "PROFITDUCK_GET_KNOWN_IDS", platform: "doordash" }, "*");
+            const handler = (ev) => {
+              if (ev.data?.type === "PROFITDUCK_KNOWN_IDS_RESULT") {
+                window.removeEventListener("message", handler);
+                resolve(new Set(ev.data.orderIds || []));
+              }
+            };
+            window.addEventListener("message", handler);
+            setTimeout(() => { window.removeEventListener("message", handler); resolve(new Set()); }, 5000);
+          });
+          console.log(`[Profit Duck] ${knownIds.size} DoorDash orders already in database`);
         } catch (e) {
           console.warn("[Profit Duck] Could not load known IDs:", e.message);
         }

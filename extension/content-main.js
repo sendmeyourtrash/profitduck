@@ -177,16 +177,24 @@
   }
 
   // ---- Load known order IDs from server for smart-sync ----
+  // Routed through background service worker (MAIN world can't fetch localhost due to CSP)
 
   async function loadKnownOrderIds() {
-    try {
-      const response = await fetch("http://localhost:3000/api/ingest/extension?action=known_ids&platform=ubereats");
-      if (!response.ok) return new Set();
-      const data = await response.json();
-      return new Set(data.orderIds || []);
-    } catch {
-      return new Set();
-    }
+    return new Promise((resolve) => {
+      window.postMessage({ type: "PROFITDUCK_GET_KNOWN_IDS", platform: "ubereats" }, "*");
+      const handler = (event) => {
+        if (event.data?.type === "PROFITDUCK_KNOWN_IDS_RESULT") {
+          window.removeEventListener("message", handler);
+          resolve(new Set(event.data.orderIds || []));
+        }
+      };
+      window.addEventListener("message", handler);
+      // Timeout after 5s
+      setTimeout(() => {
+        window.removeEventListener("message", handler);
+        resolve(new Set());
+      }, 5000);
+    });
   }
 
   // ---- Main sync function ----
