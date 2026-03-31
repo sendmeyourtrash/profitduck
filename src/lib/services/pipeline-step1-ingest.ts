@@ -428,10 +428,21 @@ export function ingestUberEatsOrders(rows: Record<string, string>[]): IngestResu
     customer_refunds REAL DEFAULT 0,
     order_charges REAL DEFAULT 0,
     estimated_payout REAL DEFAULT 0,
+    tip REAL DEFAULT 0,
+    delivery_fee REAL DEFAULT 0,
+    promotions REAL DEFAULT 0,
+    adjustment_amount REAL DEFAULT 0,
+    checkout_info_json TEXT,
     raw_json TEXT,
     source TEXT DEFAULT 'extension',
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+
+  // Add new columns to existing tables (safe — SQLite ignores if already exists)
+  for (const col of ["tip REAL DEFAULT 0", "delivery_fee REAL DEFAULT 0", "promotions REAL DEFAULT 0",
+    "adjustment_amount REAL DEFAULT 0", "checkout_info_json TEXT"]) {
+    try { db.exec(`ALTER TABLE orders ADD COLUMN ${col}`); } catch {}
+  }
 
   // Items table — one row per item per order (like Square's items table)
   db.exec(`CREATE TABLE IF NOT EXISTS items (
@@ -483,8 +494,9 @@ export function ingestUberEatsOrders(rows: Record<string, string>[]): IngestResu
         order_status, fulfillment_type,
         sales_excl_tax, tax, marketplace_fee, marketplace_fee_rate,
         customer_refunds, order_charges, estimated_payout,
+        tip, delivery_fee, promotions, adjustment_amount, checkout_info_json,
         raw_json, source
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         orderId,
         norm["order_uuid"] || "",
         cleanDate,
@@ -503,6 +515,11 @@ export function ingestUberEatsOrders(rows: Record<string, string>[]): IngestResu
         parseAmt(norm["customer_refunds"] || norm["customer refunds"] || ""),
         parseAmt(norm["order_charges"] || norm["order charges"] || ""),
         parseAmt(norm["estimated_payout"] || norm["estimated payout"] || ""),
+        parseAmt(norm["tip"] || ""),
+        parseAmt(norm["delivery_fee"] || ""),
+        parseAmt(norm["promotions"] || ""),
+        parseAmt(norm["adjustment_amount"] || ""),
+        norm["checkout_info_json"] || "",
         norm["raw_json"] || "",
         norm["source"] || "extension"
       );

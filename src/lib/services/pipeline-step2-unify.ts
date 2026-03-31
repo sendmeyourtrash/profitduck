@@ -508,13 +508,20 @@ export function unifyUberEats(): UnifyResult {
       const charges = parseAmount(r.order_charges as string);
       const payout = parseAmount(r.estimated_payout as string);
 
+      const tip = parseAmount(r.tip as string);
+      const promos = parseAmount(r.promotions as string);
+      const adjustment = parseAmount(r.adjustment_amount as string);
+
       const commissionFee = mktFee < 0 ? mktFee : -Math.abs(mktFee);
       // order_charges is a platform fee (~21.8% commission), not an adjustment
       const chargesFee = charges < 0 ? charges : (charges > 0 ? -charges : 0);
       const feesTotal = commissionFee + chargesFee;
       const refundsTotal = refunds < 0 ? refunds : (refunds > 0 ? -refunds : 0);
+      const marketingTotal = promos < 0 ? promos : (promos > 0 ? -promos : 0);
+      // Adjustments can be positive (credit) or negative (charge) — preserve sign as-is
+      const adjustmentsTotal = adjustment;
 
-      const totalFees = feesTotal + refundsTotal;
+      const totalFees = feesTotal + refundsTotal + marketingTotal + adjustmentsTotal;
 
       const statusRaw = (r.order_status as string) || "";
       let status = "completed";
@@ -551,9 +558,9 @@ export function unifyUberEats(): UnifyResult {
         r.date, r.time || null, "ubereats", orderId,
         gross, tax, totalFees, payout,
         status, itemsSummary, itemCount, modsSummary,
-        0, 0, diningOpt, r.customer || null, null,
-        commissionFee + chargesFee, 0, 0, 0,
-        feesTotal, 0, refundsTotal, 0, 0
+        tip, 0, diningOpt, r.customer || null, null,
+        commissionFee + chargesFee, 0, 0, marketingTotal,
+        feesTotal, marketingTotal, refundsTotal, adjustmentsTotal, 0
       );
 
       // order_items: use real items if available, otherwise synthetic row

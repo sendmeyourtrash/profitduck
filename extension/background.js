@@ -77,7 +77,16 @@ function normalizeOrderDetails(data) {
   const subtotal = checkout.Subtotal || 0;
   const tax = checkout.TaxOnSubtotal || checkout.Tax || 0;
   const marketplaceFee = Math.abs(checkout.MarketplaceFee || 0);
+  const tip = checkout.Tip || 0;
+  const deliveryFee = checkout.DeliveryFee || 0;
+  const serviceFee = Math.abs(checkout.ServiceFee || 0);
+  const smallOrderFee = Math.abs(checkout.SmallOrderFee || 0);
+  const promotions = checkout.Promotion || checkout.PickupPromotion || checkout.EatsPassDiscount || 0;
   const netPayout = parseDollar(od.netPayout || 0);
+
+  // Refunds and adjustments from issueSummary
+  const customerRefund = parseDollar(od.issueSummary?.customerRefund || 0);
+  const adjustmentAmount = parseDollar(od.issueSummary?.adjustmentAmount || 0);
 
   const items = [];
   if (Array.isArray(od.items)) {
@@ -123,9 +132,14 @@ function normalizeOrderDetails(data) {
       "tax": tax.toFixed(2),
       "marketplace_fee": (-marketplaceFee).toFixed(2),
       "marketplace_fee_rate": od.marketplaceFeeRate || "",
-      "customer_refunds": "0.00",
-      "order_charges": "0.00",
+      "customer_refunds": (-Math.abs(customerRefund)).toFixed(2),
+      "order_charges": (-Math.abs(serviceFee + smallOrderFee)).toFixed(2),
       "estimated_payout": netPayout.toFixed(2),
+      "tip": tip.toFixed(2),
+      "delivery_fee": deliveryFee.toFixed(2),
+      "promotions": promotions.toFixed(2),
+      "adjustment_amount": adjustmentAmount.toFixed(2),
+      "checkout_info_json": JSON.stringify(checkout),
       "items_json": JSON.stringify(od.items || []),
       "raw_json": JSON.stringify(data),
       "source": "extension",
