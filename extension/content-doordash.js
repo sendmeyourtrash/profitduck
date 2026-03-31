@@ -120,31 +120,6 @@
     return null;
   }
 
-  // ---- Fetch order detail (deferred to clean context via setTimeout) ----
-
-  const ORDER_DETAIL_URL = API_BASE + "/merchant-analytics-service/api/v1/orders_details/";
-
-  function fetchOrderDetail(deliveryUuid) {
-    return new Promise((resolve, reject) => {
-      // Use setTimeout to break out of the postMessage event handler context
-      // which was causing fetch to hang
-      setTimeout(() => {
-        fetch(ORDER_DETAIL_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ deliveryUuid }),
-        })
-          .then(r => {
-            if (!r.ok) { reject(new Error(`HTTP ${r.status}`)); return; }
-            return r.json();
-          })
-          .then(json => resolve(json))
-          .catch(e => reject(e));
-      }, 0);
-    });
-  }
-
   // ---- Normalize order to csvRow (merges list + detail data) ----
 
   function normalizeOrderToCsvRow(order, detail) {
@@ -346,44 +321,39 @@
         current: 0,
       });
 
-      // Fetch order details for enriched data (items, fees, tips)
-      // Uses setTimeout wrapper to avoid context-related fetch hanging
-      const csvRows = [];
-      let detailSuccess = 0;
-      let detailFailed = 0;
+      // Fetch order details via background service worker (page context fetch hangs)
+      postCrawlStatus({ state: "fetching", message: `Fetching details for ${newOrders.length} orders...` });
 
-      for (let i = 0; i < newOrders.length; i++) {
-        if (crawlAbort) break;
-        const order = newOrders[i];
+      const uuids = newOrders.map(o => o.deliveryUuid).filter(Boolean);
+      let details = {};
 
-        postCrawlStatus({
-          state: "fetching",
-          message: `Fetching order ${i + 1}/${newOrders.length}...`,
-          total: newOrders.length,
-          current: i + 1,
+      try {
+        details = await new Promise((resolve) => {
+          window.postMessage({ type: "PROFITDUCK_FETCH_DD_DETAILS", uuids, storeId: extractStoreId() }, "*");
+          const handler = (ev) => {
+            if (ev.data?.type === "PROFITDUCK_DD_DETAILS_RESULT") {
+              window.removeEventListener("message", handler);
+              resolve(ev.data.details || {});
+            }
+          };
+          window.addEventListener("message", handler);
+          // Timeout after 2 min for all details
+          setTimeout(() => { window.removeEventListener("message", handler); resolve({}); }, 120000);
         });
-
-        let detail = null;
-        try {
-          // Race: detail fetch vs 15s timeout
-          detail = await Promise.race([
-            fetchOrderDetail(order.deliveryUuid),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000)),
-          ]);
-          detailSuccess++;
-        } catch (err) {
-          detailFailed++;
-          if (i === 0) console.warn(`[Profit Duck] Detail fetch failed: ${err.message} — will still capture basic data`);
-        }
-
-        const row = normalizeOrderToCsvRow(order, detail);
-        if (row) csvRows.push(row);
-
-        // Rate limit
-        await new Promise(r => setTimeout(r, 400));
+        console.log(`[Profit Duck] Got details for ${Object.keys(details).length}/${uuids.length} orders`);
+      } catch (e) {
+        console.warn("[Profit Duck] Detail fetch failed:", e.message);
       }
 
-      console.log(`[Profit Duck] Normalized ${csvRows.length} orders (${detailSuccess} with details, ${detailFailed} basic only)`);
+      const csvRows = [];
+      for (const order of newOrders) {
+        const detail = details[order.deliveryUuid] || null;
+        const row = normalizeOrderToCsvRow(order, detail);
+        if (row) csvRows.push(row);
+      }
+
+      const enrichedCount = Object.keys(details).length;
+      console.log(`[Profit Duck] Normalized ${csvRows.length} orders (${enrichedCount} enriched)`);
 
       // Send to server via bridge
       if (csvRows.length > 0) {

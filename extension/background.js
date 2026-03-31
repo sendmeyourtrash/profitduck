@@ -292,6 +292,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleIntercepted(message);
       sendResponse({ ok: true });
       break;
+    case "fetch_doordash_details":
+      // Fetch DoorDash order details from background (page context fetch hangs)
+      (async () => {
+        const uuids = message.uuids || [];
+        const details = {};
+        const DD_DETAIL_URL = "https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/orders_details/";
+
+        for (const uuid of uuids) {
+          try {
+            const resp = await fetch(DD_DETAIL_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ deliveryUuid: uuid }),
+            });
+            if (resp.ok) {
+              details[uuid] = await resp.json();
+            }
+          } catch (e) {
+            // Skip failed detail fetches
+          }
+          // Rate limit
+          await new Promise(r => setTimeout(r, 300));
+        }
+
+        console.log(`[Profit Duck] [doordash] Fetched details for ${Object.keys(details).length}/${uuids.length} orders`);
+        sendResponse({ details });
+      })();
+      return true;
     case "send_doordash_csvrows":
       // DoorDash csvRows sent from content script via bridge — send directly to server
       (async () => {

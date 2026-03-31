@@ -26,6 +26,15 @@
           console.error(`[Profit Duck] Server error:`, response?.error || "unknown");
         }
       });
+    } else if (event.data.type === "PROFITDUCK_FETCH_DD_DETAILS") {
+      // Route detail fetches through background (page context fetch hangs)
+      chrome.runtime.sendMessage({
+        action: "fetch_doordash_details",
+        uuids: event.data.uuids || [],
+        storeId: event.data.storeId || "",
+      }, (response) => {
+        window.postMessage({ type: "PROFITDUCK_DD_DETAILS_RESULT", details: response?.details || {} }, "*");
+      });
     } else if (event.data.type === "PROFITDUCK_GET_KNOWN_IDS") {
       chrome.runtime.sendMessage({ action: "get_known_ids", platform: "doordash" }, (response) => {
         window.postMessage({ type: "PROFITDUCK_KNOWN_IDS_RESULT", orderIds: response?.orderIds || [] }, "*");
