@@ -293,22 +293,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
     case "fetch_doordash_details":
-      // Fetch DoorDash order details from background (page context fetch hangs)
+      // Fetch DoorDash order details from background using explicit cookies
       (async () => {
         const uuids = message.uuids || [];
         const details = {};
         const DD_DETAIL_URL = "https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/orders_details/";
 
+        // Get cookies for merchant-portal.doordash.com
+        let cookieHeader = "";
+        try {
+          const cookies = await chrome.cookies.getAll({ domain: ".doordash.com" });
+          cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
+        } catch (e) {
+          console.warn("[Profit Duck] [doordash] Failed to get cookies:", e.message);
+        }
+
+        if (!cookieHeader) {
+          console.warn("[Profit Duck] [doordash] No cookies found for doordash.com");
+          sendResponse({ details: {} });
+          return;
+        }
+
         for (const uuid of uuids) {
           try {
             const resp = await fetch(DD_DETAIL_URL, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
+              headers: { "Content-Type": "application/json", "Cookie": cookieHeader },
               body: JSON.stringify({ deliveryUuid: uuid }),
             });
             if (resp.ok) {
-              details[uuid] = await resp.json();
+              const json = await resp.json();
+              if (json?.data?.orderId) details[uuid] = json;
             }
           } catch (e) {
             // Skip failed detail fetches
