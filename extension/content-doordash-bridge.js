@@ -22,10 +22,36 @@
     }
 
     if (event.data?.type === "PROFITDUCK_SEND_ORDERS" && event.data.platform === "doordash") {
-      chrome.runtime.sendMessage({
-        action: "send_doordash_orders",
-        orders: event.data.orders,
-      }).catch(() => {});
+      // Send directly to server from bridge (ISOLATED world can reach localhost)
+      // Don't go through background — order data is too large for chrome.runtime messages
+      (async () => {
+        try {
+          const { serverUrl, apiKey } = await chrome.storage.local.get(["serverUrl", "apiKey"]);
+          const url = (serverUrl || "http://localhost:3000") + "/api/ingest/extension";
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers["x-api-key"] = apiKey;
+          const resp = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              platform: "doordash",
+              orders: event.data.csvRows || [],
+              source: "extension",
+              extensionVersion: chrome.runtime.getManifest().version,
+            }),
+          });
+          if (resp.ok) {
+            const result = await resp.json();
+            console.log(`[Profit Duck] Bridge sent ${event.data.csvRows?.length || 0} DoorDash orders: ${result.inserted} new, ${result.skipped} skipped`);
+            // Notify background of sync result
+            chrome.runtime.sendMessage({ action: "sync_complete", platform: "doordash", inserted: result.inserted, skipped: result.skipped });
+          } else {
+            console.error(`[Profit Duck] Bridge send failed: HTTP ${resp.status}`);
+          }
+        } catch (e) {
+          console.error(`[Profit Duck] Bridge send error:`, e.message);
+        }
+      })();
     }
 
     if (event.data?.type === "PROFITDUCK_CAPTURED" && event.data.platform === "doordash") {

@@ -389,6 +389,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       updateBadge();
       sendResponse({ ok: true });
       break;
+    case "sync_complete":
+      // Bridge reports successful server sync
+      lastSync = { time: new Date().toISOString(), inserted: message.inserted || 0, skipped: message.skipped || 0, error: null };
+      chrome.storage.local.set({ lastSync });
+      sendResponse({ ok: true });
+      break;
     case "send_doordash_orders":
       // DoorDash orders sent in batches from content script via bridge
       (async () => {

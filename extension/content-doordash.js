@@ -181,6 +181,67 @@
     return null;
   }
 
+  // ---- Normalize order detail into csvRow for server ----
+
+  function normalizeOrderToCsvRow(json) {
+    const od = json?.data;
+    if (!od?.orderId) return null;
+    const cents = (obj) => (obj?.unitAmount || 0) / 100;
+    const fmt = (n) => n.toFixed(2);
+    const completedAt = od.completedTime ? new Date(od.completedTime) : new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
+    const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
+
+    const items = [];
+    if (od.orders && Array.isArray(od.orders)) {
+      for (const g of od.orders) {
+        for (const item of (g.orderItems || [])) {
+          const extras = (item.itemExtras || []).map(e => {
+            const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
+            return { name: e.name || "", option: opt?.name || "", price: cents(opt?.price) };
+          }).filter(e => e.option);
+          items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
+        }
+      }
+    }
+
+    let marketingFee = 0;
+    if (od.feeGroups?.ad_fees?.totalAmount) marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
+
+    const fulfillment = od.fulfillmentType || "";
+    const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
+      : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
+
+    return {
+      "doordash_order_id": od.orderId,
+      "delivery_uuid": od.deliveryUuid || "",
+      "timestamp_local_date": orderDate,
+      "timestamp_local_time": orderTime,
+      "timestamp_utc_date": completedAt.toISOString().slice(0, 10),
+      "timestamp_utc_time": completedAt.toISOString().slice(11, 19),
+      "transaction_type": "Order",
+      "channel": channel,
+      "final_order_status": od.orderStatusDetails?.value || "DELIVERED_ORDER",
+      "currency": "USD",
+      "subtotal": fmt(cents(od.preTaxTotal)),
+      "subtotal_tax_passed_to_merchant": fmt(cents(od.tax || od.totalTax)),
+      "commission": fmt(-Math.abs(cents(od.commission))),
+      "payment_processing_fee": fmt(-Math.abs(cents(od.paymentProcessingFee || od.processingFee))),
+      "tablet_fee": fmt(-Math.abs(cents(od.tabletFee))),
+      "marketing_fees": fmt(-Math.abs(marketingFee)),
+      "error_charges": fmt(-Math.abs(cents(od.errorCharges))),
+      "adjustments": fmt(cents(od.adjustments)),
+      "net_total": fmt(cents(od.netPayout)),
+      "description": items.map(i => `${i.quantity}x ${i.name}`).join(", "),
+      "customer_name": od.consumer?.formalNameAbbreviated || "",
+      "tip": fmt(cents(od.merchantTipAmount)),
+      "commission_rate": String(od.commissionRate || ""),
+      "items_json": JSON.stringify(items),
+      "source": "extension",
+    };
+  }
+
   // ---- Listen for crawl commands ----
 
   window.addEventListener("message", async (event) => {
@@ -300,7 +361,7 @@
       });
 
       let fetched = 0;
-      const capturedDetails = [];
+      const csvRows = [];
       for (const order of newOrders) {
         if (crawlAbort) {
           postCrawlStatus({ state: "done", message: `Stopped — ${fetched} orders captured.` });
@@ -309,7 +370,8 @@
 
         try {
           const json = await fetchOrderDetail(order.deliveryUuid);
-          capturedDetails.push(json);
+          const row = normalizeOrderToCsvRow(json);
+          if (row) csvRows.push(row);
           fetched++;
           postCrawlStatus({
             state: "fetching",
@@ -325,21 +387,22 @@
         await new Promise(r => setTimeout(r, 400));
       }
 
-      // Send captured orders to server via bridge (MAIN world can't reach localhost)
-      if (capturedDetails.length > 0) {
-        postCrawlStatus({ state: "syncing", message: `Syncing ${capturedDetails.length} orders to server...` });
-        // Send in batches of 10 to avoid message size limits
+      // Send normalized csvRows to server via bridge (MAIN world can't reach localhost)
+      if (csvRows.length > 0) {
+        postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} orders to server...` });
+        // Send in batches of 10
         const BATCH_SIZE = 10;
-        for (let i = 0; i < capturedDetails.length; i += BATCH_SIZE) {
-          const batch = capturedDetails.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < csvRows.length; i += BATCH_SIZE) {
+          const batch = csvRows.slice(i, i + BATCH_SIZE);
           window.postMessage({
             type: "PROFITDUCK_SEND_ORDERS",
             platform: "doordash",
-            orders: batch,
+            csvRows: batch,
           }, "*");
-          await new Promise(r => setTimeout(r, 500));
+          // Wait for bridge to process
+          await new Promise(r => setTimeout(r, 2000));
         }
-        // Wait for server sync to complete
+        // Wait for final sync
         await new Promise(r => setTimeout(r, 2000));
       }
 
