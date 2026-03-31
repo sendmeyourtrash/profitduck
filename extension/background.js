@@ -384,6 +384,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleIntercepted(message);
       sendResponse({ ok: true });
       break;
+    case "order_captured":
+      // Lightweight counter increment (for DoorDash crawl where full data is too large for messages)
+      capturedCount++;
+      updateBadge();
+      sendResponse({ ok: true });
+      break;
     case "auto_flush":
       flushQueue().then(() => sendResponse({ ok: true, lastSync }));
       return true;

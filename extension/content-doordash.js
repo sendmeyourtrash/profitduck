@@ -132,7 +132,11 @@
 
   async function fetchOrderDetail(deliveryUuid) {
     const json = await crawlFetch(ORDER_DETAIL_URL + "/", { deliveryUuid });
-    postIntercepted(ORDER_DETAIL_URL, json);
+    // Post lightweight capture event (full data is too large for message channel)
+    const orderId = json?.data?.orderId || deliveryUuid;
+    try {
+      window.postMessage({ type: "PROFITDUCK_CAPTURED", platform: "doordash", orderId }, "*");
+    } catch {}
     return json;
   }
 

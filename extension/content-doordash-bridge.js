@@ -21,6 +21,14 @@
       }).catch(() => {});
     }
 
+    if (event.data?.type === "PROFITDUCK_CAPTURED" && event.data.platform === "doordash") {
+      chrome.runtime.sendMessage({
+        action: "order_captured",
+        platform: "doordash",
+        orderId: event.data.orderId,
+      }).catch(() => {});
+    }
+
     if (event.data?.type === "PROFITDUCK_GET_KNOWN_IDS") {
       const platform = event.data.platform || "doordash";
       chrome.runtime.sendMessage({ action: "get_known_ids", platform }, (response) => {
