@@ -43,15 +43,26 @@
   const PAGE_LIMIT = 20;
   const WEEK_MS = 7 * 86400000;
 
-  async function crawlFetch(url, body) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body),
+  function crawlFetch(url, body) {
+    // Use XMLHttpRequest — NOT fetch() which hangs due to DoorDash's service worker
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.withCredentials = true;
+      xhr.timeout = 30000;
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error("Invalid JSON")); }
+        } else {
+          reject(new Error(`HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.ontimeout = () => reject(new Error("Timeout"));
+      xhr.send(JSON.stringify(body));
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
   }
 
   function getStoreAndBusinessIds() {
