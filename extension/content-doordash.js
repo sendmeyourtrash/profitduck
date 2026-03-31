@@ -20,10 +20,45 @@
     window.postMessage({ type: CRAWL_STATUS_TAG, ...status }, "*");
   }
 
-  // ---- Patch fetch to capture DoorDash API responses ----
+  // ---- Capture GraphQL headers from page's own API calls ----
+  // Read-only interceptor: captures auth headers for later use, does NOT modify requests
 
-  // No fetch patch for DoorDash — businessId extracted from page scripts,
-  // and crawl uses window.fetch directly without interception.
+  let gqlHeaders = null;
+  let gqlQuery = null;
+  const nativeFetch = window.fetch;
+  window.fetch = function (...args) {
+    const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
+    if (url.includes("mx-menu-tools-bff/graphql")) {
+      const opts = args[1] || {};
+      // Capture headers
+      if (opts.headers) {
+        gqlHeaders = opts.headers instanceof Headers
+          ? Object.fromEntries(opts.headers.entries())
+          : { ...opts.headers };
+      }
+      // Capture query and variables for reuse
+      try {
+        const body = JSON.parse(opts.body);
+        if (body.query && !gqlQuery) gqlQuery = body.query;
+        console.log("[Profit Duck] Captured GQL headers, op:", body.operationName);
+        // Store headers via bridge for background to use during sync
+        window.postMessage({ type: "PROFITDUCK_STORE_DD_HEADERS", headers: gqlHeaders }, "*");
+      } catch {}
+
+      // Clone response to capture order detail data
+      const promise = nativeFetch.apply(this, args);
+      promise.then(resp => {
+        const clone = resp.clone();
+        clone.json().then(json => {
+          if (json?.data) {
+            console.log("[Profit Duck] GQL response captured, keys:", Object.keys(json.data).join(", "));
+          }
+        }).catch(() => {});
+      }).catch(() => {});
+      return promise;
+    }
+    return nativeFetch.apply(this, args);
+  };
 
   // ---- Crawl API calls ----
 
@@ -368,7 +403,7 @@
 
       postCrawlStatus({
         state: "done",
-        message: `Done! ${csvRows.length} new (${detailSuccess} enriched), ${skippedCount} already synced.`,
+        message: `Done! ${csvRows.length} new (${enrichedCount} enriched), ${skippedCount} already synced.`,
       });
     } catch (err) {
       postCrawlStatus({ state: "error", message: err.message || "DoorDash sync failed" });

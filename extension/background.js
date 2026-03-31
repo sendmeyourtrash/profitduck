@@ -293,46 +293,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       break;
     case "fetch_doordash_details":
-      // Fetch DoorDash order details from background using explicit cookies
+      // Fetch DoorDash order details via GraphQL using captured auth headers
       (async () => {
         const uuids = message.uuids || [];
         const details = {};
-        const DD_DETAIL_URL = "https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/orders_details/";
+        const GQL_URL = "https://merchant-portal.doordash.com/mx-menu-tools-bff/graphql";
 
-        // Get cookies for merchant-portal.doordash.com
-        let cookieHeader = "";
-        try {
-          const cookies = await chrome.cookies.getAll({ domain: ".doordash.com" });
-          cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
-        } catch (e) {
-          console.warn("[Profit Duck] [doordash] Failed to get cookies:", e.message);
-        }
-
-        if (!cookieHeader) {
-          console.warn("[Profit Duck] [doordash] No cookies found for doordash.com");
+        // Get stored GraphQL headers (captured from page's own API calls)
+        const { ddGqlHeaders } = await chrome.storage.local.get("ddGqlHeaders");
+        if (!ddGqlHeaders) {
+          console.warn("[Profit Duck] [doordash] No GQL headers stored. Open an order detail page first.");
           sendResponse({ details: {} });
           return;
         }
 
+        // Simple order detail query
+        const query = `query OrderDetails($orderUuid: String!) {
+          orderDetails(orderCartId: $orderUuid) {
+            orderId orderUuid subtotal tax tip commission netPayout
+            fulfillmentType orderStatus
+            items { name quantity price category modifiers { name price } }
+          }
+        }`;
+
         for (const uuid of uuids) {
           try {
-            const resp = await fetch(DD_DETAIL_URL, {
+            const resp = await fetch(GQL_URL, {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Cookie": cookieHeader },
-              body: JSON.stringify({ deliveryUuid: uuid }),
+              headers: { ...ddGqlHeaders, "Content-Type": "application/json" },
+              body: JSON.stringify({ operationName: "OrderDetails", variables: { orderUuid: uuid }, query }),
             });
             if (resp.ok) {
               const json = await resp.json();
-              if (json?.data?.orderId) details[uuid] = json;
+              if (json?.data) details[uuid] = json;
             }
           } catch (e) {
-            // Skip failed detail fetches
+            // Skip failed fetches
           }
-          // Rate limit
           await new Promise(r => setTimeout(r, 300));
         }
 
-        console.log(`[Profit Duck] [doordash] Fetched details for ${Object.keys(details).length}/${uuids.length} orders`);
+        console.log(`[Profit Duck] [doordash] Fetched GQL details for ${Object.keys(details).length}/${uuids.length} orders`);
         sendResponse({ details });
       })();
       return true;

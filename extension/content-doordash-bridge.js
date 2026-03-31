@@ -26,6 +26,9 @@
           console.error(`[Profit Duck] Server error:`, response?.error || "unknown");
         }
       });
+    } else if (event.data.type === "PROFITDUCK_STORE_DD_HEADERS") {
+      // Store GraphQL headers for background to use during sync
+      chrome.storage.local.set({ ddGqlHeaders: event.data.headers });
     } else if (event.data.type === "PROFITDUCK_FETCH_DD_DETAILS") {
       // Route detail fetches through background (page context fetch hangs)
       chrome.runtime.sendMessage({
