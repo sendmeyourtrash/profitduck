@@ -15,8 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { ingestUberEatsOrders, ingestDoordashOrders } from "@/lib/services/pipeline-step1-ingest";
-import { unifyUberEats, unifyDoordash } from "@/lib/services/pipeline-step2-unify";
+import { ingestUberEatsOrders, ingestDoordashOrders, ingestGrubhubOrders } from "@/lib/services/pipeline-step1-ingest";
+import { unifyUberEats, unifyDoordash, unifyGrubhub } from "@/lib/services/pipeline-step2-unify";
 import { step3ApplyAliases } from "@/lib/services/pipeline-step3-aliases";
 import { createImport } from "@/lib/db/config-db";
 
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       const platformConfig: Record<string, { db: string; column: string; table: string }> = {
         ubereats: { db: "ubereats.db", column: "order_id", table: "orders" },
         doordash: { db: "doordash.db", column: "doordash_order_id", table: "detailed_transactions" },
+        grubhub: { db: "grubhub.db", column: "transaction_id", table: "orders" },
       };
 
       const config = platformConfig[platform];
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(
-    { status: "ok", version: "1.0", platforms: ["ubereats", "doordash"] },
+    { status: "ok", version: "1.0", platforms: ["ubereats", "doordash", "grubhub"] },
     { headers: corsHeaders }
   );
 }
@@ -134,6 +135,16 @@ export async function POST(request: NextRequest) {
         skipped = ddResult.skipped;
         if (ddResult.errors.length > 0) errors.push(...ddResult.errors);
         unifyDoordash();
+        step3ApplyAliases();
+        break;
+      }
+
+      case "grubhub": {
+        const ghResult = ingestGrubhubOrders(orders);
+        inserted = ghResult.inserted;
+        skipped = ghResult.skipped;
+        if (ghResult.errors.length > 0) errors.push(...ghResult.errors);
+        unifyGrubhub();
         step3ApplyAliases();
         break;
       }

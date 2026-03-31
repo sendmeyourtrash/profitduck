@@ -9,6 +9,8 @@
     "https://www.doordash.com/merchant/*",
     "https://doordash.com/merchant/*",
     "https://merchant-portal.doordash.com/*",
+    "https://restaurant.grubhub.com/*",
+    "https://api-order-processing-gtm.grubhub.com/*",
     "http://localhost:3000/*",
     "http://localhost:3001/*"
   ],
@@ -37,6 +39,18 @@
     {
       "matches": ["https://www.doordash.com/merchant/*", "https://doordash.com/merchant/*"],
       "js": ["content-doordash-bridge.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://restaurant.grubhub.com/*"],
+      "js": ["content-grubhub.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://restaurant.grubhub.com/*"],
+      "js": ["content-grubhub-bridge.js"],
       "world": "ISOLATED",
       "run_at": "document_start"
     }

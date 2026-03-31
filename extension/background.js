@@ -29,6 +29,9 @@ const SUPPORTED_PLATFORMS = {
   "doordash.com/merchant": { platform: "doordash", label: "DoorDash", color: "#ef4444", pages: {
     "/orders": "Orders", "/financials": "Financials", "/menu": "Menu",
   }},
+  "restaurant.grubhub.com": { platform: "grubhub", label: "GrubHub", color: "#f97316", pages: {
+    "/orders": "Orders", "/dashboard": "Dashboard", "/financials": "Financials", "/menu": "Menu",
+  }},
 };
 
 async function detectActivePlatform() {
@@ -242,6 +245,7 @@ async function triggerSync(mode, options = {}) {
   const platformUrls = {
     ubereats: { match: "https://merchants.ubereats.com/*", open: "https://merchants.ubereats.com/manager/orders" },
     doordash: { match: ["https://www.doordash.com/merchant/*", "https://doordash.com/merchant/*"], open: "https://www.doordash.com/merchant/orders" },
+    grubhub: { match: "https://restaurant.grubhub.com/*", open: "https://restaurant.grubhub.com/financials/transactions" },
   };
   const pConfig = platformUrls[platform] || platformUrls.ubereats;
 
@@ -313,6 +317,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true, inserted: result.inserted, skipped: result.skipped });
         } catch (e) {
           console.error(`[Profit Duck] [doordash] Send failed: ${e.message}`);
+          sendResponse({ ok: false, error: e.message });
+        }
+      })();
+      return true;
+    case "send_grubhub_csvrows":
+      // GrubHub csvRows — same pattern as DoorDash
+      (async () => {
+        try {
+          const { serverUrl, apiKey } = await getConfig();
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers["x-api-key"] = apiKey;
+          const resp = await fetch(`${serverUrl}${SERVER_ENDPOINT}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              platform: "grubhub",
+              orders: message.csvRows || [],
+              source: "extension",
+              extensionVersion: chrome.runtime.getManifest().version,
+            }),
+          });
+          if (!resp.ok) throw new Error(`Server ${resp.status}`);
+          const result = await resp.json();
+          lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
+          await chrome.storage.local.set({ lastSync });
+          console.log(`[Profit Duck] [grubhub] Sent ${message.csvRows?.length || 0}: ${result.inserted} new, ${result.skipped} skipped`);
+          sendResponse({ ok: true, inserted: result.inserted, skipped: result.skipped });
+        } catch (e) {
+          console.error(`[Profit Duck] [grubhub] Send failed: ${e.message}`);
           sendResponse({ ok: false, error: e.message });
         }
       })();
@@ -394,7 +427,7 @@ function handleIntercepted(message) {
   capturedCount++;
   updateBadge();
   scheduleFlush();
-  console.log(`[Profit Duck] [${platform}] Captured order ${order.orderId} (${order.items?.length || 0} items, $${order.netPayout})`);
+  console.log(`[Profit Duck] [ubereats] Captured order ${order.orderId} (${order.items?.length || 0} items, $${order.netPayout})`);
 }
 
 // ---- Alarm handler ----
