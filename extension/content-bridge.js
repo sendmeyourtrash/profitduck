@@ -21,16 +21,9 @@
       });
     } else if (event.data.type === "PROFITDUCK_AUTO_FLUSH") {
       chrome.runtime.sendMessage({ action: "auto_flush" });
-    } else if (event.data.type === "PROFITDUCK_GET_KNOWN_IDS") {
-      // MAIN world requests known IDs — bridge fetches from server (not subject to page CSP)
-      const platform = event.data.platform || "ubereats";
-      chrome.runtime.sendMessage({ action: "get_known_ids", platform }, (response) => {
-        window.postMessage({ type: "PROFITDUCK_KNOWN_IDS_RESULT", orderIds: response?.orderIds || [] }, "*");
-      });
     } else if (event.data.type === "PROFITDUCK_CRAWL_STATUS") {
       chrome.runtime.sendMessage({
         action: "crawl_status",
-        platform: "ubereats",
         state: event.data.state,
         message: event.data.message,
         total: event.data.total,
@@ -72,27 +65,35 @@
     }
   });
 
-  // Watch for sync requests via chrome.storage (background → bridge → MAIN world)
+  // Watch for sync requests via chrome.storage (popup → background → storage → bridge → MAIN)
   let lastSyncTs = 0;
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.syncRequest?.newValue) {
       const req = changes.syncRequest.newValue;
-      // Only relay if targeted at this platform (or "all" for stop)
       if (req.platform && req.platform !== "ubereats" && req.platform !== "all") return;
       if (req.ts > lastSyncTs) {
         lastSyncTs = req.ts;
-        console.log("[Profit Duck] Bridge relaying sync request:", req.command);
+        console.log("[Profit Duck] Bridge relaying sync:", req.command);
         window.postMessage({
           type: "PROFITDUCK_CRAWL",
           command: req.command,
           startDate: req.startDate,
           endDate: req.endDate,
         }, "*");
-        // Clear the request
         chrome.storage.local.remove("syncRequest");
       }
     }
   });
+
+  // Handle known IDs request from MAIN world
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    if (event.data?.type === "PROFITDUCK_GET_KNOWN_IDS") {
+      chrome.runtime.sendMessage({ action: "get_known_ids", platform: event.data.platform || "ubereats" }, (response) => {
+        window.postMessage({ type: "PROFITDUCK_KNOWN_IDS_RESULT", orderIds: response?.orderIds || [] }, "*");
+      });
+    }
+  }, true); // use capture to not conflict with existing listener
 
   console.log("[Profit Duck] Bridge script active");
 })();

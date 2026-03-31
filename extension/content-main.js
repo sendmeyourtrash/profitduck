@@ -93,15 +93,6 @@
 
   // ---- Scroll to load all orders (infinite scroll) ----
 
-  function isSpinnerVisible() {
-    // Check for Uber Eats loading spinners / progress indicators
-    const spinners = document.querySelectorAll('[role="progressbar"], [data-testid="loading"], [class*="spinner"], [class*="Spinner"], [class*="loading"], svg[class*="circular"]');
-    for (const el of spinners) {
-      if (el.offsetParent !== null) return true; // visible
-    }
-    return false;
-  }
-
   async function scrollToLoadAll() {
     console.log("[Profit Duck] Scrolling to load all orders...");
     postCrawlStatus({ state: "scanning", message: "Loading all orders..." });
@@ -109,28 +100,15 @@
     let lastCount = 0;
     let stableRounds = 0;
 
-    while (stableRounds < 5) {
+    while (stableRounds < 3) {
       if (crawlAbort) return 0;
       window.scrollTo(0, document.body.scrollHeight);
-
-      // Wait for spinner to appear then disappear, or 2s timeout
-      let waited = 0;
-      while (waited < 3000) {
-        await new Promise(r => setTimeout(r, 500));
-        waited += 500;
-        if (!isSpinnerVisible() && waited >= 1000) break;
-      }
+      await new Promise(r => setTimeout(r, 1500));
 
       const currentCount = document.querySelectorAll('tr[data-testid="ordersRevamped-row"]').length;
-      console.log(`[Profit Duck] Scrolled — ${currentCount} rows visible${isSpinnerVisible() ? " (still loading)" : ""}`);
-      postCrawlStatus({ state: "scanning", message: `Loading orders... ${currentCount} found` });
+      console.log(`[Profit Duck] Scrolled — ${currentCount} rows visible`);
 
       if (currentCount === lastCount) {
-        // If spinner is still visible, don't count as stable
-        if (isSpinnerVisible()) {
-          await new Promise(r => setTimeout(r, 2000));
-          continue;
-        }
         stableRounds++;
       } else {
         stableRounds = 0;
@@ -177,24 +155,16 @@
   }
 
   // ---- Load known order IDs from server for smart-sync ----
-  // Routed through background service worker (MAIN world can't fetch localhost due to CSP)
 
   async function loadKnownOrderIds() {
-    return new Promise((resolve) => {
-      window.postMessage({ type: "PROFITDUCK_GET_KNOWN_IDS", platform: "ubereats" }, "*");
-      const handler = (event) => {
-        if (event.data?.type === "PROFITDUCK_KNOWN_IDS_RESULT") {
-          window.removeEventListener("message", handler);
-          resolve(new Set(event.data.orderIds || []));
-        }
-      };
-      window.addEventListener("message", handler);
-      // Timeout after 5s
-      setTimeout(() => {
-        window.removeEventListener("message", handler);
-        resolve(new Set());
-      }, 5000);
-    });
+    try {
+      const response = await fetch("http://localhost:3000/api/ingest/extension?action=known_ids&platform=ubereats");
+      if (!response.ok) return new Set();
+      const data = await response.json();
+      return new Set(data.orderIds || []);
+    } catch {
+      return new Set();
+    }
   }
 
   // ---- Main sync function ----
@@ -352,7 +322,7 @@
   // ---- Listen for commands ----
 
   window.addEventListener("message", (event) => {
-    if (!event.data) return;
+    if (event.source !== window || !event.data) return;
 
     if (event.data.type === "PROFITDUCK_CRAWL") {
       const cmd = event.data.command;
