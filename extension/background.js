@@ -363,14 +363,15 @@ async function triggerSync(mode, options = {}) {
   const crawlCmd = mode === "smart" ? "smart-sync" : mode === "date-range" ? "date-range-sync" : mode === "full" ? "full-sync" : "start";
 
   await chrome.storage.local.set({
-    syncRequest: { command: crawlCmd, startDate: options.startDate || "", endDate: options.endDate || "", ts: Date.now() }
+    syncRequest: { command: crawlCmd, platform, startDate: options.startDate || "", endDate: options.endDate || "", ts: Date.now() }
   });
   console.log(`[Profit Duck] Sync request stored (${crawlCmd}) for ${platform}`);
 }
 
 async function triggerStop() {
+  // Stop goes to all platforms
   await chrome.storage.local.set({
-    syncRequest: { command: "stop", ts: Date.now() }
+    syncRequest: { command: "stop", platform: "all", ts: Date.now() }
   });
   console.log("[Profit Duck] Stop request stored");
 }

@@ -56,6 +56,7 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.syncRequest?.newValue) {
       const req = changes.syncRequest.newValue;
+      if (req.platform && req.platform !== "doordash" && req.platform !== "all") return;
       if (req.ts > lastSyncTs) {
         lastSyncTs = req.ts;
         console.log("[Profit Duck] DoorDash bridge relaying sync request:", req.command);

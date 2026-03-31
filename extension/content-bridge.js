@@ -76,6 +76,8 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.syncRequest?.newValue) {
       const req = changes.syncRequest.newValue;
+      // Only relay if targeted at this platform (or "all" for stop)
+      if (req.platform && req.platform !== "ubereats" && req.platform !== "all") return;
       if (req.ts > lastSyncTs) {
         lastSyncTs = req.ts;
         console.log("[Profit Duck] Bridge relaying sync request:", req.command);
