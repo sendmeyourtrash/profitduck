@@ -120,11 +120,36 @@
     return null;
   }
 
-  // ---- Normalize order list entry into csvRow for server ----
-  // Uses data from get_orders (list endpoint), NOT orders_details (which hangs)
+  // ---- Fetch order detail (deferred to clean context via setTimeout) ----
 
-  function normalizeListOrderToCsvRow(order) {
+  const ORDER_DETAIL_URL = API_BASE + "/merchant-analytics-service/api/v1/orders_details/";
+
+  function fetchOrderDetail(deliveryUuid) {
+    return new Promise((resolve, reject) => {
+      // Use setTimeout to break out of the postMessage event handler context
+      // which was causing fetch to hang
+      setTimeout(() => {
+        fetch(ORDER_DETAIL_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ deliveryUuid }),
+        })
+          .then(r => {
+            if (!r.ok) { reject(new Error(`HTTP ${r.status}`)); return; }
+            return r.json();
+          })
+          .then(json => resolve(json))
+          .catch(e => reject(e));
+      }, 0);
+    });
+  }
+
+  // ---- Normalize order to csvRow (merges list + detail data) ----
+
+  function normalizeOrderToCsvRow(order, detail) {
     if (!order?.orderId) return null;
+    const cents = (obj) => ((obj?.unitAmount || 0) / 100);
     const fmt = (n) => n.toFixed(2);
     const pad = (n) => String(n).padStart(2, "0");
 
@@ -132,12 +157,37 @@
     const orderDate = `${completedAt.getFullYear()}-${pad(completedAt.getMonth() + 1)}-${pad(completedAt.getDate())}`;
     const orderTime = `${pad(completedAt.getHours())}:${pad(completedAt.getMinutes())}:${pad(completedAt.getSeconds())}`;
 
-    // orderValue from list has unitAmount in cents
+    // List data (always available)
     const subtotal = (order.orderValue?.unitAmount || 0) / 100;
     const customerName = order.consumer?.formalNameAbbreviated || order.consumer?.formalName || "";
     const status = order.orderStatusDisplay || order.orderStatusValue || "Completed";
 
-    return {
+    // Detail data (from orders_details API, may be null)
+    const od = detail?.data;
+    const hasDetail = !!od;
+
+    // Extract items from detail
+    const items = [];
+    if (od?.orders && Array.isArray(od.orders)) {
+      for (const g of od.orders) {
+        for (const item of (g.orderItems || [])) {
+          const extras = (item.itemExtras || []).map(e => {
+            const opt = e.itemExtraOptions || e.itemExtraOptionsList?.[0];
+            return { name: e.name || "", option: opt?.name || "", price: cents(opt?.price) };
+          }).filter(e => e.option);
+          items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
+        }
+      }
+    }
+
+    let marketingFee = 0;
+    if (od?.feeGroups?.ad_fees?.totalAmount) marketingFee = Math.abs(cents(od.feeGroups.ad_fees.totalAmount));
+
+    const fulfillment = od?.fulfillmentType || order.fulfillmentDetails?.fulfillmentType || "";
+    const channel = fulfillment.toLowerCase().includes("pickup") ? "Pickup"
+      : fulfillment.toLowerCase().includes("storefront") ? "Storefront" : "Marketplace";
+
+    const row = {
       "doordash_order_id": order.orderId,
       "delivery_uuid": order.deliveryUuid || "",
       "timestamp_local_date": orderDate,
@@ -145,13 +195,31 @@
       "timestamp_utc_date": completedAt.toISOString().slice(0, 10),
       "timestamp_utc_time": completedAt.toISOString().slice(11, 19),
       "transaction_type": "Order",
-      "channel": "Marketplace",
-      "final_order_status": status,
+      "channel": channel,
+      "final_order_status": od?.orderStatusDetails?.value || status,
       "currency": order.orderValue?.currency || "USD",
       "subtotal": fmt(subtotal),
       "customer_name": customerName,
       "source": "extension",
     };
+
+    // Enrich with detail data if available
+    if (hasDetail) {
+      row["subtotal_tax_passed_to_merchant"] = fmt(cents(od.tax || od.totalTax));
+      row["commission"] = fmt(-Math.abs(cents(od.commission)));
+      row["payment_processing_fee"] = fmt(-Math.abs(cents(od.paymentProcessingFee || od.processingFee)));
+      row["tablet_fee"] = fmt(-Math.abs(cents(od.tabletFee)));
+      row["marketing_fees"] = fmt(-Math.abs(marketingFee));
+      row["error_charges"] = fmt(-Math.abs(cents(od.errorCharges)));
+      row["adjustments"] = fmt(cents(od.adjustments));
+      row["net_total"] = fmt(cents(od.netPayout));
+      row["tip"] = fmt(cents(od.merchantTipAmount));
+      row["commission_rate"] = String(od.commissionRate || "");
+      row["description"] = items.map(i => `${i.quantity}x ${i.name}`).join(", ");
+      row["items_json"] = items.length > 0 ? JSON.stringify(items) : "";
+    }
+
+    return row;
   }
 
   // ---- Listen for crawl commands ----
@@ -278,16 +346,46 @@
         current: 0,
       });
 
-      // Normalize directly from list data (detail endpoint hangs from content script)
+      // Fetch order details for enriched data (items, fees, tips)
+      // Uses setTimeout wrapper to avoid context-related fetch hanging
       const csvRows = [];
-      for (const order of newOrders) {
-        const row = normalizeListOrderToCsvRow(order);
+      let detailSuccess = 0;
+      let detailFailed = 0;
+
+      for (let i = 0; i < newOrders.length; i++) {
+        if (crawlAbort) break;
+        const order = newOrders[i];
+
+        postCrawlStatus({
+          state: "fetching",
+          message: `Fetching order ${i + 1}/${newOrders.length}...`,
+          total: newOrders.length,
+          current: i + 1,
+        });
+
+        let detail = null;
+        try {
+          // Race: detail fetch vs 15s timeout
+          detail = await Promise.race([
+            fetchOrderDetail(order.deliveryUuid),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000)),
+          ]);
+          detailSuccess++;
+        } catch (err) {
+          detailFailed++;
+          if (i === 0) console.warn(`[Profit Duck] Detail fetch failed: ${err.message} — will still capture basic data`);
+        }
+
+        const row = normalizeOrderToCsvRow(order, detail);
         if (row) csvRows.push(row);
+
+        // Rate limit
+        await new Promise(r => setTimeout(r, 400));
       }
 
-      console.log(`[Profit Duck] Normalized ${csvRows.length} orders from list data`);
+      console.log(`[Profit Duck] Normalized ${csvRows.length} orders (${detailSuccess} with details, ${detailFailed} basic only)`);
 
-      // Send to server via bridge (MAIN world can't reach localhost due to CSP)
+      // Send to server via bridge
       if (csvRows.length > 0) {
         postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} orders to server...` });
         window.postMessage({
@@ -295,13 +393,12 @@
           platform: "doordash",
           csvRows: csvRows,
         }, "*");
-        // Wait for bridge to send to server
         await new Promise(r => setTimeout(r, 5000));
       }
 
       postCrawlStatus({
         state: "done",
-        message: `Done! ${csvRows.length} new, ${skippedCount} already synced.`,
+        message: `Done! ${csvRows.length} new (${detailSuccess} enriched), ${skippedCount} already synced.`,
       });
     } catch (err) {
       postCrawlStatus({ state: "error", message: err.message || "DoorDash sync failed" });
