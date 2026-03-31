@@ -33,8 +33,12 @@
   });
 
   // background → MAIN world (for crawl commands)
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === "trigger_crawl") {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "PROFITDUCK_RELAY" && message.crawl) {
+      document.dispatchEvent(new CustomEvent("profitduck-crawl", { detail: message.crawl }));
+      console.log("[Profit Duck] DoorDash bridge relayed crawl command:", message.crawl.command);
+      if (sendResponse) sendResponse({ ok: true });
+    } else if (message.action === "trigger_crawl") {
       window.postMessage({
         type: "PROFITDUCK_CRAWL",
         command: message.command,

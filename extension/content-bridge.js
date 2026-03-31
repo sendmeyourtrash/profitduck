@@ -34,10 +34,14 @@
     }
   });
 
-  // Relay crawl commands from background → MAIN world via DOM attribute
+  // Relay crawl commands from background → MAIN world
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "start_crawl") {
-      // Set DOM attribute that MAIN world polls for
+    if (message.type === "PROFITDUCK_RELAY" && message.crawl) {
+      // Forward crawl command to MAIN world via CustomEvent (crosses world boundary)
+      document.dispatchEvent(new CustomEvent("profitduck-crawl", { detail: message.crawl }));
+      console.log("[Profit Duck] Bridge relayed crawl command:", message.crawl.command);
+      sendResponse({ ok: true });
+    } else if (message.action === "start_crawl") {
       document.documentElement.setAttribute('data-pd-cmd', 'start');
       console.log("[Profit Duck] Bridge set data-pd-cmd=start");
       sendResponse({ ok: true });

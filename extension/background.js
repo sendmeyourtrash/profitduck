@@ -476,9 +476,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "start_sync":
       paused = false; // Auto-unpause when user triggers sync
       chrome.storage.local.set({ paused });
-      triggerSync(message.mode || "smart", { startDate: message.startDate, endDate: message.endDate });
-      sendResponse({ ok: true });
-      break;
+      triggerSync(message.mode || "smart", { startDate: message.startDate, endDate: message.endDate })
+        .then(() => sendResponse({ ok: true }))
+        .catch(e => sendResponse({ ok: false, error: e.message }));
+      return true; // Keep message channel open (prevents service worker suspension)
     case "stop_sync":
       triggerStop();
       sendResponse({ ok: true });
