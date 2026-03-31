@@ -344,23 +344,20 @@
         await new Promise(r => setTimeout(r, 400));
       }
 
-      // Send normalized csvRows to server via bridge (MAIN world can't reach localhost)
+      // Send normalized csvRows to server via bridge one at a time (large batches fail postMessage)
       if (csvRows.length > 0) {
         postCrawlStatus({ state: "syncing", message: `Syncing ${csvRows.length} orders to server...` });
-        // Send in batches of 10
-        const BATCH_SIZE = 10;
-        for (let i = 0; i < csvRows.length; i += BATCH_SIZE) {
-          const batch = csvRows.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < csvRows.length; i++) {
           window.postMessage({
             type: "PROFITDUCK_SEND_ORDERS",
             platform: "doordash",
-            csvRows: batch,
+            csvRows: [csvRows[i]],
           }, "*");
-          // Wait for bridge to process
-          await new Promise(r => setTimeout(r, 2000));
+          // Small delay between sends
+          if (i % 5 === 4) await new Promise(r => setTimeout(r, 1000));
         }
-        // Wait for final sync
-        await new Promise(r => setTimeout(r, 2000));
+        // Wait for bridge to finish sending
+        await new Promise(r => setTimeout(r, 3000));
       }
 
       postCrawlStatus({

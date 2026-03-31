@@ -22,6 +22,7 @@
     }
 
     if (event.data?.type === "PROFITDUCK_SEND_ORDERS" && event.data.platform === "doordash") {
+      console.log(`[Profit Duck] Bridge received SEND_ORDERS: ${event.data.csvRows?.length || 0} rows`);
       // Send directly to server from bridge (ISOLATED world can reach localhost)
       // Don't go through background — order data is too large for chrome.runtime messages
       (async () => {
