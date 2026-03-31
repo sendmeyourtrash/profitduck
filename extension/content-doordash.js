@@ -257,15 +257,41 @@
         return;
       }
 
+      // Load known order IDs for dedup (smart-sync skips known orders entirely)
+      let knownIds = new Set();
+      if (command === "smart-sync") {
+        try {
+          const resp = await nativeFetch.call(window, "http://localhost:3000/api/ingest/extension?action=known_ids&platform=doordash");
+          if (resp.ok) {
+            const data = await resp.json();
+            knownIds = new Set(data.orderIds || []);
+            console.log(`[Profit Duck] ${knownIds.size} DoorDash orders already in database`);
+          }
+        } catch (e) {
+          console.warn("[Profit Duck] Could not load known IDs:", e.message);
+        }
+      }
+
+      // Filter out already-known orders
+      const newOrders = knownIds.size > 0
+        ? allOrders.filter(o => !knownIds.has(o.orderId))
+        : allOrders;
+      const skippedCount = allOrders.length - newOrders.length;
+
+      if (newOrders.length === 0) {
+        postCrawlStatus({ state: "done", message: `All ${allOrders.length} orders already synced.` });
+        return;
+      }
+
       postCrawlStatus({
         state: "fetching",
-        message: `Fetching details for ${allOrders.length} orders...`,
-        total: allOrders.length,
+        message: `Fetching details for ${newOrders.length} new orders (${skippedCount} already synced)...`,
+        total: newOrders.length,
         current: 0,
       });
 
       let fetched = 0;
-      for (const order of allOrders) {
+      for (const order of newOrders) {
         if (crawlAbort) {
           postCrawlStatus({ state: "done", message: `Stopped — ${fetched} orders captured.` });
           return;
@@ -276,8 +302,8 @@
           fetched++;
           postCrawlStatus({
             state: "fetching",
-            message: `Fetching order ${fetched}/${allOrders.length}...`,
-            total: allOrders.length,
+            message: `Fetching order ${fetched}/${newOrders.length}...`,
+            total: newOrders.length,
             current: fetched,
           });
         } catch (err) {
@@ -290,7 +316,7 @@
 
       postCrawlStatus({
         state: "done",
-        message: `Done! Captured ${fetched} DoorDash orders.`,
+        message: `Done! ${fetched} new, ${skippedCount} already synced.`,
       });
     } catch (err) {
       postCrawlStatus({ state: "error", message: err.message || "DoorDash sync failed" });

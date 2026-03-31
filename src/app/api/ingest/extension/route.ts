@@ -40,11 +40,25 @@ export async function GET(request: NextRequest) {
     try {
       const Database = (await import("better-sqlite3")).default;
       const path = await import("path");
-      const dbPath = path.join(process.cwd(), "databases", "ubereats.db");
+
+      const platformConfig: Record<string, { db: string; column: string; table: string }> = {
+        ubereats: { db: "ubereats.db", column: "order_id", table: "orders" },
+        doordash: { db: "doordash.db", column: "doordash_order_id", table: "detailed_transactions" },
+      };
+
+      const config = platformConfig[platform];
+      if (!config) {
+        return NextResponse.json(
+          { orderIds: [], count: 0, error: `Unknown platform: ${platform}` },
+          { headers: corsHeaders }
+        );
+      }
+
+      const dbPath = path.join(process.cwd(), "databases", config.db);
       const db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare("SELECT order_id FROM orders").all() as { order_id: string }[];
+      const rows = db.prepare(`SELECT ${config.column} as id FROM ${config.table}`).all() as { id: string }[];
       db.close();
-      const orderIds = rows.map(r => r.order_id);
+      const orderIds = rows.map(r => r.id).filter(Boolean);
       return NextResponse.json(
         { orderIds, count: orderIds.length },
         { headers: corsHeaders }
@@ -58,7 +72,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json(
-    { status: "ok", version: "1.0", platforms: ["ubereats"] },
+    { status: "ok", version: "1.0", platforms: ["ubereats", "doordash"] },
     { headers: corsHeaders }
   );
 }
