@@ -316,7 +316,7 @@
 
       postCrawlStatus({
         state: "done",
-        message: `Done! ${fetched} new, ${skippedCount} already synced.`,
+        message: `Done! ${csvRows.length} new, ${skippedCount} already synced.`,
       });
     } catch (err) {
       postCrawlStatus({ state: "error", message: err.message || "DoorDash sync failed" });
