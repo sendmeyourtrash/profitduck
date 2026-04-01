@@ -55,8 +55,15 @@ export function linearRegression(
 export interface MonthlyRevenueSample {
   month: number; // 1-12
   total: number;
+  trendTotal?: number; // expected total from regression (for detrending)
 }
 
+/**
+ * Monthly seasonal indices using ratio-to-trend detrending.
+ * If trendTotal is provided, each sample is detrended (actual/trend) before averaging.
+ * This prevents growth trends from being confused with seasonality.
+ * Returns Record<1..12, number> where 1=January.
+ */
 export function computeSeasonalIndices(
   samples: MonthlyRevenueSample[]
 ): Record<number, number> {
@@ -65,7 +72,9 @@ export function computeSeasonalIndices(
 
   for (const s of samples) {
     if (s.month >= 1 && s.month <= 12) {
-      buckets[s.month].push(s.total);
+      // If trend is available, use ratio-to-trend; otherwise use raw total
+      const value = s.trendTotal && s.trendTotal > 0 ? s.total / s.trendTotal : s.total;
+      buckets[s.month].push(value);
     }
   }
 
@@ -94,10 +103,12 @@ export function computeSeasonalIndices(
 export interface DowRevenueSample {
   dow: number; // 0=Sunday, 1=Monday, ..., 6=Saturday
   total: number;
+  trendTotal?: number; // expected total from regression (for detrending)
 }
 
 /**
- * Day-of-week seasonal indices. Same approach as monthly: mean per DOW / grand mean.
+ * Day-of-week seasonal indices using ratio-to-trend detrending.
+ * If trendTotal is provided, each sample is detrended (actual/trend) before averaging.
  * Returns Record<0..6, number> where 0=Sunday.
  */
 export function computeDowIndices(
@@ -108,7 +119,8 @@ export function computeDowIndices(
 
   for (const s of samples) {
     if (s.dow >= 0 && s.dow <= 6) {
-      buckets[s.dow].push(s.total);
+      const value = s.trendTotal && s.trendTotal > 0 ? s.total / s.trendTotal : s.total;
+      buckets[s.dow].push(value);
     }
   }
 

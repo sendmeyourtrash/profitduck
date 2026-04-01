@@ -466,22 +466,31 @@ export async function GET(request: NextRequest) {
       ? Math.round(((breakEvenData.total || 0) / breakEvenData.months / 30) * 100) / 100
       : 0;
 
-    // ---------- Monthly revenue samples for seasonal indices ----------
+    // ---------- Monthly revenue samples for seasonal indices (detrended) ----------
 
+    // Get monthly totals with year-month key for detrending
     const monthlyRevenueSamples = salesDb.prepare(
-      `SELECT CAST(strftime('%m', date) AS INTEGER) as month,
-              ROUND(SUM(gross_sales), 2) as total
+      `SELECT strftime('%Y-%m', date) as ym,
+              CAST(strftime('%m', date) AS INTEGER) as month,
+              ROUND(SUM(gross_sales), 2) as total,
+              MIN(date) as first_date,
+              MAX(date) as last_date,
+              COUNT(*) as days
        FROM orders WHERE order_status = 'completed'
-       GROUP BY strftime('%Y-%m', date)`
-    ).all() as { month: number; total: number }[];
+       GROUP BY strftime('%Y-%m', date)
+       ORDER BY ym`
+    ).all() as { ym: string; month: number; total: number; first_date: string; last_date: string; days: number }[];
 
-    // Day-of-week revenue samples for DOW indices
+    // Day-of-week revenue samples for DOW indices (detrended)
+    // Need the date to compute trend value for detrending
     const dowRevenueSamples = salesDb.prepare(
-      `SELECT CAST(strftime('%w', date) AS INTEGER) as dow,
+      `SELECT date,
+              CAST(strftime('%w', date) AS INTEGER) as dow,
               ROUND(SUM(gross_sales), 2) as total
        FROM orders WHERE order_status = 'completed'
-       GROUP BY date`
-    ).all() as { dow: number; total: number }[];
+       GROUP BY date
+       ORDER BY date`
+    ).all() as { date: string; dow: number; total: number }[];
 
     // ---------- Reconciliation & Closed Days ----------
 
@@ -526,21 +535,38 @@ export async function GET(request: NextRequest) {
         ? `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(0)}/day`
         : `${reg.slope >= 0 ? "+" : "-"}$${absSlope.toFixed(2)}/day`;
 
-    // Seasonal indices
+    // Build date→dayIndex map for detrending (maps each calendar date to its regression x-index)
+    const dateToIdx = new Map<string, number>();
+    for (let i = 0; i < dailyData.length; i++) {
+      dateToIdx.set(dailyData[i].date, i);
+    }
+
+    // Seasonal indices (detrended: each monthly total divided by expected trend total)
     const seasonalIndices = computeSeasonalIndices(
-      monthlyRevenueSamples.map((r) => ({
-        month: Number(r.month),
-        total: Number(r.total),
-      }))
+      monthlyRevenueSamples
+        .filter((r) => dateToIdx.has(r.first_date) && dateToIdx.has(r.last_date))
+        .map((r) => {
+          const firstIdx = dateToIdx.get(r.first_date)!;
+          const lastIdx = dateToIdx.get(r.last_date)!;
+          let trendTotal = 0;
+          for (let i = firstIdx; i <= lastIdx; i++) {
+            trendTotal += reg.slope * i + reg.intercept;
+          }
+          return { month: Number(r.month), total: Number(r.total), trendTotal };
+        })
     );
     const hasSeasonalData = monthlyRevenueSamples.length >= 12;
 
-    // Day-of-week indices
+    // Day-of-week indices (detrended: each daily total divided by expected trend value)
+    // Only include days that are in the chart range (have a valid trend value)
     const dowIndices = computeDowIndices(
-      dowRevenueSamples.map((r) => ({
-        dow: Number(r.dow),
-        total: Number(r.total),
-      }))
+      dowRevenueSamples
+        .filter((r) => dateToIdx.has(r.date))
+        .map((r) => {
+          const idx = dateToIdx.get(r.date)!;
+          const trendTotal = reg.slope * idx + reg.intercept;
+          return { dow: Number(r.dow), total: Number(r.total), trendTotal };
+        })
     );
     const hasDowData = dowRevenueSamples.length >= 7;
 
