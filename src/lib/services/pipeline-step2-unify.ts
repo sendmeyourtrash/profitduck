@@ -289,11 +289,14 @@ export function unifyGrubhub(): UnifyResult {
       const feesTotal = commissionFee + deliveryFee + processingFee;
       let marketingTotal = -(Math.abs(promo) + Math.abs(loyalty));
 
-      // Status
+      // Status — skip non-order transactions
       const txnType = (r.transaction_type as string) || "";
+      if (txnType === "DISTRIBUTION") continue; // Weekly payouts — not orders
+      if (txnType === "Account Adjustment") continue; // Ad charges — tracked as expenses, not orders
+
       let status = "completed";
-      if (txnType === "Cancellation") status = "cancelled";
-      else if (txnType === "Order Adjustment") status = "adjustment";
+      if (txnType.startsWith("Cancelation")) status = "cancelled";
+      else if (txnType.startsWith("Adjustment")) status = "adjustment";
       else if (txnType === "GH Credit") status = "credit";
       else if (txnType === "Miscellaneous") status = "other";
 
