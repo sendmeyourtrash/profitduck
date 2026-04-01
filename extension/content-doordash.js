@@ -392,12 +392,16 @@
               if (detailMatch && detailMatch[1].includes("$")) {
                 const detail = detailMatch[1];
                 const items = [];
-                const itemRegex = /(\d+)\s*×\s*([^$\n]+?)(?:\n[^$\n]*?)?\s*\$(\d+\.\d{2})/g;
-                let m;
-                while ((m = itemRegex.exec(detail)) !== null) {
-                  const rawName = m[2].trim();
+                const itemSection = detail.split("Subtotal")[0];
+                const blocks = itemSection.split(/(?=\d+\n×\n)/).filter(b => b.match(/^\d+\n×\n/));
+                for (const block of blocks) {
+                  const bm = block.match(/^(\d+)\n×\n([^\n]+)/);
+                  if (!bm) continue;
+                  const prices = [...block.matchAll(/^\$(\d+\.\d{2})$/gm)];
+                  const price = prices.length > 0 ? prices[prices.length - 1][1] : "0.00";
+                  const rawName = bm[2].trim();
                   const catMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/);
-                  items.push({ name: catMatch ? catMatch[1].trim() : rawName, category: catMatch ? catMatch[2].trim() : "", quantity: parseInt(m[1]), price: parseFloat(m[3]) });
+                  items.push({ name: catMatch ? catMatch[1].trim() : rawName, category: catMatch ? catMatch[2].trim() : "", quantity: parseInt(bm[1]), price: parseFloat(price) });
                 }
                 if (items.length > 0) {
                   done = true;
@@ -484,20 +488,22 @@
     const detail = detailMatch[1];
     const fmt = (s) => s ? s.replace(/[$,]/g, "").trim() : "0.00";
 
-    // Parse items: "1\n×\nItem Name (Category)\n$price"
+    // Parse items by splitting on "qty × name" pattern
     const items = [];
-    const itemRegex = /(\d+)\s*×\s*([^$\n]+?)(?:\n([^$\n]*?))?\s*\$(\d+\.\d{2})/g;
-    let m;
-    while ((m = itemRegex.exec(detail)) !== null) {
-      const qty = parseInt(m[1]);
-      const rawName = m[2].trim();
-      // Extract category from "Name (Category)"
+    const itemSection = detail.split("Subtotal")[0];
+    const blocks = itemSection.split(/(?=\d+\n×\n)/).filter(b => b.match(/^\d+\n×\n/));
+    for (const block of blocks) {
+      const bm = block.match(/^(\d+)\n×\n([^\n]+)/);
+      if (!bm) continue;
+      const prices = [...block.matchAll(/^\$(\d+\.\d{2})$/gm)];
+      const price = prices.length > 0 ? prices[prices.length - 1][1] : "0.00";
+      const rawName = bm[2].trim();
       const catMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/);
       items.push({
         name: catMatch ? catMatch[1].trim() : rawName,
         category: catMatch ? catMatch[2].trim() : "",
-        quantity: qty,
-        price: parseFloat(m[4]),
+        quantity: parseInt(bm[1]),
+        price: parseFloat(price),
       });
     }
 
