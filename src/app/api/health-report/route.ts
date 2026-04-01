@@ -310,16 +310,16 @@ export async function GET(request: NextRequest) {
 
     const dailySeriesRaw = salesDb.prepare(
       `SELECT date, ROUND(SUM(gross_sales), 2) as total, COUNT(*) as count
-       FROM orders WHERE order_status = 'completed' AND date >= ?
+       FROM orders WHERE order_status = 'completed' AND date >= ? AND date <= ?
        GROUP BY date ORDER BY date ASC`
-    ).all(dateStr(chartStart)) as { date: string; total: number; count: number }[];
+    ).all(dateStr(chartStart), dateStr(dates.currentEnd)) as { date: string; total: number; count: number }[];
 
     // Fill in closed days as explicit $0 entries so they're visible on the chart
     const closedSet = new Set(closedDayDates);
     const salesByDate = new Map(dailySeriesRaw.map((d) => [d.date, d]));
     const dailySeries: { date: string; total: number; count: number }[] = [];
     const startMs = chartStart.getTime();
-    const endMs = now.getTime();
+    const endMs = dates.currentEnd.getTime();
     for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
       const d = new Date(ms);
       const ds = toLocalDateStr(d);
@@ -442,9 +442,9 @@ export async function GET(request: NextRequest) {
       `SELECT date, ROUND(SUM(CAST(amount AS REAL)), 2) as total
        FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
-       AND category IS NOT NULL AND date >= ?
+       AND category IS NOT NULL AND date >= ? AND date <= ?
        GROUP BY date ORDER BY date ASC`
-    ).all(...PAYOUT_CATEGORIES, dateStr(chartStart)) as { date: string; total: number }[];
+    ).all(...PAYOUT_CATEGORIES, dateStr(chartStart), dateStr(dates.currentEnd)) as { date: string; total: number }[];
 
     // ---------- Break-even daily amount ----------
     // Use calendar months (not expense-days) for accurate averaging
