@@ -369,38 +369,94 @@
         current: 0,
       });
 
-      // Fetch order details via background service worker (page context fetch hangs)
-      postCrawlStatus({ state: "fetching", message: `Fetching details for ${newOrders.length} orders...` });
+      // Auto-scrape: load each order in hidden iframe, scrape DOM, remove
+      const syncStoreId = storeId || extractStoreId();
+      const csvRows = [];
+      let enrichedCount = 0;
 
-      const uuids = newOrders.map(o => o.deliveryUuid).filter(Boolean);
-      let details = {};
+      async function scrapeViaIframe(deliveryUuid) {
+        return new Promise((resolve) => {
+          const iframe = document.createElement("iframe");
+          iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none";
+          iframe.src = `https://www.doordash.com/merchant/orders/${deliveryUuid}?store_id=${syncStoreId}`;
 
-      try {
-        details = await new Promise((resolve) => {
-          window.postMessage({ type: "PROFITDUCK_FETCH_DD_DETAILS", uuids, storeId: extractStoreId() }, "*");
-          const handler = (ev) => {
-            if (ev.data?.type === "PROFITDUCK_DD_DETAILS_RESULT") {
-              window.removeEventListener("message", handler);
-              resolve(ev.data.details || {});
+          let attempts = 0;
+          const tryScrape = () => {
+            attempts++;
+            try {
+              const doc = iframe.contentDocument || iframe.contentWindow?.document;
+              if (doc) {
+                const text = doc.body?.innerText || "";
+                const detailMatch = text.match(/Order details\n([\s\S]*?)(?:Associated transactions|Have feedback|$)/);
+                if (detailMatch && detailMatch[1].includes("$")) {
+                  const detail = detailMatch[1];
+                  const fmt = (s) => s ? s.replace(/[$,]/g, "").trim() : "0.00";
+                  const items = [];
+                  const itemRegex = /(\d+)\s*×\s*([^$\n]+?)(?:\n([^$\n]*?))?\s*\$(\d+\.\d{2})/g;
+                  let m;
+                  while ((m = itemRegex.exec(detail)) !== null) {
+                    const rawName = m[2].trim();
+                    const catMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/);
+                    items.push({
+                      name: catMatch ? catMatch[1].trim() : rawName,
+                      category: catMatch ? catMatch[2].trim() : "",
+                      quantity: parseInt(m[1]),
+                      price: parseFloat(m[4]),
+                    });
+                  }
+                  const subtotal = detail.match(/Subtotal\s*\$(\d+\.\d{2})/)?.[1];
+                  const discount = detail.match(/Customer discount\s*-?\$(\d+\.\d{2})/)?.[1];
+                  const tax = detail.match(/Tax\s*\$(\d+\.\d{2})/)?.[1];
+                  const commMatch = detail.match(/Commission\s*\((\d+)%\)\s*-?\$(\d+\.\d{2})/);
+                  const orderTotal = detail.match(/Order total\s*\$(\d+\.\d{2})/)?.[1];
+
+                  if (items.length > 0) {
+                    iframe.remove();
+                    resolve({ items, subtotal: subtotal || "0.00", discount: discount || "0.00", tax: tax || "0.00", commissionRate: commMatch?.[1] || "", commission: commMatch?.[2] || "0.00", orderTotal: orderTotal || "0.00" });
+                    return;
+                  }
+                }
+              }
+            } catch (e) { /* cross-origin or not loaded yet */ }
+
+            if (attempts < 10) {
+              setTimeout(tryScrape, 2000);
+            } else {
+              iframe.remove();
+              resolve(null);
             }
           };
-          window.addEventListener("message", handler);
-          // Timeout after 2 min for all details
-          setTimeout(() => { window.removeEventListener("message", handler); resolve({}); }, 120000);
+
+          iframe.addEventListener("load", () => setTimeout(tryScrape, 2000));
+          // Timeout: remove iframe after 25s no matter what
+          setTimeout(() => { iframe.remove(); resolve(null); }, 25000);
+          document.body.appendChild(iframe);
         });
-        console.log(`[Profit Duck] Got details for ${Object.keys(details).length}/${uuids.length} orders`);
-      } catch (e) {
-        console.warn("[Profit Duck] Detail fetch failed:", e.message);
       }
 
-      const csvRows = [];
-      for (const order of newOrders) {
-        const detail = details[order.deliveryUuid] || null;
+      for (let i = 0; i < newOrders.length; i++) {
+        if (crawlAbort) break;
+        const order = newOrders[i];
+
+        postCrawlStatus({
+          state: "fetching",
+          message: `Scraping order ${i + 1}/${newOrders.length}...`,
+          total: newOrders.length,
+          current: i + 1,
+        });
+
+        const scraped = await scrapeViaIframe(order.deliveryUuid);
+        if (scraped) {
+          enrichedCount++;
+          // Also store for future syncs
+          window.postMessage({ type: "PROFITDUCK_DD_SCRAPED_DETAIL", deliveryUuid: order.deliveryUuid, detail: scraped }, "*");
+        }
+
+        const detail = scraped ? { scraped } : null;
         const row = normalizeOrderToCsvRow(order, detail);
         if (row) csvRows.push(row);
       }
 
-      const enrichedCount = Object.keys(details).length;
       console.log(`[Profit Duck] Normalized ${csvRows.length} orders (${enrichedCount} enriched)`);
 
       // Send to server via bridge
