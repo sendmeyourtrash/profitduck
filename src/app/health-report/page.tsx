@@ -132,6 +132,7 @@ export default function HealthReportPage() {
   const [showTrend, setShowTrend] = useState(false);
   const [forecastRange, setForecastRange] = useState<"1m" | "3m" | "6m" | "1y" | "2y">("3m");
   const [compareMode, setCompareMode] = useState<"prior" | "yoy">("prior");
+  const [reportTab, setReportTab] = useState<"projections" | "platforms" | "menu" | "goals">("projections");
   const [projInfo, setProjInfo] = useState<{
     forecastLabel: string;
     projectedRevenue: number;
@@ -353,6 +354,31 @@ export default function HealthReportPage() {
           }}
         />
       </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit overflow-x-auto scrollbar-hide">
+        {([
+          { key: "projections", label: "Projections" },
+          { key: "platforms", label: "Platforms" },
+          { key: "menu", label: "Menu & Expenses" },
+          { key: "goals", label: "Goals" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setReportTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
+              reportTab === t.key
+                ? "bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab: Projections */}
+      {reportTab === "projections" && (<div className="space-y-6">
 
       {/* Section 2: Income Projection */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -658,6 +684,11 @@ export default function HealthReportPage() {
         );
       })()}
 
+      </div>)}
+
+      {/* Tab: Platforms */}
+      {reportTab === "platforms" && (<div className="space-y-6">
+
       {/* Section 3: Platform Performance */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
@@ -711,6 +742,11 @@ export default function HealthReportPage() {
           </table>
         </div>
       </div>
+
+      </div>)}
+
+      {/* Tab: Menu & Expenses */}
+      {reportTab === "menu" && (<div className="space-y-6">
 
       {/* Section 4: Menu Performance + Expense Breakdown (side by side) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -823,6 +859,18 @@ export default function HealthReportPage() {
           )}
         </div>
       </div>
+
+      </div>)}
+
+      {/* Tab: Goals */}
+      {reportTab === "goals" && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">Goals & Alerts</h3>
+          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
+            Goal tracking, cost alerts, and cash flow forecast coming soon.
+          </p>
+        </div>
+      )}
 
     </div>
   );
