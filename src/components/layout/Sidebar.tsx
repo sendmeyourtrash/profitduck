@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const navItems = [
@@ -20,8 +20,14 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   const activeItem = navItems.find(
     (item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
@@ -61,6 +67,13 @@ export default function Sidebar() {
         {/* Footer */}
         <div className="p-4 border-t border-gray-700 flex items-center justify-between">
           <span className="text-xs text-gray-500">Profit Duck v1.0</span>
+          <div className="flex items-center gap-1">
+          <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors p-1 rounded"
+            title="Sign out">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </button>
           <button onClick={toggleTheme} className="text-gray-400 hover:text-white transition-colors p-1 rounded"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
             {theme === "dark" ? (
@@ -73,6 +86,7 @@ export default function Sidebar() {
               </svg>
             )}
           </button>
+          </div>
         </div>
       </aside>
 
@@ -134,6 +148,11 @@ export default function Sidebar() {
                     </Link>
                   );
                 })}
+                <button onClick={() => { setMobileOpen(false); handleLogout(); }}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors w-full">
+                  <span className="text-lg">🚪</span>
+                  <span>Sign out</span>
+                </button>
               </nav>
             </div>
           </>

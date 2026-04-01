@@ -12,6 +12,7 @@ import {
   deleteSettingValue,
   getAllSettingValues,
 } from "../db/config-db";
+import { encrypt, decrypt } from "./encryption";
 
 export const SETTING_KEYS = {
   SQUARE_API_TOKEN: "square_api_token",
@@ -40,11 +41,17 @@ const SENSITIVE_KEYS: Set<string> = new Set([
 // ---------------------------------------------------------------------------
 
 export async function getSetting(key: string): Promise<string | null> {
-  return getSettingValue(key);
+  const raw = getSettingValue(key);
+  if (raw === null) return null;
+  if (SENSITIVE_KEYS.has(key)) {
+    try { return decrypt(raw); } catch { return raw; }
+  }
+  return raw;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-  setSettingValue(key, value);
+  const stored = SENSITIVE_KEYS.has(key) ? encrypt(value) : value;
+  setSettingValue(key, stored);
 }
 
 export async function deleteSetting(key: string): Promise<void> {
@@ -62,7 +69,12 @@ export async function getAllSettingsMasked(): Promise<Record<string, string>> {
   const all = getAllSettingValues();
   const masked: Record<string, string> = {};
   for (const [key, value] of Object.entries(all)) {
-    masked[key] = SENSITIVE_KEYS.has(key) ? maskToken(value) : value;
+    if (SENSITIVE_KEYS.has(key)) {
+      try { masked[key] = maskToken(decrypt(value)); }
+      catch { masked[key] = "••••••••"; }
+    } else {
+      masked[key] = value;
+    }
   }
   return masked;
 }
@@ -72,7 +84,7 @@ export async function getAllSettingsMasked(): Promise<Record<string, string>> {
 // ---------------------------------------------------------------------------
 
 export async function getSquareToken(): Promise<string | null> {
-  return getSettingValue(SETTING_KEYS.SQUARE_API_TOKEN);
+  return getSetting(SETTING_KEYS.SQUARE_API_TOKEN);
 }
 
 export async function setSquareTokenDb(token: string): Promise<void> {
@@ -109,7 +121,7 @@ export async function setLastSyncAt(iso: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function getPlaidAccessToken(): Promise<string | null> {
-  return getSettingValue(SETTING_KEYS.PLAID_ACCESS_TOKEN);
+  return getSetting(SETTING_KEYS.PLAID_ACCESS_TOKEN);
 }
 
 export async function setPlaidAccessTokenDb(token: string): Promise<void> {

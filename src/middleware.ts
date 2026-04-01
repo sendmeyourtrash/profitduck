@@ -1,32 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Hardcoded — can't import from auth.ts because middleware runs in Edge runtime
+const SESSION_COOKIE_NAME = "pd_session";
+
 /**
- * API authentication middleware.
+ * Authentication middleware.
  *
- * When API_KEY env var is set, all /api/ routes require a matching
- * x-api-key header. When API_KEY is not set, all routes are open
- * (local development mode).
+ * Two auth methods:
+ *   1. Session cookie (pd_session) — browser login flow
+ *   2. x-api-key header — Chrome extension / programmatic access
+ *
+ * Route access:
+ *   /login, /setup, /api/auth/* — always open
+ *   /api/*                      — session cookie OR x-api-key
+ *   /*                          — session cookie, redirect to /login if missing
  */
 export function middleware(request: NextRequest) {
-  const apiKey = process.env.API_KEY;
+  const { pathname } = request.nextUrl;
 
-  // No API_KEY configured = open access (local dev)
-  if (!apiKey) {
+  // Always allow: auth pages, auth API, static assets
+  if (
+    pathname === "/login" ||
+    pathname === "/setup" ||
+    pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/_next/") ||
+    pathname.startsWith("/favicon") ||
+    pathname === "/icon.png" ||
+    pathname === "/logo.png"
+  ) {
     return NextResponse.next();
   }
 
-  const requestKey = request.headers.get("x-api-key");
+  const apiKey = process.env.API_KEY;
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const requestApiKey = request.headers.get("x-api-key");
 
-  if (requestKey !== apiKey) {
+  // API routes: accept session cookie OR x-api-key
+  if (pathname.startsWith("/api/")) {
+    if (sessionToken) return NextResponse.next();
+    if (apiKey && requestApiKey === apiKey) return NextResponse.next();
+    // No API_KEY configured and no session = open access (local dev without setup)
+    if (!apiKey) return NextResponse.next();
+
     return NextResponse.json(
-      { error: "Unauthorized — invalid or missing x-api-key header" },
+      { error: "Unauthorized — invalid or missing credentials" },
       { status: 401 }
     );
   }
 
-  return NextResponse.next();
+  // Page requests: require session cookie
+  if (sessionToken) return NextResponse.next();
+
+  // No session — redirect to login
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/login";
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: "/api/:path*",
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
