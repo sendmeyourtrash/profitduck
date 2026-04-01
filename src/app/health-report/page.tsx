@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 
@@ -129,7 +129,6 @@ function feeRateClass(rate: number): string {
 export default function HealthReportPage() {
   const [data, setData] = useState<HealthReportData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [seasonalOn, setSeasonalOn] = useState(false);
   const [showTrend, setShowTrend] = useState(false);
   const [forecastRange, setForecastRange] = useState<"1m" | "3m" | "6m" | "1y" | "2y">("3m");
   const [compareMode, setCompareMode] = useState<"prior" | "yoy">("prior");
@@ -137,19 +136,15 @@ export default function HealthReportPage() {
     forecastLabel: string;
     projectedRevenue: number;
     trendRevenue: number;
-    seasonalRevenue: number;
-    unadjustedRevenue?: number;
     monthlyAvg?: number;
-    isSeasonallyAdjusted: boolean;
     dailyTrend: string;
     confidence: string;
     r2: number;
     lookbackDays: number;
-    seasonalCallout?: string;
     scenarios?: {
-      worst: { trend: number; seasonal: number };
-      mid: { trend: number; seasonal: number };
-      best: { trend: number; seasonal: number };
+      worst: { trend: number };
+      mid: { trend: number };
+      best: { trend: number };
     };
   } | null>(null);
   const { startDate, endDate } = useDateRange();
@@ -173,30 +168,6 @@ export default function HealthReportPage() {
 
   // Derived forecast days from API response
   const forecastDays = data?.projection.trend.forecastDays ?? 30;
-
-  // Compute seasonal projection points for the chart
-  const seasonalProjectionPoints = useMemo(() => {
-    if (!data || !seasonalOn) return undefined;
-    const { dailySeries, trend } = data.projection;
-    if (dailySeries.length === 0) return undefined;
-
-    const lastDate = new Date(dailySeries[dailySeries.length - 1].date);
-    const lastIdx = dailySeries.length - 1;
-    const points: { date: string; seasonal: number }[] = [];
-
-    for (let j = 1; j <= forecastDays; j++) {
-      const futureDate = new Date(lastDate);
-      futureDate.setDate(futureDate.getDate() + j);
-      const futureMonth = futureDate.getMonth() + 1; // 1-12
-      const baseVal = trend.slope * (lastIdx + j) + trend.intercept;
-      const factor = trend.seasonalIndices[futureMonth] ?? 1.0;
-      points.push({
-        date: futureDate.toISOString().slice(0, 10),
-        seasonal: Math.max(0, baseVal * factor),
-      });
-    }
-    return points;
-  }, [data, seasonalOn, forecastDays]);
 
   if (!data) {
     return (
@@ -327,10 +298,6 @@ export default function HealthReportPage() {
             title={`${meta.periodLabel} Revenue vs Expenses`}
             showControls={true}
             projectionDays={forecastDays}
-            seasonalProjectionPoints={seasonalProjectionPoints}
-            seasonalOn={seasonalOn}
-            onSeasonalToggle={setSeasonalOn}
-            seasonalIndices={projection.trend.seasonalIndices}
             expenseData={projection.dailyExpenses}
             breakEvenDaily={projection.breakEvenDaily}
             externalForecastRange={forecastRange}
@@ -377,45 +344,28 @@ export default function HealthReportPage() {
             </p>
             {projInfo?.scenarios ? (
               <div className="space-y-0.5">
-                {/* Header row */}
-                <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide pb-1 border-b border-gray-100 dark:border-gray-700">
-                  <span></span>
-                  <span className="text-right">Trend</span>
-                  <span className="text-right text-violet-400">Seasonal</span>
-                </div>
                 {/* Best case */}
-                <div className="grid grid-cols-3 gap-1 items-baseline py-1">
+                <div className="flex items-baseline justify-between py-1">
                   <span className="text-[10px] text-emerald-500 font-medium">Best</span>
-                  <span className="text-sm font-bold text-right text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.best.trend)}</span>
-                  <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.best.seasonal)}</span>
+                  <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.best.trend)}</span>
                 </div>
                 {/* Mid case */}
-                <div className="grid grid-cols-3 gap-1 items-baseline py-1 bg-gray-50 dark:bg-gray-700/50 -mx-2 px-2 rounded">
+                <div className="flex items-baseline justify-between py-1 bg-gray-50 dark:bg-gray-700/50 -mx-2 px-2 rounded">
                   <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Expected</span>
-                  <span className="text-base font-bold text-right text-gray-900 dark:text-gray-100">{formatCurrency(projInfo.scenarios.mid.trend)}</span>
-                  <span className="text-base font-bold text-right text-violet-700">{formatCurrency(projInfo.scenarios.mid.seasonal)}</span>
+                  <span className="text-base font-bold text-gray-900 dark:text-gray-100">{formatCurrency(projInfo.scenarios.mid.trend)}</span>
                 </div>
                 {/* Worst case */}
-                <div className="grid grid-cols-3 gap-1 items-baseline py-1">
+                <div className="flex items-baseline justify-between py-1">
                   <span className="text-[10px] text-red-500 font-medium">Worst</span>
-                  <span className="text-sm font-bold text-right text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.worst.trend)}</span>
-                  <span className="text-sm font-bold text-right text-violet-600">{formatCurrency(projInfo.scenarios.worst.seasonal)}</span>
+                  <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{formatCurrency(projInfo.scenarios.worst.trend)}</span>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Trend</span>
-                  <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                    {formatCurrency(projInfo?.trendRevenue ?? projection.trend.projectedHorizonRevenue)}
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between">
-                  <span className="text-xs text-violet-500 dark:text-violet-400">Seasonal</span>
-                  <span className="text-lg font-bold text-violet-700 dark:text-violet-400">
-                    {formatCurrency(projInfo?.seasonalRevenue ?? projection.trend.projectedHorizonRevenue)}
-                  </span>
-                </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Projected</span>
+                <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                  {formatCurrency(projInfo?.trendRevenue ?? projection.trend.projectedHorizonRevenue)}
+                </span>
               </div>
             )}
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
@@ -448,19 +398,7 @@ export default function HealthReportPage() {
             <p className="text-xs text-gray-400 mt-1">
               Based on {projInfo?.lookbackDays ?? projection.trend.chartLookbackDays} days &middot; linear regression
             </p>
-            {projInfo?.isSeasonallyAdjusted && !projection.trend.hasSeasonalData && (
-              <p className="text-xs text-amber-500 mt-1">
-                Seasonal: limited historical data (&lt;12 months)
-              </p>
-            )}
           </div>
-          {projInfo?.seasonalCallout && (
-            <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-2.5">
-              <p className="text-xs text-violet-700 dark:text-violet-300">
-                {projInfo.seasonalCallout}
-              </p>
-            </div>
-          )}
           {projection.dailySeries.length < 7 && (
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
               Limited data available — projections may be unreliable.
@@ -468,6 +406,112 @@ export default function HealthReportPage() {
           )}
         </div>
       </div>
+
+      {/* Monthly Forecast Breakdown */}
+      {projection.trend.slope != null && projection.trend.intercept != null && (() => {
+        const FORECAST_DAYS_MAP: Record<string, number> = { "1m": 30, "3m": 90, "6m": 180, "1y": 365, "2y": 730 };
+        const totalForecastDays = FORECAST_DAYS_MAP[forecastRange] || 90;
+        const slope = projection.trend.slope;
+        const intercept = projection.trend.intercept;
+        const lastIdx = projection.dailySeries.length - 1;
+        const lastDate = projection.dailySeries.length > 0
+          ? new Date(projection.dailySeries[projection.dailySeries.length - 1].date + "T12:00:00")
+          : new Date();
+        const indices = projection.trend.seasonalIndices || {};
+        const hasSeasonalData = projection.trend.hasSeasonalData;
+
+        // Build monthly rows
+        const months: { label: string; month: number; trendTotal: number; seasonalTotal: number; factor: number; daysInMonth: number }[] = [];
+        let dayOffset = 1;
+        while (dayOffset <= totalForecastDays) {
+          const futureDate = new Date(lastDate);
+          futureDate.setDate(futureDate.getDate() + dayOffset);
+          const year = futureDate.getFullYear();
+          const month = futureDate.getMonth(); // 0-based
+          const monthNum = month + 1; // 1-12
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          const label = futureDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
+          // Sum daily trend values for this month (from dayOffset to end of month or end of forecast)
+          let trendSum = 0;
+          let daysUsed = 0;
+          const startDay = dayOffset;
+          while (dayOffset <= totalForecastDays) {
+            const d = new Date(lastDate);
+            d.setDate(d.getDate() + dayOffset);
+            if (d.getMonth() !== month || d.getFullYear() !== year) break;
+            const dayIdx = lastIdx + dayOffset;
+            trendSum += slope * dayIdx + intercept;
+            daysUsed++;
+            dayOffset++;
+          }
+
+          const factor = indices[monthNum] ?? 1.0;
+          // Normalize partial months (first/last) to full month estimate
+          const scale = daysUsed < daysInMonth ? daysInMonth / daysUsed : 1;
+          months.push({
+            label,
+            month: monthNum,
+            trendTotal: trendSum * scale,
+            seasonalTotal: trendSum * factor * scale,
+            factor,
+            daysInMonth: daysUsed,
+          });
+        }
+
+        const trendGrandTotal = months.reduce((s, m) => s + m.trendTotal, 0);
+        const seasonalGrandTotal = months.reduce((s, m) => s + m.seasonalTotal, 0);
+
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
+              Monthly Forecast Breakdown
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
+                    <th className="pb-2 font-medium">Month</th>
+                    <th className="pb-2 font-medium text-right">Trend Forecast</th>
+                    {hasSeasonalData && <th className="pb-2 font-medium text-right">Seasonal Adjusted</th>}
+                    {hasSeasonalData && <th className="pb-2 font-medium text-right">Seasonal Factor</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {months.map((m) => (
+                    <tr key={m.label} className="border-b border-gray-100 dark:border-gray-700/50">
+                      <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">{m.label}</td>
+                      <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(m.trendTotal)}</td>
+                      {hasSeasonalData && (
+                        <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(m.seasonalTotal)}</td>
+                      )}
+                      {hasSeasonalData && (
+                        <td className="py-2 text-right">
+                          <span className={`text-xs font-medium ${
+                            m.factor > 1.05 ? "text-emerald-600 dark:text-emerald-400"
+                            : m.factor < 0.95 ? "text-red-500"
+                            : "text-gray-500 dark:text-gray-400"
+                          }`}>
+                            {m.factor.toFixed(2)}×
+                          </span>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-gray-200 dark:border-gray-600 font-medium">
+                    <td className="py-2 text-gray-800 dark:text-gray-200">Total</td>
+                    <td className="py-2 text-right font-bold text-gray-900 dark:text-gray-100">{formatCurrency(trendGrandTotal)}</td>
+                    {hasSeasonalData && (
+                      <td className="py-2 text-right font-bold text-gray-900 dark:text-gray-100">{formatCurrency(seasonalGrandTotal)}</td>
+                    )}
+                    {hasSeasonalData && <td></td>}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Section 3: Platform Performance */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">

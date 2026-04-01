@@ -24,21 +24,11 @@ interface DataPoint {
   count?: number;
 }
 
-interface SeasonalPoint {
-  date: string;
-  seasonal: number;
-}
-
 interface RevenueChartProps {
   data: DataPoint[];
   title?: string;
   showControls?: boolean;
   projectionDays?: number;
-  // Seasonal projection
-  seasonalProjectionPoints?: SeasonalPoint[];
-  seasonalIndices?: Record<number, number>;
-  seasonalOn?: boolean;
-  onSeasonalToggle?: (on: boolean) => void;
   // Expense overlay (optional — daily expense totals keyed by date)
   expenseData?: DataPoint[];
   // Break-even reference line (daily amount needed to cover costs)
@@ -51,19 +41,15 @@ interface RevenueChartProps {
     forecastLabel: string;
     projectedRevenue: number;
     trendRevenue: number;
-    seasonalRevenue: number;
-    unadjustedRevenue?: number;
     monthlyAvg?: number;
-    isSeasonallyAdjusted: boolean;
     dailyTrend: string;
     confidence: string;
     r2: number;
     lookbackDays: number;
-    seasonalCallout?: string;
     scenarios?: {
-      worst: { trend: number; seasonal: number };
-      mid: { trend: number; seasonal: number };
-      best: { trend: number; seasonal: number };
+      worst: { trend: number };
+      mid: { trend: number };
+      best: { trend: number };
     };
   }) => void;
   // Canonical daily regression from API (projection model)
@@ -137,10 +123,6 @@ export default function RevenueChart({
   title = "Revenue Trend",
   showControls = true,
   projectionDays,
-  seasonalProjectionPoints,
-  seasonalOn = false,
-  onSeasonalToggle,
-  seasonalIndices,
   expenseData,
   breakEvenDaily,
   externalShowTrend,
@@ -267,30 +249,23 @@ export default function RevenueChart({
     today.setHours(0, 0, 0, 0);
     const daysBehind = Math.floor((today.getTime() - lastDate.getTime()) / 86_400_000);
     const isHistorical = daysBehind > 7;
-    const forecastDaysTotal = (!isHistorical && (showTrend || seasonalOn || onProjectionChange)) ? FORECAST_DAYS[forecastRange] : 0;
+    const forecastDaysTotal = (!isHistorical && (showTrend || onProjectionChange)) ? FORECAST_DAYS[forecastRange] : 0;
 
     // Compute daily projection values, then bucket into display periods
     const projBuckets = new Map<string, {
-      label: string; trend: number; seasonal: number; days: number;
+      label: string; trend: number; days: number;
     }>();
     // Also accumulate raw daily totals for period-invariant sidebar
     let dailyTrendSum = 0;
-    let dailySeasonalSum = 0;
 
     for (let j = 1; j <= forecastDaysTotal; j++) {
       const dayIdx = lastDayIdx + j;
       const trendVal = canonicalReg.slope * dayIdx + canonicalReg.intercept;
       dailyTrendSum += trendVal;
 
-      // Seasonal factor for this future day
+      // Determine which display bucket this day falls into
       const futureDate = new Date(lastDate);
       futureDate.setDate(futureDate.getDate() + j);
-      const futureMonth = futureDate.getMonth() + 1;
-      const factor = seasonalIndices ? (seasonalIndices[futureMonth] ?? 1.0) : 1.0;
-      const seasonalVal = trendVal * factor;
-      dailySeasonalSum += seasonalVal;
-
-      // Determine which display bucket this day falls into
       const dateStr = futureDate.toISOString().slice(0, 10);
       const bk = bucketKey(dateStr, period);
       let bucket = projBuckets.get(bk);
@@ -309,11 +284,10 @@ export default function RevenueChart({
         } else {
           label = bk; // "2026-Q2"
         }
-        bucket = { label, trend: 0, seasonal: 0, days: 0 };
+        bucket = { label, trend: 0, days: 0 };
         projBuckets.set(bk, bucket);
       }
       bucket.trend += trendVal;
-      bucket.seasonal += seasonalVal;
       bucket.days++;
     }
 
@@ -329,20 +303,14 @@ export default function RevenueChart({
         key: bk,
         total: undefined,
         trend: bucket.trend * scale,
-        _seasonalCalc: bucket.seasonal * scale,
         _standardError: canonicalReg.standardError,
         _dailyTrendSum: dailyTrendSum,
-        _dailySeasonalSum: dailySeasonalSum,
-        ...(seasonalOn ? { seasonal: bucket.seasonal } : {}),
         ma: undefined,
       });
     }
 
-    // Extend chart with projection points when trend/seasonal is toggled
-    if ((showTrend || seasonalOn) && projectionPoints.length > 0) {
-      if (seasonalOn && displayData.length > 0) {
-        (enriched[displayData.length - 1] as Record<string, unknown>).seasonal = displayData[displayData.length - 1].total;
-      }
+    // Extend chart with projection points when trend is toggled
+    if (showTrend && projectionPoints.length > 0) {
       enriched.push(...projectionPoints);
     }
 
@@ -375,7 +343,7 @@ export default function RevenueChart({
     }
 
     return { chartData: enriched, trendSlope: canonicalReg.slope, trendLabel: label, r2: canonicalReg.r2, projectionPoints };
-  }, [data, period, showTrend, forecastRange, seasonalOn, seasonalProjectionPoints, seasonalIndices, showExpenses, expenseData, regressionSlope, regressionIntercept, regressionR2, regressionStandardError, excludeClosed, closedDates]);
+  }, [data, period, showTrend, forecastRange, showExpenses, expenseData, regressionSlope, regressionIntercept, regressionR2, regressionStandardError, excludeClosed, closedDates]);
 
   // Emit projection info to parent for sidebar sync
   const FORECAST_LABELS: Record<string, string> = { "1m": "Next 1 Month", "3m": "Next 3 Months", "6m": "Next 6 Months", "1y": "Next 1 Year", "2y": "Next 2 Years" };
@@ -387,8 +355,7 @@ export default function RevenueChart({
     // These are the same regardless of which display period is selected
     const firstProj = projectionPoints[0];
     const trendRevenue = firstProj ? (firstProj._dailyTrendSum as number) ?? 0 : 0;
-    const seasonalRevenue = firstProj ? (firstProj._dailySeasonalSum as number) ?? 0 : 0;
-    const projectedRevenue = seasonalOn ? seasonalRevenue : trendRevenue;
+    const projectedRevenue = trendRevenue;
 
     // R² from canonical daily regression (period-invariant)
     const confLabel = r2 >= 0.7 ? `High (R²=${r2.toFixed(2)})`
@@ -399,30 +366,6 @@ export default function RevenueChart({
     const forecastMonths = FORECAST_DAYS[forecastRange] / 30;
     const monthlyAvg = forecastMonths > 0 ? Math.round((projectedRevenue / forecastMonths) * 100) / 100 : 0;
 
-    // Seasonal callout
-    let seasonalCallout: string | undefined;
-    if (seasonalOn && seasonalIndices) {
-      const now = new Date();
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const forecastDaysCount = FORECAST_DAYS[forecastRange];
-      let worstMonth = 0, worstFactor = 2, bestMonth = 0, bestFactor = 0;
-      for (let d = 1; d <= forecastDaysCount; d += 30) {
-        const future = new Date(now);
-        future.setDate(future.getDate() + d);
-        const m = future.getMonth() + 1;
-        const f = seasonalIndices[m] ?? 1.0;
-        if (f < worstFactor) { worstFactor = f; worstMonth = m; }
-        if (f > bestFactor) { bestFactor = f; bestMonth = m; }
-      }
-      if (worstFactor < 0.9) {
-        const pct = Math.round((1 - worstFactor) * 100);
-        seasonalCallout = `${monthNames[worstMonth - 1]} typically ${pct}% below average — expect a dip`;
-      } else if (bestFactor > 1.1) {
-        const pct = Math.round((bestFactor - 1) * 100);
-        seasonalCallout = `${monthNames[bestMonth - 1]} typically ${pct}% above average — expect a bump`;
-      }
-    }
-
     // Scenarios using canonical standard error (period-invariant)
     const forecastDaysCount = FORECAST_DAYS[forecastRange] || 90;
     const se = firstProj?._standardError != null
@@ -430,42 +373,24 @@ export default function RevenueChart({
       : 0;
     const errorMargin = se * Math.sqrt(forecastDaysCount);
 
-    // Compute seasonal error margin using average seasonal factor over forecast period
-    // This avoids the ratio blowup when trendRevenue is near zero
-    const avgSeasonalFactor = trendRevenue !== 0 ? seasonalRevenue / trendRevenue : 1;
-    const seasonalErrorMargin = Math.abs(errorMargin * (Math.abs(avgSeasonalFactor) > 5 ? 1 : avgSeasonalFactor));
-
     const scenarios = {
-      worst: {
-        trend: Math.round((trendRevenue - errorMargin) * 100) / 100,
-        seasonal: Math.round((seasonalRevenue - seasonalErrorMargin) * 100) / 100,
-      },
-      mid: {
-        trend: Math.round(trendRevenue * 100) / 100,
-        seasonal: Math.round(seasonalRevenue * 100) / 100,
-      },
-      best: {
-        trend: Math.round((trendRevenue + errorMargin) * 100) / 100,
-        seasonal: Math.round((seasonalRevenue + seasonalErrorMargin) * 100) / 100,
-      },
+      worst: { trend: Math.round((trendRevenue - errorMargin) * 100) / 100 },
+      mid: { trend: Math.round(trendRevenue * 100) / 100 },
+      best: { trend: Math.round((trendRevenue + errorMargin) * 100) / 100 },
     };
 
     onProjectionChange({
       forecastLabel: FORECAST_LABELS[forecastRange] || forecastRange,
       projectedRevenue: Math.round(projectedRevenue * 100) / 100,
       trendRevenue: Math.round(trendRevenue * 100) / 100,
-      seasonalRevenue: Math.round(seasonalRevenue * 100) / 100,
-      unadjustedRevenue: seasonalOn ? Math.round(trendRevenue * 100) / 100 : undefined,
       monthlyAvg,
-      isSeasonallyAdjusted: seasonalOn,
       dailyTrend: trendLabel,
       confidence: confLabel,
       r2,
       lookbackDays: chartLookbackDays ?? data.length,
-      seasonalCallout,
       scenarios,
     });
-  }, [projectionPoints, forecastRange, seasonalOn, showTrend, r2, trendLabel, onProjectionChange, seasonalIndices, chartLookbackDays, data.length]);
+  }, [projectionPoints, forecastRange, showTrend, r2, trendLabel, onProjectionChange, chartLookbackDays, data.length]);
 
   const hasExpenses = showExpenses && expenseData && expenseData.length > 0;
   const hasBreakEven = showBreakEven && breakEvenDaily != null && breakEvenDaily > 0;
@@ -475,7 +400,7 @@ export default function RevenueChart({
     : period === "1W" ? `$${Math.round(beValue)}/wk`
     : period === "1M" ? `$${Math.round(beValue)}/mo`
     : `$${Math.round(beValue)}/qtr`;
-  const hasOverlay = showTrend || showMA || seasonalOn || hasExpenses;
+  const hasOverlay = showTrend || showMA || hasExpenses;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
@@ -512,32 +437,20 @@ export default function RevenueChart({
       {/* Overlay toggles row — hide Trend/Seasonal/Forecast when externally controlled */}
       {showControls && (
         <div className="flex items-center gap-3 mb-4 flex-wrap">
-          {/* Forecast group: Trend + Seasonal */}
-          {(externalShowTrend == null || (onSeasonalToggle && externalShowTrend == null)) && (
+          {/* Forecast group: Trend */}
+          {externalShowTrend == null && (
             <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-              {externalShowTrend == null && (
-                <button
-                  onClick={() => setInternalShowTrend((p) => !p)}
-                  className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                    showTrend ? "bg-white dark:bg-gray-600 text-indigo-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                  }`}
-                >
-                  Trend
-                </button>
-              )}
-              {onSeasonalToggle && externalShowTrend == null && (
-                <button
-                  onClick={() => onSeasonalToggle(!seasonalOn)}
-                  className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
-                    seasonalOn ? "bg-white dark:bg-gray-600 text-violet-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                  }`}
-                >
-                  Seasonal
-                </button>
-              )}
+              <button
+                onClick={() => setInternalShowTrend((p) => !p)}
+                className={`px-2 py-0.5 text-[11px] font-medium rounded transition-colors ${
+                  showTrend ? "bg-white dark:bg-gray-600 text-indigo-600 shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                }`}
+              >
+                Trend
+              </button>
             </div>
           )}
-          {externalForecastRange == null && (showTrend || seasonalOn) && (
+          {externalForecastRange == null && showTrend && (
             <select
               value={forecastRange}
               onChange={(e) => setInternalForecastRange(e.target.value as typeof internalForecastRange)}
@@ -635,9 +548,7 @@ export default function RevenueChart({
                         ? "Trendline"
                         : name === "ma"
                           ? MA_LABEL[period]
-                          : name === "seasonal"
-                            ? "Seasonal Forecast"
-                            : String(name);
+                          : String(name);
                 return [formatCurrency(Number(value)), label];
               }}
               labelFormatter={(label) => formatDateLabel(String(label))}
@@ -692,17 +603,6 @@ export default function RevenueChart({
                 connectNulls={false}
               />
             )}
-            {seasonalOn && onSeasonalToggle && (
-              <Line
-                type="monotone"
-                dataKey="seasonal"
-                stroke="#8b5cf6"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                connectNulls={false}
-              />
-            )}
             {hasOverlay && (
               <Legend
                 formatter={(value) =>
@@ -714,9 +614,7 @@ export default function RevenueChart({
                         ? "Trendline"
                         : value === "ma"
                           ? MA_LABEL[period]
-                          : value === "seasonal"
-                            ? "Seasonal Forecast"
-                            : value
+                          : value
                 }
                 iconType="line"
                 wrapperStyle={{ fontSize: 11 }}
