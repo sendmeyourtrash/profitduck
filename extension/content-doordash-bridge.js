@@ -26,6 +26,13 @@
           console.error(`[Profit Duck] Server error:`, response?.error || "unknown");
         }
       });
+    } else if (event.data.type === "PROFITDUCK_DD_SCRAPED_DETAIL") {
+      // Store scraped order detail for enrichment during sync
+      chrome.runtime.sendMessage({
+        action: "store_dd_detail",
+        deliveryUuid: event.data.deliveryUuid,
+        detail: event.data.detail,
+      });
     } else if (event.data.type === "PROFITDUCK_STORE_DD_HEADERS") {
       // Store GraphQL headers for background to use during sync
       chrome.storage.local.set({ ddGqlHeaders: event.data.headers });

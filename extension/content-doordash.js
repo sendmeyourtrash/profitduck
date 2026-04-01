@@ -172,11 +172,11 @@
     const customerName = order.consumer?.formalNameAbbreviated || order.consumer?.formalName || "";
     const status = order.orderStatusDisplay || order.orderStatusValue || "Completed";
 
-    // Detail data (from orders_details API, may be null)
+    // Detail data — either from API (detail.data) or DOM scrape (detail.scraped)
     const od = detail?.data;
-    const hasDetail = !!od;
+    const scraped = detail?.scraped;
 
-    // Extract items from detail
+    // Extract items from API detail or scraped data
     const items = [];
     if (od?.orders && Array.isArray(od.orders)) {
       for (const g of od.orders) {
@@ -187,6 +187,10 @@
           }).filter(e => e.option);
           items.push({ name: item.name, quantity: item.quantity, price: cents(item.price), category: item.category || "", extras });
         }
+      }
+    } else if (scraped?.items) {
+      for (const item of scraped.items) {
+        items.push({ name: item.name, quantity: item.quantity, price: item.price, category: item.category || "" });
       }
     }
 
@@ -213,8 +217,8 @@
       "source": "extension",
     };
 
-    // Enrich with detail data if available
-    if (hasDetail) {
+    // Enrich with detail data if available (from API or DOM scrape)
+    if (od) {
       row["subtotal_tax_passed_to_merchant"] = fmt(cents(od.tax || od.totalTax));
       row["commission"] = fmt(-Math.abs(cents(od.commission)));
       row["payment_processing_fee"] = fmt(-Math.abs(cents(od.paymentProcessingFee || od.processingFee)));
@@ -225,8 +229,17 @@
       row["net_total"] = fmt(cents(od.netPayout));
       row["tip"] = fmt(cents(od.merchantTipAmount));
       row["commission_rate"] = String(od.commissionRate || "");
+    } else if (scraped) {
+      row["subtotal_tax_passed_to_merchant"] = scraped.tax || "0.00";
+      row["commission"] = fmt(-Math.abs(parseFloat(scraped.commission || 0)));
+      row["commission_rate"] = scraped.commissionRate || "";
+      row["net_total"] = scraped.orderTotal || "0.00";
+      row["customer_discounts_funded_by_you"] = fmt(-Math.abs(parseFloat(scraped.discount || 0)));
+    }
+
+    if (items.length > 0) {
       row["description"] = items.map(i => `${i.quantity}x ${i.name}`).join(", ");
-      row["items_json"] = items.length > 0 ? JSON.stringify(items) : "";
+      row["items_json"] = JSON.stringify(items);
     }
 
     return row;
@@ -413,5 +426,77 @@
     }
   });
 
-  console.log("[Profit Duck] DoorDash content script loaded — intercepting order API calls");
+  // ---- Auto-scrape order detail when on detail page ----
+
+  function scrapeOrderDetail() {
+    const text = document.body.innerText;
+    const detailMatch = text.match(/Order details\n([\s\S]*?)(?:Associated transactions|Have feedback|$)/);
+    if (!detailMatch) return null;
+
+    const detail = detailMatch[1];
+    const fmt = (s) => s ? s.replace(/[$,]/g, "").trim() : "0.00";
+
+    // Parse items: "1\n×\nItem Name (Category)\n$price"
+    const items = [];
+    const itemRegex = /(\d+)\s*×\s*([^$\n]+?)(?:\n([^$\n]*?))?\s*\$(\d+\.\d{2})/g;
+    let m;
+    while ((m = itemRegex.exec(detail)) !== null) {
+      const qty = parseInt(m[1]);
+      const rawName = m[2].trim();
+      // Extract category from "Name (Category)"
+      const catMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/);
+      items.push({
+        name: catMatch ? catMatch[1].trim() : rawName,
+        category: catMatch ? catMatch[2].trim() : "",
+        quantity: qty,
+        price: parseFloat(m[4]),
+      });
+    }
+
+    // Parse financials
+    const subtotal = detail.match(/Subtotal\s*\$(\d+\.\d{2})/)?.[1];
+    const discount = detail.match(/Customer discount\s*-?\$(\d+\.\d{2})/)?.[1];
+    const tax = detail.match(/Tax\s*\$(\d+\.\d{2})/)?.[1];
+    const commMatch = detail.match(/Commission\s*\((\d+)%\)\s*-?\$(\d+\.\d{2})/);
+    const orderTotal = detail.match(/Order total\s*\$(\d+\.\d{2})/)?.[1];
+
+    return {
+      items,
+      subtotal: subtotal || "0.00",
+      discount: discount || "0.00",
+      tax: tax || "0.00",
+      commissionRate: commMatch?.[1] || "",
+      commission: commMatch?.[2] || "0.00",
+      orderTotal: orderTotal || "0.00",
+    };
+  }
+
+  // Check if we're on an order detail page
+  const detailMatch = window.location.pathname.match(/\/merchant\/orders\/([a-f0-9-]{20,})/);
+  if (detailMatch) {
+    const deliveryUuid = detailMatch[1];
+    console.log(`[Profit Duck] On order detail page: ${deliveryUuid}`);
+
+    // Wait for page to render, then scrape (max 5 retries)
+    let retries = 0;
+    const waitAndScrape = () => {
+      const scraped = scrapeOrderDetail();
+      if (scraped && scraped.items.length > 0) {
+        console.log(`[Profit Duck] Scraped ${scraped.items.length} items, total: $${scraped.orderTotal}`);
+        window.postMessage({
+          type: "PROFITDUCK_DD_SCRAPED_DETAIL",
+          deliveryUuid,
+          detail: scraped,
+        }, "*");
+      } else if (retries < 5) {
+        retries++;
+        setTimeout(waitAndScrape, 2000);
+      } else {
+        console.warn(`[Profit Duck] Could not scrape order detail for ${deliveryUuid} after ${retries} retries`);
+      }
+    };
+    setTimeout(waitAndScrape, 3000);
+  }
+
+  console.log("[Profit Duck] DoorDash content script loaded");
 })();

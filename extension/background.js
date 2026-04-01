@@ -292,48 +292,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleIntercepted(message);
       sendResponse({ ok: true });
       break;
+    case "store_dd_detail":
+      // Store scraped order detail — one key per UUID to avoid race conditions
+      (async () => {
+        await chrome.storage.local.set({ [`dd_detail_${message.deliveryUuid}`]: message.detail });
+        console.log(`[Profit Duck] [doordash] Stored scraped detail for ${message.deliveryUuid}`);
+        sendResponse({ ok: true });
+      })();
+      return true;
     case "fetch_doordash_details":
-      // Fetch DoorDash order details via GraphQL using captured auth headers
+      // Return scraped order details from storage (collected when user views order pages)
       (async () => {
         const uuids = message.uuids || [];
+        const keys = uuids.map(u => `dd_detail_${u}`);
+        const stored = await chrome.storage.local.get(keys);
         const details = {};
-        const GQL_URL = "https://merchant-portal.doordash.com/mx-menu-tools-bff/graphql";
-
-        // Get stored GraphQL headers (captured from page's own API calls)
-        const { ddGqlHeaders } = await chrome.storage.local.get("ddGqlHeaders");
-        if (!ddGqlHeaders) {
-          console.warn("[Profit Duck] [doordash] No GQL headers stored. Open an order detail page first.");
-          sendResponse({ details: {} });
-          return;
-        }
-
-        // Simple order detail query
-        const query = `query OrderDetails($orderUuid: String!) {
-          orderDetails(orderCartId: $orderUuid) {
-            orderId orderUuid subtotal tax tip commission netPayout
-            fulfillmentType orderStatus
-            items { name quantity price category modifiers { name price } }
-          }
-        }`;
-
         for (const uuid of uuids) {
-          try {
-            const resp = await fetch(GQL_URL, {
-              method: "POST",
-              headers: { ...ddGqlHeaders, "Content-Type": "application/json" },
-              body: JSON.stringify({ operationName: "OrderDetails", variables: { orderUuid: uuid }, query }),
-            });
-            if (resp.ok) {
-              const json = await resp.json();
-              if (json?.data) details[uuid] = json;
-            }
-          } catch (e) {
-            // Skip failed fetches
-          }
-          await new Promise(r => setTimeout(r, 300));
+          const val = stored[`dd_detail_${uuid}`];
+          if (val) details[uuid] = { scraped: val };
         }
-
-        console.log(`[Profit Duck] [doordash] Fetched GQL details for ${Object.keys(details).length}/${uuids.length} orders`);
+        console.log(`[Profit Duck] [doordash] Found scraped details for ${Object.keys(details).length}/${uuids.length} orders`);
         sendResponse({ details });
       })();
       return true;
