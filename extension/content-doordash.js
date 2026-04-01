@@ -419,7 +419,7 @@
               }
             } catch (e) { /* cross-origin or not loaded yet */ }
 
-            if (attempts < 10) {
+            if (attempts < 15) {
               setTimeout(tryScrape, 2000);
             } else {
               iframe.remove();
@@ -427,9 +427,9 @@
             }
           };
 
-          iframe.addEventListener("load", () => setTimeout(tryScrape, 2000));
-          // Timeout: remove iframe after 25s no matter what
-          setTimeout(() => { iframe.remove(); resolve(null); }, 25000);
+          iframe.addEventListener("load", () => setTimeout(tryScrape, 4000));
+          // Timeout: remove iframe after 45s no matter what
+          setTimeout(() => { iframe.remove(); resolve(null); }, 45000);
           document.body.appendChild(iframe);
         });
       }
