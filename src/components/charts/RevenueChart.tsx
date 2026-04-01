@@ -250,12 +250,14 @@ export default function RevenueChart({
     });
 
     // --- Projection: always day-by-day, then bucket for display ---
-    // Suppress forecast when the data ends before today (historical view)
+    // Suppress forecast when the data ends well before today (truly historical view).
+    // Allow projection when end date is within 7 days of today (current-ish range).
     const lastDayIdx = filteredData.length - 1;
     const lastDate = filteredData.length > 0 ? new Date(filteredData[filteredData.length - 1].date + "T12:00:00") : new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const isHistorical = lastDate < today;
+    const daysBehind = Math.floor((today.getTime() - lastDate.getTime()) / 86_400_000);
+    const isHistorical = daysBehind > 7;
     const forecastDaysTotal = (!isHistorical && (showTrend || seasonalOn || onProjectionChange)) ? FORECAST_DAYS[forecastRange] : 0;
 
     // Compute daily projection values, then bucket into display periods

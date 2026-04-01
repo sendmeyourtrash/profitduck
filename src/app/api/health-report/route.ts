@@ -159,8 +159,14 @@ function resolveCustomDates(
   compare: "prior" | "yoy" = "prior"
 ): PeriodDateRanges {
   // Use T12:00:00 to prevent UTC midnight → prior-day shift in local timezones
-  const currentStart = rawStart ? startOfDay(new Date(rawStart + "T12:00:00")) : startOfDay(new Date(now.getTime() - 30 * 86_400_000));
+  let currentStart = rawStart ? startOfDay(new Date(rawStart + "T12:00:00")) : startOfDay(new Date(now.getTime() - 30 * 86_400_000));
   const currentEnd = rawEnd ? endOfDay(new Date(rawEnd + "T12:00:00")) : endOfDay(now);
+
+  // Clamp: prevent absurd date ranges (e.g. year 0002 from incomplete date input)
+  const maxLookbackMs = 5 * 365 * 86_400_000; // 5 years max
+  if (currentEnd.getTime() - currentStart.getTime() > maxLookbackMs) {
+    currentStart = startOfDay(new Date(currentEnd.getTime() - maxLookbackMs));
+  }
 
   const spanMs = currentEnd.getTime() - currentStart.getTime();
   const spanDays = Math.max(1, Math.round(spanMs / 86_400_000));
