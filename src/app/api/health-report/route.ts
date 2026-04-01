@@ -723,6 +723,87 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ---------- Week-over-Week ----------
+    // Always based on current calendar week (Mon-Sun), independent of date range
+    const todayDate = new Date();
+    const todayDay = todayDate.getDay(); // 0=Sun, 1=Mon, ...
+    const mondayOffset = todayDay === 0 ? -6 : 1 - todayDay;
+    const thisWeekStart = new Date(todayDate);
+    thisWeekStart.setDate(todayDate.getDate() + mondayOffset);
+    thisWeekStart.setHours(0, 0, 0, 0);
+    const lastWeekStart = new Date(thisWeekStart);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+    const lastWeekEnd = new Date(thisWeekStart);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+
+    const twStart = dateStr(thisWeekStart);
+    const twEnd = dateStr(todayDate);
+    const lwStart = dateStr(lastWeekStart);
+    const lwEnd = dateStr(lastWeekEnd);
+
+    const wowQuery = (start: string, end: string) => {
+      const sales = salesDb.prepare(
+        `SELECT ROUND(SUM(gross_sales), 2) as revenue, COUNT(*) as orders,
+                ROUND(SUM(fees_total), 2) as fees
+         FROM orders WHERE order_status = 'completed' AND date >= ? AND date <= ?`
+      ).get(start, end) as { revenue: number; orders: number; fees: number } | undefined;
+
+      const expenses = bankDb.prepare(
+        `SELECT ROUND(SUM(CAST(amount AS REAL)), 2) as total
+         FROM all_bank_transactions
+         WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${excludeList})
+         AND category IS NOT NULL AND date >= ? AND date <= ?`
+      ).get(...PAYOUT_CATEGORIES, start, end) as { total: number } | undefined;
+
+      const busiestDay = salesDb.prepare(
+        `SELECT date, ROUND(SUM(gross_sales), 2) as total
+         FROM orders WHERE order_status = 'completed' AND date >= ? AND date <= ?
+         GROUP BY date ORDER BY total DESC LIMIT 1`
+      ).get(start, end) as { date: string; total: number } | undefined;
+
+      const rev = sales?.revenue || 0;
+      const ord = sales?.orders || 0;
+      const fee = sales?.fees || 0;
+      const exp = expenses?.total || 0;
+
+      return {
+        revenue: rev,
+        orders: ord,
+        avgTicket: ord > 0 ? Math.round((rev / ord) * 100) / 100 : 0,
+        profit: Math.round((rev - Math.abs(fee) - exp) * 100) / 100,
+        fees: fee,
+        expenses: exp,
+        busiestDay: busiestDay ? {
+          name: new Date(busiestDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" }),
+          revenue: busiestDay.total,
+        } : null,
+      };
+    };
+
+    const thisWeekData = wowQuery(twStart, twEnd);
+    const lastWeekData = wowQuery(lwStart, lwEnd);
+
+    const pctChange = (cur: number, prev: number) =>
+      prev !== 0 ? Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10 : cur > 0 ? 100 : 0;
+
+    const daysCompleted = Math.max(1, Math.round((todayDate.getTime() - thisWeekStart.getTime()) / 86_400_000) + 1);
+
+    const weekOverWeek = {
+      thisWeek: { startDate: twStart, endDate: twEnd, ...thisWeekData, daysCompleted },
+      lastWeek: { startDate: lwStart, endDate: lwEnd, ...lastWeekData },
+      change: {
+        revenue: pctChange(thisWeekData.revenue, lastWeekData.revenue),
+        orders: pctChange(thisWeekData.orders, lastWeekData.orders),
+        avgTicket: pctChange(thisWeekData.avgTicket, lastWeekData.avgTicket),
+        profit: pctChange(thisWeekData.profit, lastWeekData.profit),
+        fees: pctChange(Math.abs(thisWeekData.fees), Math.abs(lastWeekData.fees)),
+      },
+      projectedWeek: {
+        revenue: Math.round((thisWeekData.revenue / daysCompleted) * 7 * 100) / 100,
+        orders: Math.round((thisWeekData.orders / daysCompleted) * 7),
+      },
+    };
+
     // ---------- Build response ----------
     const dataThrough = now.toLocaleDateString("en-US", {
       month: "long",
@@ -731,6 +812,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
+      weekOverWeek,
       kpis: {
         current: {
           revenue: curRevenue,

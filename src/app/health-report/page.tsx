@@ -188,7 +188,7 @@ export default function HealthReportPage() {
     );
   }
 
-  const { kpis, projection, platforms, expenses, menuPerformance, insights, meta } =
+  const { weekOverWeek, kpis, projection, platforms, expenses, menuPerformance, insights, meta } =
     data;
 
   return (
@@ -247,6 +247,59 @@ export default function HealthReportPage() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Week-over-Week Trends */}
+      {weekOverWeek && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">This Week vs Last Week</h3>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              {weekOverWeek.thisWeek.daysCompleted} of 7 days
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              { label: "Revenue", value: formatCurrency(weekOverWeek.thisWeek.revenue), change: weekOverWeek.change.revenue },
+              { label: "Orders", value: weekOverWeek.thisWeek.orders.toLocaleString(), change: weekOverWeek.change.orders },
+              { label: "Avg Ticket", value: formatCurrency(weekOverWeek.thisWeek.avgTicket), change: weekOverWeek.change.avgTicket },
+              { label: "Profit", value: formatCurrency(weekOverWeek.thisWeek.profit), change: weekOverWeek.change.profit, isProfit: true },
+              { label: "Fees", value: formatCurrency(weekOverWeek.thisWeek.fees), change: weekOverWeek.change.fees, invertColor: true },
+              {
+                label: "Busiest Day",
+                value: weekOverWeek.thisWeek.busiestDay?.name || "—",
+                subtitle: weekOverWeek.thisWeek.busiestDay ? formatCurrency(weekOverWeek.thisWeek.busiestDay.revenue) : undefined,
+              },
+            ].map((card) => (
+              <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-medium">{card.label}</p>
+                <p className={`text-lg font-semibold mt-0.5 ${
+                  card.isProfit
+                    ? (weekOverWeek.thisWeek.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600")
+                    : "text-gray-800 dark:text-gray-200"
+                }`}>
+                  {card.value}
+                </p>
+                {card.change != null ? (
+                  <p className={`text-xs font-medium mt-0.5 ${
+                    card.invertColor
+                      ? (card.change > 0 ? "text-red-500" : card.change < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-gray-400")
+                      : (card.change > 0 ? "text-emerald-600 dark:text-emerald-400" : card.change < 0 ? "text-red-500" : "text-gray-400")
+                  }`}>
+                    {card.change > 0 ? "↑" : card.change < 0 ? "↓" : "→"} {Math.abs(card.change)}% vs last week
+                  </p>
+                ) : card.subtitle ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{card.subtitle}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {weekOverWeek.thisWeek.daysCompleted < 7 && weekOverWeek.projectedWeek && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              At this pace: ~{formatCurrency(weekOverWeek.projectedWeek.revenue)} revenue / ~{weekOverWeek.projectedWeek.orders} orders by end of week
+            </p>
+          )}
         </div>
       )}
 
