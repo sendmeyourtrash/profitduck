@@ -12,6 +12,7 @@
 const orderQueue = new Map();
 const sentIds = new Set();
 let capturedCount = 0;
+let syncedCount = 0;
 let lastSync = { time: null, inserted: 0, skipped: 0, error: null };
 let crawlStatus = {};  // Per-platform: { ubereats: { state, message }, doordash: { state, message } }
 let paused = true; // Start paused — user must explicitly sync
@@ -334,8 +335,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           if (!resp.ok) throw new Error(`Server ${resp.status}`);
           const result = await resp.json();
+          capturedCount += (message.csvRows?.length || 0);
+          syncedCount += (result.inserted || 0);
           lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
           await chrome.storage.local.set({ lastSync });
+          updateBadge();
           console.log(`[Profit Duck] [doordash] Sent ${message.csvRows?.length || 0}: ${result.inserted} new, ${result.skipped} skipped`);
           sendResponse({ ok: true, inserted: result.inserted, skipped: result.skipped });
         } catch (e) {
@@ -363,8 +367,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           if (!resp.ok) throw new Error(`Server ${resp.status}`);
           const result = await resp.json();
+          capturedCount += (message.csvRows?.length || 0);
+          syncedCount += (result.inserted || 0);
           lastSync = { time: new Date().toISOString(), inserted: result.inserted || 0, skipped: result.skipped || 0, error: null };
           await chrome.storage.local.set({ lastSync });
+          updateBadge();
           console.log(`[Profit Duck] [grubhub] Sent ${message.csvRows?.length || 0}: ${result.inserted} new, ${result.skipped} skipped`);
           sendResponse({ ok: true, inserted: result.inserted, skipped: result.skipped });
         } catch (e) {
@@ -377,7 +384,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       flushQueue().then(() => sendResponse({ ok: true, lastSync }));
       return true;
     case "get_status":
-      sendResponse({ capturedCount, queueSize: orderQueue.size, sentCount: sentIds.size, lastSync, crawlStatus, paused });
+      sendResponse({ capturedCount, queueSize: orderQueue.size, sentCount: sentIds.size + syncedCount, lastSync, crawlStatus, paused });
       break;
     case "detect_platform":
       detectActivePlatform().then(p => sendResponse(p)).catch(() => sendResponse({ platform: null }));
