@@ -369,43 +369,84 @@
         current: 0,
       });
 
-      // Fetch order details via bridge (ISOLATED world fetch, not affected by service worker)
+      // Scrape order details via hidden iframes (3 in parallel for speed)
+      const syncStoreId = storeId || extractStoreId();
       const csvRows = [];
       let enrichedCount = 0;
+      const PARALLEL = 3;
 
-      function fetchDetailViaBridge(deliveryUuid) {
+      function scrapeViaIframe(deliveryUuid) {
         return new Promise((resolve) => {
-          window.postMessage({ type: "PROFITDUCK_DD_FETCH_DETAIL", deliveryUuid }, "*");
-          const handler = (ev) => {
-            if (ev.data?.type === "PROFITDUCK_DD_DETAIL_RESULT" && ev.data.deliveryUuid === deliveryUuid) {
-              window.removeEventListener("message", handler);
-              resolve(ev.data.data);
-            }
+          const iframe = document.createElement("iframe");
+          iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none";
+          iframe.src = `https://www.doordash.com/merchant/orders/${deliveryUuid}?store_id=${syncStoreId}`;
+          let done = false;
+          let attempts = 0;
+
+          const tryScrape = () => {
+            if (done) return;
+            attempts++;
+            try {
+              const text = iframe.contentDocument?.body?.innerText || "";
+              const detailMatch = text.match(/Order details\n([\s\S]*?)(?:Associated transactions|Have feedback|$)/);
+              if (detailMatch && detailMatch[1].includes("$")) {
+                const detail = detailMatch[1];
+                const items = [];
+                const itemRegex = /(\d+)\s*×\s*([^$\n]+?)(?:\n[^$\n]*?)?\s*\$(\d+\.\d{2})/g;
+                let m;
+                while ((m = itemRegex.exec(detail)) !== null) {
+                  const rawName = m[2].trim();
+                  const catMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/);
+                  items.push({ name: catMatch ? catMatch[1].trim() : rawName, category: catMatch ? catMatch[2].trim() : "", quantity: parseInt(m[1]), price: parseFloat(m[3]) });
+                }
+                if (items.length > 0) {
+                  done = true;
+                  iframe.remove();
+                  resolve({
+                    scraped: {
+                      items,
+                      subtotal: detail.match(/Subtotal\s*\$(\d+\.\d{2})/)?.[1] || "0.00",
+                      discount: detail.match(/Customer discount\s*-?\$(\d+\.\d{2})/)?.[1] || "0.00",
+                      tax: detail.match(/Tax\s*\$(\d+\.\d{2})/)?.[1] || "0.00",
+                      commissionRate: detail.match(/Commission\s*\((\d+)%\)/)?.[1] || "",
+                      commission: detail.match(/Commission\s*\(\d+%\)\s*-?\$(\d+\.\d{2})/)?.[1] || "0.00",
+                      orderTotal: detail.match(/Order total\s*\$(\d+\.\d{2})/)?.[1] || "0.00",
+                    }
+                  });
+                  return;
+                }
+              }
+            } catch {}
+            if (attempts < 12) setTimeout(tryScrape, 2500);
+            else { done = true; iframe.remove(); resolve(null); }
           };
-          window.addEventListener("message", handler);
-          setTimeout(() => { window.removeEventListener("message", handler); resolve(null); }, 15000);
+
+          iframe.addEventListener("load", () => setTimeout(tryScrape, 3000));
+          setTimeout(() => { if (!done) { done = true; iframe.remove(); resolve(null); } }, 40000);
+          document.body.appendChild(iframe);
         });
       }
 
-      for (let i = 0; i < newOrders.length; i++) {
+      // Process in parallel batches
+      for (let i = 0; i < newOrders.length; i += PARALLEL) {
         if (crawlAbort) break;
-        const order = newOrders[i];
+        const batch = newOrders.slice(i, i + PARALLEL);
 
         postCrawlStatus({
           state: "fetching",
-          message: `Fetching order ${i + 1}/${newOrders.length}...`,
+          message: `Scraping orders ${i + 1}-${Math.min(i + PARALLEL, newOrders.length)}/${newOrders.length}...`,
           total: newOrders.length,
-          current: i + 1,
+          current: i,
         });
 
-        const detailData = await fetchDetailViaBridge(order.deliveryUuid);
-        if (detailData?.data?.orderId) enrichedCount++;
+        const results = await Promise.all(batch.map(order => scrapeViaIframe(order.deliveryUuid)));
 
-        const row = normalizeOrderToCsvRow(order, detailData);
-        if (row) csvRows.push(row);
-
-        // Rate limit
-        await new Promise(r => setTimeout(r, 400));
+        for (let j = 0; j < batch.length; j++) {
+          const detail = results[j];
+          if (detail?.scraped?.items?.length > 0) enrichedCount++;
+          const row = normalizeOrderToCsvRow(batch[j], detail);
+          if (row) csvRows.push(row);
+        }
       }
 
       console.log(`[Profit Duck] Normalized ${csvRows.length} orders (${enrichedCount} enriched)`);
