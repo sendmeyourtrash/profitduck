@@ -22,3 +22,4 @@
 
 ## Research Briefs Written
 - **2026-03-30** Chrome MV3 background→MAIN world messaging: correct patterns, gotchas, why existing attempts fail. Saved to `.claude/research/chrome-mv3-main-world-messaging.md`.
+- **2026-04-01** Linear regression trend display: slope × period² gives monthly-total change; projection totals = sum of daily point estimates (closed form: n × (yStart+yEnd)/2). Saved to `.claude/research/linear-regression-trend-display.md`.
