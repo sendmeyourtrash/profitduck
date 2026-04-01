@@ -335,16 +335,19 @@ export default function RevenueChart({
       enriched.push(...projectionPoints);
     }
 
-    // Trend label — always show as monthly rate for consistency.
-    // Slope is $/day per day-index. Monthly growth = slope × 30 days/month × 30 days/month
-    // (each of the 30 days in the next month is 30 positions later in the regression).
-    // This is the correct "how much more does month N+1 make vs month N."
-    const monthlyGrowth = canonicalReg.slope * 30 * 30;
-    const scaledSlope = monthlyGrowth;
+    // Trend label — show the change in PERIOD TOTAL per period.
+    // With daily regression slope s, the change in period total between consecutive
+    // periods of length P days = s × P². (Each of P days shifts P positions later,
+    // so total difference = s × P × P.) This is standard linear trend aggregation.
+    // Ref: Hyndman FPP §12.5 — period totals from daily point forecasts.
+    const PERIOD_DAYS: Record<Period, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 91 };
+    const pDays = PERIOD_DAYS[period];
+    const scaledSlope = canonicalReg.slope * pDays * pDays;
+    const unit = PERIOD_UNIT[period];
     const absScaled = Math.abs(scaledSlope);
     const trendLabel = absScaled >= 1
-      ? `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(0)}/mo`
-      : `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(2)}/mo`;
+      ? `${scaledSlope >= 0 ? "+" : "-"}$${Math.round(absScaled).toLocaleString()}/${unit}`
+      : `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(2)}/${unit}`;
     const label = trendLabel;
 
     // Merge expense data if toggled on
