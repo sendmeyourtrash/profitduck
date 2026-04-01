@@ -240,12 +240,21 @@ export default function RevenueChart({
       maWindow
     );
 
-    // Build chart data — trend line is sum of daily trend values within each bucket
+    // Expected days per bucket (for normalizing partial buckets at boundaries)
+    const EXPECTED_DAYS: Record<Period, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 91 };
+    const expectedDays = EXPECTED_DAYS[period];
+
+    // Build chart data — trend line is sum of daily trend values within each bucket.
+    // Normalize partial buckets (first/last week, month) to avoid visual drops.
     const enriched: Record<string, unknown>[] = displayData.map((d, i) => {
       const dayIndices = bucketDayIndices.get(d.key);
-      const bucketTrend = dayIndices
+      let bucketTrend = dayIndices
         ? dayIndices.reduce((sum, idx) => sum + (canonicalReg.slope * idx + canonicalReg.intercept), 0)
         : canonicalReg.slope * i + canonicalReg.intercept;
+      // Scale partial buckets (first/last) to full period for smooth trendline
+      if (dayIndices && dayIndices.length < expectedDays && expectedDays > 1) {
+        bucketTrend = bucketTrend * (expectedDays / dayIndices.length);
+      }
       return { ...d, trend: bucketTrend, ma: ma[i] };
     });
 
@@ -308,17 +317,19 @@ export default function RevenueChart({
       bucket.days++;
     }
 
-    // Convert bucketed projections to chart points
+    // Convert bucketed projections to chart points.
+    // Normalize partial buckets (first/last) to full period for smooth forecast line.
     const projectionPoints: Record<string, unknown>[] = [];
     const sortedBucketKeys = Array.from(projBuckets.keys()).sort();
     for (const bk of sortedBucketKeys) {
       const bucket = projBuckets.get(bk)!;
+      const scale = (bucket.days < expectedDays && expectedDays > 1) ? expectedDays / bucket.days : 1;
       projectionPoints.push({
         date: period === "1D" ? bk : bucket.label,
         key: bk,
         total: undefined,
-        trend: bucket.trend,
-        _seasonalCalc: bucket.seasonal,
+        trend: bucket.trend * scale,
+        _seasonalCalc: bucket.seasonal * scale,
         _standardError: canonicalReg.standardError,
         _dailyTrendSum: dailyTrendSum,
         _dailySeasonalSum: dailySeasonalSum,
