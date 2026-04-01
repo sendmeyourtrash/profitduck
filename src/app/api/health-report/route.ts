@@ -263,12 +263,12 @@ export async function GET(request: NextRequest) {
 
     // ---------- Sales.db query helpers ----------
 
-    const sumRevenue = (start: Date, end: Date): number => {
+    const sumRevenue = (start: Date, end: Date): { revenue: number; orders: number } => {
       const r = salesDb.prepare(
-        `SELECT ROUND(SUM(gross_sales), 2) as total FROM orders
+        `SELECT ROUND(SUM(gross_sales), 2) as total, COUNT(*) as orders FROM orders
          WHERE order_status = 'completed' AND date >= ? AND date <= ?`
-      ).get(dateStr(start), dateStr(end)) as { total: number };
-      return r.total || 0;
+      ).get(dateStr(start), dateStr(end)) as { total: number; orders: number };
+      return { revenue: r.total || 0, orders: r.orders || 0 };
     };
 
     const sumFees = (start: Date, end: Date): number => {
@@ -299,10 +299,16 @@ export async function GET(request: NextRequest) {
 
     // ---------- Period KPIs ----------
 
-    const curRevenue = sumRevenue(dates.currentStart, dates.currentEnd);
+    const curRevenueData = sumRevenue(dates.currentStart, dates.currentEnd);
+    const curRevenue = curRevenueData.revenue;
+    const curOrders = curRevenueData.orders;
+    const curAvgTicket = curOrders > 0 ? Math.round((curRevenue / curOrders) * 100) / 100 : 0;
     const curFees = sumFees(dates.currentStart, dates.currentEnd);
     const curExpenses = sumExpenses(dates.currentStart, dates.currentEnd);
-    const prevRevenue = sumRevenue(dates.previousStart, dates.previousEnd);
+    const prevRevenueData = sumRevenue(dates.previousStart, dates.previousEnd);
+    const prevRevenue = prevRevenueData.revenue;
+    const prevOrders = prevRevenueData.orders;
+    const prevAvgTicket = prevOrders > 0 ? Math.round((prevRevenue / prevOrders) * 100) / 100 : 0;
     const prevFees = sumFees(dates.previousStart, dates.previousEnd);
     const prevExpenses = sumExpenses(dates.previousStart, dates.previousEnd);
 
@@ -845,6 +851,8 @@ export async function GET(request: NextRequest) {
       kpis: {
         current: {
           revenue: curRevenue,
+          orders: curOrders,
+          avgTicket: curAvgTicket,
           fees: curFees,
           expenses: curExpenses,
           netProfit: curNetProfit,
@@ -853,6 +861,8 @@ export async function GET(request: NextRequest) {
         },
         previous: {
           revenue: prevRevenue,
+          orders: prevOrders,
+          avgTicket: prevAvgTicket,
           fees: prevFees,
           expenses: prevExpenses,
           netProfit: prevNetProfit,
@@ -861,6 +871,8 @@ export async function GET(request: NextRequest) {
         },
         change: {
           revenue: changeDelta(curRevenue, prevRevenue),
+          orders: changeDelta(curOrders, prevOrders),
+          avgTicket: changeDelta(curAvgTicket, prevAvgTicket),
           netProfit: changeDelta(curNetProfit, prevNetProfit),
           profitMargin: Math.round((curProfitMargin - prevProfitMargin) * 10) / 10,
           operatingCostRatio:

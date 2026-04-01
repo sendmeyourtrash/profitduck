@@ -189,7 +189,7 @@ export default function HealthReportPage() {
     );
   }
 
-  const { weekOverWeek, kpis, projection, platforms, expenses, menuPerformance, insights, meta } =
+  const { kpis, projection, platforms, expenses, menuPerformance, insights, meta } =
     data;
 
   return (
@@ -251,75 +251,8 @@ export default function HealthReportPage() {
         </div>
       )}
 
-      {/* Weekly & Daily Pulse */}
-      {weekOverWeek && (
-        <div className="space-y-4">
-          {/* Last Week vs Week Before */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Last Week vs Week Before</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {[
-                { label: "Revenue", value: formatCurrency(weekOverWeek.lastWeek.revenue), change: weekOverWeek.weekChange.revenue },
-                { label: "Orders", value: weekOverWeek.lastWeek.orders.toLocaleString(), change: weekOverWeek.weekChange.orders },
-                { label: "Avg Ticket", value: formatCurrency(weekOverWeek.lastWeek.avgTicket), change: weekOverWeek.weekChange.avgTicket },
-                { label: "Profit", value: formatCurrency(weekOverWeek.lastWeek.profit), change: weekOverWeek.weekChange.profit, isProfit: true },
-                {
-                  label: "Busiest Day",
-                  value: weekOverWeek.lastWeek.busiestDay?.name || "—",
-                  subtitle: weekOverWeek.lastWeek.busiestDay ? formatCurrency(weekOverWeek.lastWeek.busiestDay.revenue) : undefined,
-                },
-              ].map((card) => (
-                <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-medium">{card.label}</p>
-                  <p className={`text-lg font-semibold mt-0.5 ${
-                    card.isProfit
-                      ? (weekOverWeek.lastWeek.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600")
-                      : "text-gray-800 dark:text-gray-200"
-                  }`}>
-                    {card.value}
-                  </p>
-                  {card.change != null ? (
-                    <p className={`text-xs font-medium mt-0.5 ${
-                      card.change > 0 ? "text-emerald-600 dark:text-emerald-400" : card.change < 0 ? "text-red-500" : "text-gray-400"
-                    }`}>
-                      {card.change > 0 ? "↑" : card.change < 0 ? "↓" : "→"} {Math.abs(card.change)}% vs prior week
-                    </p>
-                  ) : card.subtitle ? (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{card.subtitle}</p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Yesterday vs Same Day Last Week */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
-              Yesterday ({weekOverWeek.yesterday.dayName}) vs Same Day Last Week
-            </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Revenue", value: formatCurrency(weekOverWeek.yesterday.revenue), change: weekOverWeek.dayChange.revenue },
-                { label: "Orders", value: weekOverWeek.yesterday.orders.toLocaleString(), change: weekOverWeek.dayChange.orders },
-                { label: "Avg Ticket", value: formatCurrency(weekOverWeek.yesterday.avgTicket), change: weekOverWeek.dayChange.avgTicket },
-              ].map((card) => (
-                <div key={card.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-medium">{card.label}</p>
-                  <p className="text-lg font-semibold mt-0.5 text-gray-800 dark:text-gray-200">{card.value}</p>
-                  <p className={`text-xs font-medium mt-0.5 ${
-                    card.change > 0 ? "text-emerald-600 dark:text-emerald-400" : card.change < 0 ? "text-red-500" : "text-gray-400"
-                  }`}>
-                    {card.change > 0 ? "↑" : card.change < 0 ? "↓" : "→"} {Math.abs(card.change)}% vs last {weekOverWeek.yesterday.dayName}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Section 1: Executive Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Executive Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard
           title="Revenue"
           value={formatCurrency(kpis.current.revenue)}
@@ -327,12 +260,23 @@ export default function HealthReportPage() {
           trend={{ value: kpis.change.revenue, label: meta.comparisonLabel }}
         />
         <StatCard
+          title="Orders"
+          value={kpis.current.orders.toLocaleString()}
+          subtitle={`Prev: ${kpis.previous.orders.toLocaleString()}`}
+          trend={{ value: kpis.change.orders, label: meta.comparisonLabel }}
+        />
+        <StatCard
+          title="Avg Ticket"
+          value={formatCurrency(kpis.current.avgTicket)}
+          subtitle={`Prev: ${formatCurrency(kpis.previous.avgTicket)}`}
+          trend={{ value: kpis.change.avgTicket, label: meta.comparisonLabel }}
+        />
+        <StatCard
           title="Net Profit"
           value={formatCurrency(kpis.current.netProfit)}
-          subtitle={`Fees: ${formatCurrency(kpis.current.fees)} + Expenses: ${formatCurrency(kpis.current.expenses)}`}
+          subtitle={`Fees: ${formatCurrency(kpis.current.fees)} + Exp: ${formatCurrency(kpis.current.expenses)}`}
           variant={kpis.current.netProfit >= 0 ? "success" : "danger"}
           trend={{ value: kpis.change.netProfit, label: meta.comparisonLabel }}
-          info={`Based on tracked platform revenue minus fees and recorded expenses${meta.restaurantOpenDate ? ` since ${new Date(meta.restaurantOpenDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : ""}. Does not include COGS, labor, rent, or other costs not imported into the app.`}
         />
         <StatCard
           title="Profit Margin"
@@ -349,12 +293,11 @@ export default function HealthReportPage() {
             value: kpis.change.profitMargin,
             label: `pts ${meta.comparisonLabel}`,
           }}
-          info="Derived from net profit — same data limitations apply."
         />
         <StatCard
-          title="Operating Cost Ratio"
+          title="Cost Ratio"
           value={`${kpis.current.operatingCostRatio.toFixed(1)}%`}
-          subtitle="(Fees + Expenses) / Revenue"
+          subtitle="(Fees + Exp) / Revenue"
           variant={
             kpis.current.operatingCostRatio <= 70
               ? "success"
