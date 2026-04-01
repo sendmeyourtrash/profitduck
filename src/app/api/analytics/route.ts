@@ -105,10 +105,15 @@ export async function GET(request: NextRequest) {
 
     switch (type) {
       case "revenue_by_hour": {
-        // Get orders with time data (exclude ubereats which has no time)
+        // Only exclude ubereats if it actually has no time data
         const timeConditions = [...conditions];
         if (platList.length === 0) {
-          timeConditions.push("platform != 'ubereats'");
+          const ueTimeCheck = db.prepare(
+            `SELECT 1 FROM orders WHERE platform = 'ubereats' AND time IS NOT NULL AND time != '' LIMIT 1`
+          ).get();
+          if (!ueTimeCheck) {
+            timeConditions.push("platform != 'ubereats'");
+          }
         }
         const timeWhere = timeConditions.length > 0 ? `WHERE ${timeConditions.join(" AND ")}` : "";
 
@@ -159,7 +164,12 @@ export async function GET(request: NextRequest) {
           h.avgOrderValue = h.orderCount > 0 ? h.revenue / h.orderCount : 0;
         }
 
-        const result = { hourly, granularity, daysInSample: uniqueDays.size || 1 };
+        // Check if ubereats has time data so frontend can show/hide warning
+        const ueHasTime = !!db.prepare(
+          `SELECT 1 FROM orders WHERE platform = 'ubereats' AND time IS NOT NULL AND time != '' LIMIT 1`
+        ).get();
+
+        const result = { hourly, granularity, daysInSample: uniqueDays.size || 1, ubereatsHasTime: ueHasTime };
         setCache(cacheKey, result);
         return NextResponse.json(result);
       }
@@ -257,7 +267,12 @@ export async function GET(request: NextRequest) {
       case "busy_times": {
         const timeConditions = [...conditions];
         if (platList.length === 0) {
-          timeConditions.push("platform != 'ubereats'");
+          const ueTimeCheck = db.prepare(
+            `SELECT 1 FROM orders WHERE platform = 'ubereats' AND time IS NOT NULL AND time != '' LIMIT 1`
+          ).get();
+          if (!ueTimeCheck) {
+            timeConditions.push("platform != 'ubereats'");
+          }
         }
         const timeWhere = timeConditions.length > 0 ? `WHERE ${timeConditions.join(" AND ")}` : "";
 

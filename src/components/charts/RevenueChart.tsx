@@ -250,9 +250,13 @@ export default function RevenueChart({
     });
 
     // --- Projection: always day-by-day, then bucket for display ---
-    const forecastDaysTotal = (showTrend || seasonalOn || onProjectionChange) ? FORECAST_DAYS[forecastRange] : 0;
+    // Suppress forecast when the data ends before today (historical view)
     const lastDayIdx = filteredData.length - 1;
     const lastDate = filteredData.length > 0 ? new Date(filteredData[filteredData.length - 1].date + "T12:00:00") : new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isHistorical = lastDate < today;
+    const forecastDaysTotal = (!isHistorical && (showTrend || seasonalOn || onProjectionChange)) ? FORECAST_DAYS[forecastRange] : 0;
 
     // Compute daily projection values, then bucket into display periods
     const projBuckets = new Map<string, {

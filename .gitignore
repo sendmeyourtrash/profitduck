@@ -52,8 +52,11 @@ next-env.d.ts
 # data exports (raw CSV files)
 /Data Exports/
 
-# claude
-.claude/
+# claude — track agents, memory, settings for parallel chat support
+.claude/settings.local.json
+.claude/worktrees/
+.claude/plans/
+.claude/scheduled-tasks/
 dev.db.backup
 old-databases/
 *.db-shm

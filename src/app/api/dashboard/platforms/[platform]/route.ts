@@ -95,20 +95,68 @@ export async function GET(
       marketing: agg.marketing_fee || 0,
     },
     dailyRevenue: dailyRevenue.map((d) => ({ date: d.date, total: Number(d.total), orders: Number(d.orders) })),
-    orders: orders.map((o) => ({
-      id: `${o.platform}-${o.order_id}`,
-      orderId: o.order_id,
-      datetime: o.date,
-      subtotal: o.gross_sales,
-      tax: o.tax,
-      tip: o.tip,
-      fees: o.fees_total,
-      netPayout: o.net_sales,
-      items: o.items,
-      cardBrand: o.payment_method || "",
-      diningOption: o.dining_option,
-      orderStatus: o.order_status,
-    })),
+    orders: (() => {
+      // Batch-fetch order_items for this page (same pattern as /api/transactions)
+      const orderKeys = orders
+        .filter(o => o.order_id)
+        .map(o => ({ id: o.order_id as string, platform: o.platform as string }));
+      let orderItemsMap: Record<string, { item_name: string; qty: number; unit_price: number; gross_sales: number; modifiers: string; display_name: string }[]> = {};
+
+      if (orderKeys.length > 0) {
+        try {
+          const conds = orderKeys.map(() => "(order_id = ? AND platform = ?)").join(" OR ");
+          const params = orderKeys.flatMap(k => [k.id, k.platform]);
+          const itemRows = db.prepare(
+            `SELECT order_id, platform, item_name, qty, unit_price, gross_sales, modifiers, display_name
+             FROM order_items WHERE (${conds}) AND event_type = 'Payment'`
+          ).all(...params) as { order_id: string; platform: string; item_name: string; qty: number; unit_price: number; gross_sales: number; modifiers: string; display_name: string }[];
+
+          for (const row of itemRows) {
+            const key = `${row.order_id}:${row.platform}`;
+            if (!orderItemsMap[key]) orderItemsMap[key] = [];
+            orderItemsMap[key].push(row);
+          }
+        } catch (e) {
+          console.warn("[Platform Detail] Failed to fetch order_items:", e);
+        }
+      }
+
+      return orders.map((o) => ({
+        id: `${o.platform}-${o.order_id}`,
+        order_id: o.order_id,
+        orderId: o.order_id,
+        datetime: o.date,
+        date: o.date,
+        time: o.time,
+        platform: o.platform,
+        order_status: o.order_status || "completed",
+        gross_sales: o.gross_sales,
+        subtotal: o.gross_sales,
+        tax: o.tax,
+        tip: o.tip,
+        net_sales: o.net_sales,
+        fees: o.fees_total,
+        netPayout: o.net_sales,
+        items: o.items,
+        discounts: o.discounts || 0,
+        dining_option: o.dining_option,
+        customer_name: o.customer_name,
+        payment_method: o.payment_method,
+        cardBrand: o.payment_method || "",
+        diningOption: o.dining_option,
+        orderStatus: o.order_status,
+        commission_fee: o.commission_fee || 0,
+        processing_fee: o.processing_fee || 0,
+        delivery_fee: o.delivery_fee || 0,
+        marketing_fee: o.marketing_fee || 0,
+        fees_total: o.fees_total || 0,
+        marketing_total: o.marketing_total || 0,
+        refunds_total: o.refunds_total || 0,
+        adjustments_total: o.adjustments_total || 0,
+        other_total: o.other_total || 0,
+        order_items: orderItemsMap[`${o.order_id}:${o.platform}`] || [],
+      }));
+    })(),
     totalOrders: totalCount,
     totalPages: Math.ceil(totalCount / limit),
   };

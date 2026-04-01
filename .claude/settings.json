@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */src/lib/services/*|*/src/lib/db/*|*/extension/*) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"IMPORTANT: A service/db/extension file was modified. You MUST run the code-reviewer agent before proceeding to the next task. Do not skip this step.\"}}' ;; */src/app/api/*) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"IMPORTANT: An API route was modified. You MUST run the security-auditor agent before proceeding to the next task. Do not skip this step.\"}}' ;; */src/components/*|*/src/app/*/page.tsx) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"IMPORTANT: A UI file was modified. You MUST: 1) Check docs/design-system.md for correct tokens BEFORE making more changes. 2) Run design-language agent to verify consistency. 3) Run responsive-qa agent to verify breakpoints. 4) Run ui-ux-reviewer agent to check usability. Do not skip these steps.\"}}' ;; */migrations/*) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"IMPORTANT: A migration file was modified. You MUST run the data-integrity-agent before proceeding to the next task. Do not skip this step.\"}}' ;; esac; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | { read -r cmd; case \"$cmd\" in *rebuild-pipeline*|*reimport*|*step2*|*step3*) echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"IMPORTANT: Pipeline was rebuilt. You MUST run the data-integrity-agent to verify data correctness before proceeding. Do not skip this step.\"}}' ;; esac; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SubagentStop\",\"additionalContext\":\"AGENT COMPLETED. You MUST now do ALL of these steps: 1) Read the agent result and check for any issues it reported. 2) MEMORY UPDATE (MANDATORY): Extract any new patterns, mistakes, or learnings from the agent output. Append them to the agents memory file at .claude/memory/[agent-name].md using Bash: cat >> .claude/memory/[agent-name].md. Format: - [date] [finding]. If the agent reported it could not write to memory, YOU must write it now. This is how agents learn — do not skip. 3) CHAINING (MANDATORY): Check the After Completion section of that agents .claude/agents/[name].md file. If it lists follow-up agents, trigger them NOW. 4) VERIFICATION: If the agent modified files, verify those changes work (screenshot, SQL query, or API test). Do NOT skip any of these steps.\"}}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"SESSION START CHECKLIST: 1) Read .claude/memory/_shared.md for cross-cutting project rules. 2) Read CLAUDE.md for project architecture and conventions. 3) Check docs/design-system.md if you will be doing any UI work. 4) You have 32 agents available — use them. Key agents: orchestrator (plan first), code-reviewer (after code changes), design-language (after UI changes), data-integrity-agent (after pipeline changes), e2e-verification (after any feature), financial-auditor (after money-related changes). 5) NEVER context-switch mid-task. Finish, verify, then move on. 6) NEVER guess at external APIs — use external-docs-researcher first.\"}}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"Stop\",\"additionalContext\":\"VERIFICATION CHECKPOINT: Before responding to ANY new user request, you MUST verify the last task is complete: 1) Take a screenshot or run a query to PROVE the change works. 2) Check for data integrity if pipeline was touched. 3) Only THEN move to the next task. If the user sent a new message mid-task, finish and verify the current task FIRST, tell the user what you completed, THEN address their new message. NEVER context-switch mid-implementation.\"}}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
