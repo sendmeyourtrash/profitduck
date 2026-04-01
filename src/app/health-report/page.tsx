@@ -461,9 +461,14 @@ export default function HealthReportPage() {
 
           let label: string;
           if (period === "1D") {
-            label = startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            const dow = startDate.toLocaleDateString("en-US", { weekday: "short" });
+            label = `${dow}, ${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
           } else if (period === "1W") {
-            label = `${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+            // Week number: ISO week = ceil((dayOfYear + startDayOfWeek) / 7)
+            const jan1 = new Date(startDate.getFullYear(), 0, 1);
+            const dayOfYear = Math.floor((startDate.getTime() - jan1.getTime()) / 86_400_000) + 1;
+            const weekNum = Math.ceil(dayOfYear / 7);
+            label = `Wk ${weekNum} — ${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
           } else if (period === "1M") {
             label = startDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
           } else {
