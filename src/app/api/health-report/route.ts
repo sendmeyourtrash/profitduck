@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { getAllCategoryIgnores, countClosedDaysInRange, getClosedDays, getSettingValue } from "@/lib/db/config-db";
 import { setConfiguredTimezone, toLocalDateStr } from "@/lib/utils/format";
-import { linearRegression, computeSeasonalIndices } from "@/lib/utils/statistics";
+import { linearRegression, computeSeasonalIndices, computeDowIndices } from "@/lib/utils/statistics";
 import {
   startOfMonth,
   endOfMonth,
@@ -475,6 +475,14 @@ export async function GET(request: NextRequest) {
        GROUP BY strftime('%Y-%m', date)`
     ).all() as { month: number; total: number }[];
 
+    // Day-of-week revenue samples for DOW indices
+    const dowRevenueSamples = salesDb.prepare(
+      `SELECT CAST(strftime('%w', date) AS INTEGER) as dow,
+              ROUND(SUM(gross_sales), 2) as total
+       FROM orders WHERE order_status = 'completed'
+       GROUP BY date`
+    ).all() as { dow: number; total: number }[];
+
     // ---------- Reconciliation & Closed Days ----------
 
     // Reconciliation stats — placeholder until reconciliation is migrated
@@ -526,6 +534,15 @@ export async function GET(request: NextRequest) {
       }))
     );
     const hasSeasonalData = monthlyRevenueSamples.length >= 12;
+
+    // Day-of-week indices
+    const dowIndices = computeDowIndices(
+      dowRevenueSamples.map((r) => ({
+        dow: Number(r.dow),
+        total: Number(r.total),
+      }))
+    );
+    const hasDowData = dowRevenueSamples.length >= 7;
 
     // Projected end-of-period revenue
     const daysInMonth = getDaysInMonth(now);
@@ -731,6 +748,8 @@ export async function GET(request: NextRequest) {
           chartLookbackDays,
           seasonalIndices,
           hasSeasonalData,
+          dowIndices,
+          hasDowData,
         },
       },
       platforms,

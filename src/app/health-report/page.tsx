@@ -428,10 +428,12 @@ export default function HealthReportPage() {
         const lastDate = projection.dailySeries.length > 0
           ? new Date(projection.dailySeries[projection.dailySeries.length - 1].date + "T12:00:00")
           : new Date();
-        const indices = projection.trend.seasonalIndices || {};
-        const hasSeasonalData = projection.trend.hasSeasonalData;
-
         const period = projInfo?.period || "1M";
+        const monthIndices = projection.trend.seasonalIndices || {};
+        const dowIndices: Record<number, number> = projection.trend.dowIndices || {};
+        const hasSeasonalData = projection.trend.hasSeasonalData;
+        const hasDowData = projection.trend.hasDowData;
+        const useDow = hasDowData && (period === "1D" || period === "1W");
         const PERIOD_LABELS: Record<string, string> = { "1D": "Day", "1W": "Week", "1M": "Month", "1Q": "Quarter" };
         const PERIOD_DAYS: Record<string, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 91 };
         const periodDays = PERIOD_DAYS[period] || 30;
@@ -495,7 +497,9 @@ export default function HealthReportPage() {
             const dayIdx = lastIdx + dayOffset;
             const trendVal = slope * dayIdx + intercept;
             const monthNum = d.getMonth() + 1;
-            const factor = indices[monthNum] ?? 1.0;
+            const monthFactor = monthIndices[monthNum] ?? 1.0;
+            const dowFactor = useDow ? (dowIndices[d.getDay()] ?? 1.0) : 1.0;
+            const factor = monthFactor * dowFactor;
             trendSum += trendVal;
             seasonalSum += trendVal * factor;
             daysUsed++;

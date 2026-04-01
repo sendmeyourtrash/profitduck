@@ -91,6 +91,49 @@ export function computeSeasonalIndices(
   return indices;
 }
 
+export interface DowRevenueSample {
+  dow: number; // 0=Sunday, 1=Monday, ..., 6=Saturday
+  total: number;
+}
+
+/**
+ * Day-of-week seasonal indices. Same approach as monthly: mean per DOW / grand mean.
+ * Returns Record<0..6, number> where 0=Sunday.
+ */
+export function computeDowIndices(
+  samples: DowRevenueSample[]
+): Record<number, number> {
+  const buckets: Record<number, number[]> = {};
+  for (let d = 0; d <= 6; d++) buckets[d] = [];
+
+  for (const s of samples) {
+    if (s.dow >= 0 && s.dow <= 6) {
+      buckets[s.dow].push(s.total);
+    }
+  }
+
+  const dowMeans: Record<number, number> = {};
+  let nonEmptyCount = 0;
+  let grandSum = 0;
+
+  for (let d = 0; d <= 6; d++) {
+    if (buckets[d].length > 0) {
+      const mean = buckets[d].reduce((a, b) => a + b, 0) / buckets[d].length;
+      dowMeans[d] = mean;
+      grandSum += mean;
+      nonEmptyCount++;
+    }
+  }
+
+  const grandMean = nonEmptyCount > 0 ? grandSum / nonEmptyCount : 1;
+
+  const indices: Record<number, number> = {};
+  for (let d = 0; d <= 6; d++) {
+    indices[d] = dowMeans[d] != null ? dowMeans[d] / grandMean : 1.0;
+  }
+  return indices;
+}
+
 /**
  * Simple moving average.
  * Returns an array the same length as input. Early values use partial windows.
