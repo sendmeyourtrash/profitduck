@@ -335,18 +335,17 @@ export default function RevenueChart({
       enriched.push(...projectionPoints);
     }
 
-    // Trend label — scale daily slope to the display period.
-    // Slope is in $/day per day-index. For aggregate periods (weekly, monthly, quarterly),
-    // the change in period total per period = slope × days_in_period².
-    // E.g. monthly: each day adds $0.26 more → monthly total grows by 0.26 × 30 × 30 = $237/mo.
-    const PERIOD_MULTIPLIER: Record<Period, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 90 };
-    const m = PERIOD_MULTIPLIER[period];
-    const scaledSlope = canonicalReg.slope * m * m;
-    const unit = PERIOD_UNIT[period];
+    // Trend label — always show as monthly rate for consistency.
+    // Slope is $/day per day-index. Monthly growth = slope × 30 days/month × 30 days/month
+    // (each of the 30 days in the next month is 30 positions later in the regression).
+    // This is the correct "how much more does month N+1 make vs month N."
+    const monthlyGrowth = canonicalReg.slope * 30 * 30;
+    const scaledSlope = monthlyGrowth;
     const absScaled = Math.abs(scaledSlope);
-    const label = absScaled >= 1
-      ? `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(0)}/${unit}`
-      : `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(2)}/${unit}`;
+    const trendLabel = absScaled >= 1
+      ? `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(0)}/mo`
+      : `${scaledSlope >= 0 ? "+" : "-"}$${absScaled.toFixed(2)}/mo`;
+    const label = trendLabel;
 
     // Merge expense data if toggled on
     if (showExpenses && expenseData && expenseData.length > 0) {
