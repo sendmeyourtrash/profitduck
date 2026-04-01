@@ -724,22 +724,39 @@ export async function GET(request: NextRequest) {
     }
 
     // ---------- Week-over-Week ----------
-    // Always based on current calendar week (Mon-Sun), independent of date range
+    // Compare two COMPLETE weeks for fair comparison: Last Week vs Week Before.
+    // Also: Yesterday vs Same Day Last Week for daily pulse.
     const todayDate = new Date();
     const todayDay = todayDate.getDay(); // 0=Sun, 1=Mon, ...
     const mondayOffset = todayDay === 0 ? -6 : 1 - todayDay;
     const thisWeekStart = new Date(todayDate);
     thisWeekStart.setDate(todayDate.getDate() + mondayOffset);
     thisWeekStart.setHours(0, 0, 0, 0);
+
+    // Last week (complete Mon-Sun)
     const lastWeekStart = new Date(thisWeekStart);
     lastWeekStart.setDate(lastWeekStart.getDate() - 7);
     const lastWeekEnd = new Date(thisWeekStart);
     lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
 
-    const twStart = dateStr(thisWeekStart);
-    const twEnd = dateStr(todayDate);
+    // Week before last (complete Mon-Sun)
+    const weekBeforeStart = new Date(lastWeekStart);
+    weekBeforeStart.setDate(weekBeforeStart.getDate() - 7);
+    const weekBeforeEnd = new Date(lastWeekStart);
+    weekBeforeEnd.setDate(weekBeforeEnd.getDate() - 1);
+
+    // Yesterday + same day last week
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const sameDayLastWeek = new Date(yesterday);
+    sameDayLastWeek.setDate(sameDayLastWeek.getDate() - 7);
+
     const lwStart = dateStr(lastWeekStart);
     const lwEnd = dateStr(lastWeekEnd);
+    const wbStart = dateStr(weekBeforeStart);
+    const wbEnd = dateStr(weekBeforeEnd);
+    const ydayStr = dateStr(yesterday);
+    const sdlwStr = dateStr(sameDayLastWeek);
 
     const wowQuery = (start: string, end: string) => {
       const sales = salesDb.prepare(
@@ -780,27 +797,39 @@ export async function GET(request: NextRequest) {
       };
     };
 
-    const thisWeekData = wowQuery(twStart, twEnd);
     const lastWeekData = wowQuery(lwStart, lwEnd);
+    const weekBeforeData = wowQuery(wbStart, wbEnd);
+    const yesterdayData = wowQuery(ydayStr, ydayStr);
+    const sameDayLastWeekData = wowQuery(sdlwStr, sdlwStr);
 
     const pctChange = (cur: number, prev: number) =>
       prev !== 0 ? Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10 : cur > 0 ? 100 : 0;
 
-    const daysCompleted = Math.max(1, Math.round((todayDate.getTime() - thisWeekStart.getTime()) / 86_400_000) + 1);
-
     const weekOverWeek = {
-      thisWeek: { startDate: twStart, endDate: twEnd, ...thisWeekData, daysCompleted },
+      // Last complete week vs week before
       lastWeek: { startDate: lwStart, endDate: lwEnd, ...lastWeekData },
-      change: {
-        revenue: pctChange(thisWeekData.revenue, lastWeekData.revenue),
-        orders: pctChange(thisWeekData.orders, lastWeekData.orders),
-        avgTicket: pctChange(thisWeekData.avgTicket, lastWeekData.avgTicket),
-        profit: pctChange(thisWeekData.profit, lastWeekData.profit),
-        fees: pctChange(Math.abs(thisWeekData.fees), Math.abs(lastWeekData.fees)),
+      weekBefore: { startDate: wbStart, endDate: wbEnd, ...weekBeforeData },
+      weekChange: {
+        revenue: pctChange(lastWeekData.revenue, weekBeforeData.revenue),
+        orders: pctChange(lastWeekData.orders, weekBeforeData.orders),
+        avgTicket: pctChange(lastWeekData.avgTicket, weekBeforeData.avgTicket),
+        profit: pctChange(lastWeekData.profit, weekBeforeData.profit),
+        fees: pctChange(Math.abs(lastWeekData.fees), Math.abs(weekBeforeData.fees)),
       },
-      projectedWeek: {
-        revenue: Math.round((thisWeekData.revenue / daysCompleted) * 7 * 100) / 100,
-        orders: Math.round((thisWeekData.orders / daysCompleted) * 7),
+      // Yesterday vs same day last week
+      yesterday: {
+        date: ydayStr,
+        dayName: yesterday.toLocaleDateString("en-US", { weekday: "long" }),
+        ...yesterdayData,
+      },
+      sameDayLastWeek: {
+        date: sdlwStr,
+        ...sameDayLastWeekData,
+      },
+      dayChange: {
+        revenue: pctChange(yesterdayData.revenue, sameDayLastWeekData.revenue),
+        orders: pctChange(yesterdayData.orders, sameDayLastWeekData.orders),
+        avgTicket: pctChange(yesterdayData.avgTicket, sameDayLastWeekData.avgTicket),
       },
     };
 
