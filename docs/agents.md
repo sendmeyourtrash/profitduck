@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-03-27 — Updated to 32 agents, added new agents, updated model counts, documented hooks system -->
+<!-- Last updated: 2026-04-01 — Overhauled Hooks System section: 3-layer automation (PostToolUse/SubagentStop/Stop), added Hook Trigger Map and Agent Chaining Map, marked auto-triggered agents in roster -->
 
 # Agent System
 
@@ -6,18 +6,36 @@ Profit Duck uses 32 Claude Code agents organized as a structured development tea
 
 ## How It Works
 
-1. **Orchestrator runs first** on any multi-step task — it reads the codebase, maps scope, and produces an execution plan with the agents needed in order.
-2. **Specialist agents** execute the plan — each owns a domain (backend, frontend, parsers, etc.).
-3. **Review agents** run after coding — code-reviewer, security-auditor, and ui-ux-reviewer catch issues before shipping.
-4. **Documentation-keeper** runs last to update docs.
+### Manual invocation
+The orchestrator and specialist agents are invoked explicitly — by the user or by another agent following a plan.
+
+### Automated triggering: 3 layers
+
+**Layer 1 — PostToolUse hooks** fire after every `Edit`/`Write` or `Bash` tool call. They inspect the file path (or command) and inject a mandatory agent queue into the model context. The model must run the listed agents before moving on.
+
+**Layer 2 — SubagentStop hooks** fire when any subagent completes. They inspect the completed agent's name and inject a mandatory follow-up chain. This enforces quality gates without the orchestrator having to specify them explicitly.
+
+**Layer 3 — Stop hooks** fire when the main agent stops responding. One hook emits a general verification checkpoint reminder. A second hook runs `git diff --name-only` against the working tree and injects a mandatory end-of-task agent list based on which files changed:
+
+| Changed files match | End-of-task agents injected |
+|---|---|
+| `src/app/api/`, `src/lib/services/`, `src/app/**/page.tsx`, `extension/` | `documentation-keeper` |
+| `src/**/*.tsx` | `e2e-verification` |
+| `src/lib/services/*money*`, `*fee*`, `*pipeline*`, `src/app/api/*tax*`, `*reconcil*` | `financial-auditor` |
+| `src/lib/services/pipeline*`, `src/lib/parsers/` | `data-integrity-agent` |
+| `src/lib/services/*square*`, `*plaid*`, `src/app/api/*square*`, `*plaid*` | `integration-specialist` |
+
+A `SessionStart` hook fires once at the beginning of each session and reminds the model to read shared memory, CLAUDE.md, and the design system before starting work.
 
 ## Agent Roster
 
+The "Auto-triggered" column shows whether the agent is injected automatically by a hook. "Manual" means the agent must be invoked explicitly by the user or orchestrator.
+
 ### Orchestration & Planning
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **orchestrator** | Opus | Plans multi-step tasks, identifies agents needed, produces execution plan for approval | Read-only |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **orchestrator** | Opus | Plans multi-step tasks, identifies agents needed, produces execution plan for approval | Read-only | Manual |
 
 **When to use**: Before any multi-step task, new feature, bug fix, or change touching multiple files. Always runs first — no code is written until the plan is approved.
 
@@ -25,13 +43,13 @@ Profit Duck uses 32 Claude Code agents organized as a structured development tea
 
 ### Core Development
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **backend-developer** | Sonnet | API routes, services, ingestion pipeline, data processing | Read + Write |
-| **frontend-developer** | Sonnet | Pages, components, charts, layouts, dark mode | Read + Write |
-| **frontend-layout** | Sonnet | Page layout, spacing, grids, responsive design, dark mode structure | Read + Write |
-| **frontend-interaction** | Sonnet | Data fetching, state management, user interactions, forms, filters, sorting | Read + Write |
-| **api-route-generator** | Sonnet | Scaffolds new API endpoints from scratch | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **backend-developer** | Sonnet | API routes, services, ingestion pipeline, data processing | Read + Write | Manual → auto-chains code-reviewer + test-writer |
+| **frontend-developer** | Sonnet | Pages, components, charts, layouts, dark mode | Read + Write | Manual → auto-chains responsive-qa, design-language, ui-ux-reviewer, dark-mode-auditor |
+| **frontend-layout** | Sonnet | Page layout, spacing, grids, responsive design, dark mode structure | Read + Write | Manual → auto-chains dark-mode-auditor, responsive-qa |
+| **frontend-interaction** | Sonnet | Data fetching, state management, user interactions, forms, filters, sorting | Read + Write | Manual → auto-chains code-reviewer, e2e-verification |
+| **api-route-generator** | Sonnet | Scaffolds new API endpoints from scratch | Read + Write | Manual → auto-chains code-reviewer, security-auditor |
 
 **backend-developer triggers**: Any work in `src/app/api/` or `src/lib/services/`. Knows all 40+ API routes, SSE patterns, better-sqlite3 conventions.
 
@@ -47,11 +65,11 @@ Profit Duck uses 32 Claude Code agents organized as a structured development tea
 
 ### Database & Schema
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **schema-navigator** | Sonnet | Explores and explains the multi-database data model | Read-only |
-| **database-specialist** | Opus | Complex SQL queries, aggregation, optimization | Read + Write |
-| **migration-writer** | Sonnet | Safe SQL schema changes (ALTER TABLE, CREATE INDEX) | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **schema-navigator** | Sonnet | Explores and explains the multi-database data model | Read-only | Auto (SubagentStop: migration-writer completes) |
+| **database-specialist** | Opus | Complex SQL queries, aggregation, optimization | Read + Write | Manual |
+| **migration-writer** | Sonnet | Safe SQL schema changes (ALTER TABLE, CREATE INDEX) | Read + Write | Manual → auto-chains data-integrity-agent, schema-navigator |
 
 **Dependency chain**: schema-navigator (understand) → migration-writer (change schema) → database-specialist (write queries)
 
@@ -63,12 +81,12 @@ Profit Duck uses 32 Claude Code agents organized as a structured development tea
 
 ### Data & Parsers
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **parser-developer** | Sonnet | Builds/fixes CSV/XLSX/PDF parsers for 7 platforms | Read + Write |
-| **parser-qa** | Sonnet | Verifies parser correctness, edge cases, confidence scoring | Read-only |
-| **pipeline-debugger** | Sonnet | Traces data through the 3-step pipeline to find issues | Read-only |
-| **platform-data-agent** | Sonnet | Specialist in delivery platform data flows — Uber Eats extension, Square API, DoorDash, GrubHub | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **parser-developer** | Sonnet | Builds/fixes CSV/XLSX/PDF parsers for 7 platforms | Read + Write | Manual → auto-chains parser-qa, data-integrity-agent |
+| **parser-qa** | Sonnet | Verifies parser correctness, edge cases, confidence scoring | Read-only | Auto (PostToolUse: `parsers/` file edit; SubagentStop: parser-developer) |
+| **pipeline-debugger** | Sonnet | Traces data through the 3-step pipeline to find issues | Read-only | Manual |
+| **platform-data-agent** | Sonnet | Specialist in delivery platform data flows — Uber Eats extension, Square API, DoorDash, GrubHub | Read + Write | Manual → auto-chains data-integrity-agent, code-reviewer |
 
 **parser-developer** knows all 7 parsers: Square, Chase CSV, Chase PDF, DoorDash, Uber Eats, Grubhub, Rocket Money.
 
@@ -82,11 +100,11 @@ Profit Duck uses 32 Claude Code agents organized as a structured development tea
 
 ### Integrations
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **integration-specialist** | Sonnet | Square POS and Plaid bank sync, auth, scheduler | Read + Write |
-| **chart-analytics-builder** | Sonnet | Recharts visualizations, statistics, forecasting | Read + Write |
-| **chrome-extension-agent** | Sonnet | Owns all code in extension/, delivery platform scraping, data capture | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **integration-specialist** | Sonnet | Square POS and Plaid bank sync, auth, scheduler | Read + Write | Auto (Stop hook: Square/Plaid file changes) → also chains data-integrity-agent, test-writer |
+| **chart-analytics-builder** | Sonnet | Recharts visualizations, statistics, forecasting | Read + Write | Manual → auto-chains responsive-qa, design-language |
+| **chrome-extension-agent** | Sonnet | Owns all code in extension/, delivery platform scraping, data capture | Read + Write | Auto (PostToolUse: `extension/` file edit) → also chains code-reviewer |
 
 **integration-specialist triggers**: Anything touching Square API, Plaid SDK, sync errors, scheduler issues, sandbox/production switching.
 
@@ -100,14 +118,14 @@ Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React
 
 ### Review & Quality
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **code-reviewer** | Opus | Reviews changes for standards, financial math, SQL safety | Read-only |
-| **security-auditor** | Opus | Audits for SQL injection, token exposure, file upload security | Read-only |
-| **ui-ux-reviewer** | Opus | Critiques UX from a restaurant owner's perspective | Read-only |
-| **reconciliation-debugger** | Sonnet | Explains reconciliation engine, traces match failures | Read-only |
-| **responsive-qa** | Sonnet | Responsive design QA — verifies all pages render correctly at every viewport | Read + Write |
-| **dark-mode-auditor** | Haiku | Scans components for missing dark: Tailwind variants | Read-only |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **code-reviewer** | Opus | Reviews changes for standards, financial math, SQL safety | Read-only | Auto (PostToolUse: services/db file edit; SubagentStop: multiple agents) → chains e2e-verification |
+| **security-auditor** | Opus | Audits for SQL injection, token exposure, file upload security | Read-only | Auto (PostToolUse: `src/app/api/` file edit; SubagentStop: api-route-generator) |
+| **ui-ux-reviewer** | Opus | Critiques UX from a restaurant owner's perspective | Read-only | Auto (SubagentStop: frontend-developer) |
+| **reconciliation-debugger** | Sonnet | Explains reconciliation engine, traces match failures | Read-only | Manual |
+| **responsive-qa** | Sonnet | Responsive design QA — verifies all pages render correctly at every viewport | Read + Write | Auto (PostToolUse: component file edit; SubagentStop: frontend-developer, frontend-layout, chart-analytics-builder) |
+| **dark-mode-auditor** | Haiku | Scans components for missing dark: Tailwind variants | Read-only | Auto (PostToolUse: component/page file edit; SubagentStop: frontend-developer, frontend-layout) |
 
 **code-reviewer** runs after every coding task. Enforces: parameterized queries, money math correctness, atomic writes, no token leakage.
 
@@ -125,9 +143,9 @@ Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React
 
 ### Research
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **external-docs-researcher** | Sonnet | Reads official docs before code is written to prevent wasted effort from incorrect assumptions | Read-only (+ WebFetch, WebSearch) |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **external-docs-researcher** | Sonnet | Reads official docs before code is written to prevent wasted effort from incorrect assumptions | Read-only (+ WebFetch, WebSearch) | Manual |
 
 **external-docs-researcher triggers**: Before ANY code that interacts with an external system, API, SDK, library, or platform. Trigger for Chrome Extensions, Square API, Plaid API, Uber Eats, DoorDash, GrubHub, Recharts, Tailwind, Next.js app router, better-sqlite3. Also trigger when another agent hits unexpected behavior ("this should work but doesn't"), when the user says "read the docs" or "check the documentation", or after 2+ failed attempts at the same approach. Saves research briefs to `.claude/research/` for other agents to reference.
 
@@ -135,18 +153,18 @@ Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React
 
 ### Testing & Verification
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **test-writer** | Sonnet | Unit/integration tests for parsers, services, financial math | Read + Write |
-| **e2e-verification** | Haiku | Proves features work — screenshots, SQL queries, API tests | Read + Bash + Preview |
-| **regression-tester** | Haiku | Smoke test across all API endpoints and pages after any change | Read + Bash + Preview |
-| **financial-auditor** | Haiku | Verifies financial math across the entire pipeline | Read + Bash |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **test-writer** | Sonnet | Unit/integration tests for parsers, services, financial math | Read + Write | Auto (SubagentStop: backend-developer, integration-specialist; PostToolUse: pipeline rebuild/test commands) |
+| **e2e-verification** | Haiku | Proves features work — screenshots, SQL queries, API tests | Read + Bash + Preview | Auto (Stop hook: any `*.tsx` file changed; SubagentStop: code-reviewer, frontend-interaction) |
+| **regression-tester** | Haiku | Smoke test across all API endpoints and pages after any change | Read + Bash + Preview | Manual (or after test failure — PostToolUse Bash hook) |
+| **financial-auditor** | Haiku | Verifies financial math across the entire pipeline | Read + Bash | Auto (Stop hook: money/fee/pipeline/tax/reconcil file changes; PostToolUse: pipeline rebuild command) |
 
 **test-writer** prioritizes: parser correctness > financial math > dedup logic > pipeline steps > API routes. Uses vitest with in-memory SQLite for DB tests.
 
 **e2e-verification triggers**: After any feature completion. Takes screenshots, runs SQL queries, hits API endpoints, and reports PASS/FAIL with evidence.
 
-**regression-tester triggers**: After any change to verify nothing broke. Hits all key endpoints, checks pages render, looks for console errors.
+**regression-tester triggers**: After any change to verify nothing broke. Hits all key endpoints, checks pages render, looks for console errors. Also injected by the PostToolUse Bash hook when a test run completes with failures.
 
 **financial-auditor triggers**: After pipeline changes, modifier updates, or when numbers don't add up. Verifies item-order consistency, fee math, no negative quantities, modifier revenue, no duplicate order_ids.
 
@@ -154,11 +172,11 @@ Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React
 
 ### Maintenance & Documentation
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **script-runner** | Sonnet | Runs maintenance scripts (rebuild, reimport, seed) | Read + Execute |
-| **documentation-keeper** | Sonnet | Updates all project documentation | Read + Write |
-| **data-integrity-agent** | Sonnet | Validates financial data correctness, completeness, and consistency across all databases | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **script-runner** | Sonnet | Runs maintenance scripts (rebuild, reimport, seed) | Read + Execute | Manual |
+| **documentation-keeper** | Sonnet | Updates all project documentation | Read + Write | Auto (Stop hook: API/services/page/extension file changes) |
+| **data-integrity-agent** | Sonnet | Validates financial data correctness, completeness, and consistency across all databases | Read + Write | Auto (PostToolUse: parser/migration/scripts file edit; Stop hook: pipeline file changes; SubagentStop: multiple agents) |
 
 **script-runner** knows all 12+ scripts in `scripts/`, when to use each, and the correct execution order. Always backs up databases before destructive operations.
 
@@ -170,9 +188,9 @@ Knows: Manifest V3 MAIN/ISOLATED world isolation, GraphQL capture pattern, React
 
 ### Performance & Optimization
 
-| Agent | Model | Role | Access |
-|-------|-------|------|--------|
-| **performance-agent** | Sonnet | Profiles slow operations, audits queries, catches unnecessary pipeline reruns | Read + Write |
+| Agent | Model | Role | Access | Triggered |
+|-------|-------|------|--------|-----------|
+| **performance-agent** | Sonnet | Profiles slow operations, audits queries, catches unnecessary pipeline reruns | Read + Write | Manual |
 
 **performance-agent triggers**: Any report of slowness, lag, or delay. After backend-developer or database-specialist writes queries touching 10K+ rows. Keywords: "slow", "delay", "optimize", "lagging", "takes too long", "make this faster".
 
@@ -281,18 +299,65 @@ Other agents create memory files on demand when they have something to record.
 
 ---
 
+## Hook Trigger Map
+
+The PostToolUse hooks inspect the modified file path on every `Edit`/`Write` call and inject a mandatory agent queue. The model must complete the queued agents before moving on.
+
+| File pattern | Agents injected |
+|---|---|
+| `*/src/lib/services/*` or `*/src/lib/db/*` | `code-reviewer`, `test-writer` |
+| `*/extension/*` | `code-reviewer`, `chrome-extension-agent` |
+| `*/src/app/api/*` | `security-auditor`, `code-reviewer` |
+| `*/src/lib/parsers/*` | `parser-qa`, `data-integrity-agent` |
+| `*/src/components/charts/*` or `*/src/components/analytics/*` | `design-language`, `responsive-qa` |
+| `*/src/components/*` or `*/src/app/*/page.tsx` | `design-language`, `dark-mode-auditor`, `responsive-qa` |
+| `*/migrations/*` | `data-integrity-agent`, `schema-navigator` |
+| `*/scripts/*` | `data-integrity-agent` |
+
+A separate PostToolUse hook on `Bash` tool calls inspects the command text:
+
+| Command matches | Agents injected |
+|---|---|
+| `rebuild-pipeline`, `reimport`, `step2`, `step3` | `data-integrity-agent`, `financial-auditor` |
+| `vitest`, `jest`, `test` (with failures) | `regression-tester` |
+
+---
+
+## Agent Chaining Map
+
+The SubagentStop hooks fire when a subagent completes. They inspect the agent name and inject a mandatory follow-up chain.
+
+| Completed agent | Mandatory follow-up chain |
+|---|---|
+| `backend-developer` | `code-reviewer`, `test-writer` |
+| `frontend-developer` | `responsive-qa`, `design-language`, `ui-ux-reviewer`, `dark-mode-auditor` |
+| `frontend-layout` | `dark-mode-auditor`, `responsive-qa` |
+| `frontend-interaction` | `code-reviewer`, `e2e-verification` |
+| `api-route-generator` | `code-reviewer`, `security-auditor` |
+| `chart-analytics-builder` | `responsive-qa`, `design-language` |
+| `chrome-extension-agent` | `code-reviewer` |
+| `integration-specialist` | `data-integrity-agent`, `test-writer` |
+| `migration-writer` | `data-integrity-agent`, `schema-navigator` |
+| `parser-developer` | `parser-qa`, `data-integrity-agent` |
+| `platform-data-agent` | `data-integrity-agent`, `code-reviewer` |
+| `code-reviewer` | `e2e-verification` |
+| `security-auditor` | _(no chain — terminal)_ |
+
+Agents not listed above have no automatic follow-up chain; they run once and stop.
+
+---
+
 ## Hooks System
 
-The agent system uses Claude Code hooks to trigger agents automatically at specific lifecycle points.
+All hooks are defined in `.claude/settings.json`.
 
-| Hook | When it fires | What it does |
-|------|--------------|--------------|
-| `PostToolUse` | After every Write/Edit tool call | Triggers dark-mode-auditor to check the modified file |
-| `SubagentStop` | When a subagent completes | Triggers e2e-verification to prove the feature works |
-| `SessionStart` | At the start of each session | Reads shared memory, logs session context |
-| `Stop` | When the main agent stops | Triggers documentation-keeper if significant changes were made |
-
-Hooks are defined in `.claude/settings.json` or agent YAML frontmatter. The "After Completion" chaining pattern means: backend-developer → data-integrity-agent; frontend-developer → dark-mode-auditor + responsive-qa; any coding agent → code-reviewer.
+| Hook event | Count | What it does |
+|---|---|---|
+| `PostToolUse` (Edit/Write) | 8 file patterns | Injects mandatory agent queue based on modified file path |
+| `PostToolUse` (Bash) | 2 command patterns | Injects agents after pipeline rebuilds or test runs |
+| `SubagentStop` | 11 agent chains | Injects mandatory follow-up agents when a subagent completes |
+| `SessionStart` | 1 | Reminds model to read shared memory, CLAUDE.md, and design system |
+| `Stop` | 2 | (1) General verification checkpoint reminder; (2) git-diff scan that injects end-of-task agents based on changed files |
 
 ---
 
