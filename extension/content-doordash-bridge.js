@@ -26,6 +26,22 @@
           console.error(`[Profit Duck] Server error:`, response?.error || "unknown");
         }
       });
+    } else if (event.data.type === "PROFITDUCK_DD_FETCH_DETAIL") {
+      // Fetch order detail from ISOLATED world (not affected by page's service worker)
+      const uuid = event.data.deliveryUuid;
+      fetch("https://merchant-portal.doordash.com/merchant-analytics-service/api/v1/orders_details/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ deliveryUuid: uuid }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(json => {
+          window.postMessage({ type: "PROFITDUCK_DD_DETAIL_RESULT", deliveryUuid: uuid, data: json }, "*");
+        })
+        .catch(() => {
+          window.postMessage({ type: "PROFITDUCK_DD_DETAIL_RESULT", deliveryUuid: uuid, data: null }, "*");
+        });
     } else if (event.data.type === "PROFITDUCK_DD_SCRAPED_DETAIL") {
       // Store scraped order detail for enrichment during sync
       chrome.runtime.sendMessage({
