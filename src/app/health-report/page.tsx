@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import StatCard from "@/components/charts/StatCard";
 import RevenueChart from "@/components/charts/RevenueChart";
 
@@ -141,12 +141,14 @@ export default function HealthReportPage() {
     confidence: string;
     r2: number;
     lookbackDays: number;
+    period: "1D" | "1W" | "1M" | "1Q";
     scenarios?: {
       worst: { trend: number };
       mid: { trend: number };
       best: { trend: number };
     };
   } | null>(null);
+  const [forecastPage, setForecastPage] = useState(0);
   const { startDate, endDate } = useDateRange();
 
   const fetchReport = useCallback(() => {
@@ -168,6 +170,15 @@ export default function HealthReportPage() {
 
   // Derived forecast days from API response
   const forecastDays = data?.projection.trend.forecastDays ?? 30;
+
+  // Reset forecast table page when chart period changes
+  const prevPeriodRef = useRef(projInfo?.period);
+  useEffect(() => {
+    if (projInfo?.period && projInfo.period !== prevPeriodRef.current) {
+      setForecastPage(0);
+      prevPeriodRef.current = projInfo.period;
+    }
+  }, [projInfo?.period]);
 
   if (!data) {
     return (
@@ -315,7 +326,7 @@ export default function HealthReportPage() {
             <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Income Projection</h3>
             <select
               value={forecastRange}
-              onChange={(e) => setForecastRange(e.target.value as typeof forecastRange)}
+              onChange={(e) => { setForecastRange(e.target.value as typeof forecastRange); setForecastPage(0); }}
               className="text-[11px] border border-gray-200 dark:border-gray-600 rounded-md px-1.5 py-0.5 text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
             >
               <option value="1m">1m</option>
@@ -407,7 +418,7 @@ export default function HealthReportPage() {
         </div>
       </div>
 
-      {/* Monthly Forecast Breakdown */}
+      {/* Forecast Breakdown — adapts to chart period (daily/weekly/monthly/quarterly) */}
       {projection.trend.slope != null && projection.trend.intercept != null && (() => {
         const FORECAST_DAYS_MAP: Record<string, number> = { "1m": 30, "3m": 90, "6m": 180, "1y": 365, "2y": 730 };
         const totalForecastDays = FORECAST_DAYS_MAP[forecastRange] || 90;
@@ -420,66 +431,117 @@ export default function HealthReportPage() {
         const indices = projection.trend.seasonalIndices || {};
         const hasSeasonalData = projection.trend.hasSeasonalData;
 
-        // Build monthly rows
-        const months: { label: string; month: number; trendTotal: number; seasonalTotal: number; factor: number; daysInMonth: number }[] = [];
-        let dayOffset = 1;
-        while (dayOffset <= totalForecastDays) {
-          const futureDate = new Date(lastDate);
-          futureDate.setDate(futureDate.getDate() + dayOffset);
-          const year = futureDate.getFullYear();
-          const month = futureDate.getMonth(); // 0-based
-          const monthNum = month + 1; // 1-12
-          const daysInMonth = new Date(year, month + 1, 0).getDate();
-          const label = futureDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        const period = projInfo?.period || "1M";
+        const PERIOD_LABELS: Record<string, string> = { "1D": "Day", "1W": "Week", "1M": "Month", "1Q": "Quarter" };
+        const PERIOD_DAYS: Record<string, number> = { "1D": 1, "1W": 7, "1M": 30, "1Q": 91 };
+        const periodDays = PERIOD_DAYS[period] || 30;
+        const periodLabel = PERIOD_LABELS[period] || "Period";
 
-          // Sum daily trend values for this month (from dayOffset to end of month or end of forecast)
+        // Build rows by stepping through forecast days in period-sized chunks
+        type ForecastRow = { label: string; month: number; trendTotal: number; seasonalTotal: number; factor: number; daysUsed: number };
+        const rows: ForecastRow[] = [];
+        let dayOffset = 1;
+
+        while (dayOffset <= totalForecastDays) {
+          const startDate = new Date(lastDate);
+          startDate.setDate(startDate.getDate() + dayOffset);
+
           let trendSum = 0;
+          let seasonalSum = 0;
           let daysUsed = 0;
-          const startDay = dayOffset;
+          let bucketMonth = startDate.getMonth();
+          let bucketYear = startDate.getFullYear();
+
+          // For daily: 1 day per row
+          // For weekly: 7 days per row
+          // For monthly: advance to next month boundary
+          // For quarterly: advance to next quarter boundary
+          const isMonthBased = period === "1M" || period === "1Q";
+          const targetDays = isMonthBased ? 0 : periodDays; // 0 = use calendar boundaries
+
+          let label: string;
+          if (period === "1D") {
+            label = startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          } else if (period === "1W") {
+            label = `${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+          } else if (period === "1M") {
+            label = startDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+          } else {
+            const q = Math.floor(startDate.getMonth() / 3) + 1;
+            label = `Q${q} ${startDate.getFullYear()}`;
+          }
+
           while (dayOffset <= totalForecastDays) {
             const d = new Date(lastDate);
             d.setDate(d.getDate() + dayOffset);
-            if (d.getMonth() !== month || d.getFullYear() !== year) break;
+
+            // Check if we've crossed into next period
+            if (isMonthBased) {
+              if (period === "1M" && (d.getMonth() !== bucketMonth || d.getFullYear() !== bucketYear)) break;
+              if (period === "1Q") {
+                const startQ = Math.floor(bucketMonth / 3);
+                const curQ = Math.floor(d.getMonth() / 3);
+                if (curQ !== startQ || d.getFullYear() !== bucketYear) break;
+              }
+            } else if (daysUsed >= targetDays) {
+              break;
+            }
+
             const dayIdx = lastIdx + dayOffset;
-            trendSum += slope * dayIdx + intercept;
+            const trendVal = slope * dayIdx + intercept;
+            const monthNum = d.getMonth() + 1;
+            const factor = indices[monthNum] ?? 1.0;
+            trendSum += trendVal;
+            seasonalSum += trendVal * factor;
             daysUsed++;
             dayOffset++;
           }
 
-          const factor = indices[monthNum] ?? 1.0;
-          // Normalize partial months (first/last) to full month estimate
-          const scale = daysUsed < daysInMonth ? daysInMonth / daysUsed : 1;
-          months.push({
+          // Normalize partial periods at boundaries
+          let expectedDays = periodDays;
+          if (period === "1M") expectedDays = new Date(bucketYear, bucketMonth + 1, 0).getDate();
+          if (period === "1Q") expectedDays = period === "1Q" ? 91 : periodDays;
+          const scale = (daysUsed < expectedDays && daysUsed > 0) ? expectedDays / daysUsed : 1;
+          const avgFactor = trendSum > 0 ? seasonalSum / trendSum : 1;
+
+          rows.push({
             label,
-            month: monthNum,
+            month: startDate.getMonth() + 1,
             trendTotal: trendSum * scale,
-            seasonalTotal: trendSum * factor * scale,
-            factor,
-            daysInMonth: daysUsed,
+            seasonalTotal: seasonalSum * scale,
+            factor: avgFactor,
+            daysUsed,
           });
         }
 
-        const trendGrandTotal = months.reduce((s, m) => s + m.trendTotal, 0);
-        const seasonalGrandTotal = months.reduce((s, m) => s + m.seasonalTotal, 0);
+        const PAGE_SIZE = 10;
+        const totalPages = Math.ceil(rows.length / PAGE_SIZE);
+        const page = Math.min(forecastPage, totalPages - 1);
+        const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+        const trendGrandTotal = rows.reduce((s, m) => s + m.trendTotal, 0);
+        const seasonalGrandTotal = rows.reduce((s, m) => s + m.seasonalTotal, 0);
 
         return (
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
-              Monthly Forecast Breakdown
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                Forecast Breakdown <span className="text-gray-400 dark:text-gray-500 font-normal">by {periodLabel}</span>
+              </h3>
+              <span className="text-xs text-gray-400">{rows.length} periods</span>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200/50 dark:border-gray-700/50">
-                    <th className="pb-2 font-medium">Month</th>
+                    <th className="pb-2 font-medium">{periodLabel}</th>
                     <th className="pb-2 font-medium text-right">Trend Forecast</th>
                     {hasSeasonalData && <th className="pb-2 font-medium text-right">Seasonal Adjusted</th>}
-                    {hasSeasonalData && <th className="pb-2 font-medium text-right">Seasonal Factor</th>}
+                    {hasSeasonalData && <th className="pb-2 font-medium text-right">Factor</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {months.map((m) => (
-                    <tr key={m.label} className="border-b border-gray-100 dark:border-gray-700/50">
+                  {pageRows.map((m, i) => (
+                    <tr key={`${m.label}-${i}`} className="border-b border-gray-100 dark:border-gray-700/50">
                       <td className="py-2 text-gray-800 dark:text-gray-200 font-medium">{m.label}</td>
                       <td className="py-2 text-right font-medium text-gray-800 dark:text-gray-200">{formatCurrency(m.trendTotal)}</td>
                       {hasSeasonalData && (
@@ -509,6 +571,27 @@ export default function HealthReportPage() {
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                <button
+                  onClick={() => setForecastPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-400">
+                  Page {page + 1} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setForecastPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         );
       })()}

@@ -46,6 +46,7 @@ interface RevenueChartProps {
     confidence: string;
     r2: number;
     lookbackDays: number;
+    period: "1D" | "1W" | "1M" | "1Q";
     scenarios?: {
       worst: { trend: number };
       mid: { trend: number };
@@ -388,8 +389,10 @@ export default function RevenueChart({
       confidence: confLabel,
       r2,
       lookbackDays: chartLookbackDays ?? data.length,
+      period,
       scenarios,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectionPoints, forecastRange, showTrend, r2, trendLabel, onProjectionChange, chartLookbackDays, data.length]);
 
   const hasExpenses = showExpenses && expenseData && expenseData.length > 0;
