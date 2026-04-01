@@ -689,7 +689,7 @@ export default function PlatformDetailTab({
                           </td>
                         </tr>
                       ))}
-                      <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <tr className="border-t border-gray-200 dark:border-gray-700/50 font-medium">
                         <td className="py-2 text-gray-800 dark:text-gray-200">
                           Total
                         </td>
@@ -863,7 +863,7 @@ export default function PlatformDetailTab({
                           </td>
                         </tr>
                       ))}
-                      <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <tr className="border-t border-gray-200 dark:border-gray-700/50 font-medium">
                         <td className="py-2 text-gray-800 dark:text-gray-200">
                           Total
                         </td>
@@ -976,7 +976,7 @@ export default function PlatformDetailTab({
                           </td>
                         </tr>
                       ))}
-                      <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                      <tr className="border-t border-gray-200 dark:border-gray-700/50 font-medium">
                         <td className="py-2 text-gray-800 dark:text-gray-200">
                           Total
                         </td>
@@ -1069,7 +1069,7 @@ export default function PlatformDetailTab({
                     0
                   );
                   return (
-                    <tr className="border-t border-gray-200 dark:border-gray-700 font-medium">
+                    <tr className="border-t border-gray-200 dark:border-gray-700/50 font-medium">
                       <td className="py-2 px-3 text-gray-800 dark:text-gray-200">
                         Total
                       </td>
@@ -1199,7 +1199,7 @@ export default function PlatformDetailTab({
 
       {/* ── 10. Orders Table ── */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700/50">
           <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
             Orders (showing first 50 of {merged.totalOrders.toLocaleString()}{" "}
             total)
@@ -1207,7 +1207,7 @@ export default function PlatformDetailTab({
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[800px]">
-            <thead className="bg-gray-50 dark:bg-gray-800/50">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr className="text-left text-gray-500 dark:text-gray-400">
                 {/* Date */}
                 <th
@@ -1359,7 +1359,7 @@ export default function PlatformDetailTab({
 
               {/* Totals row */}
               {sortedOrders.length > 0 && (
-                <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 font-medium">
+                <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 font-medium">
                   <td
                     className="px-4 py-2.5 text-gray-800 dark:text-gray-200 whitespace-nowrap"
                     colSpan={isMulti ? 4 : 3}

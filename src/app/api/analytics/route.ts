@@ -83,7 +83,9 @@ export async function GET(request: NextRequest) {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
-    const platList = platforms ? platforms.split(",").filter(Boolean) : platform ? [platform] : [];
+    const VALID_PLATFORMS = new Set(["square", "doordash", "ubereats", "grubhub"]);
+    const platList = (platforms ? platforms.split(",").filter(Boolean) : platform ? [platform] : [])
+      .filter(p => VALID_PLATFORMS.has(p));
     if (platList.length === 1) {
       conditions.push("platform = ?");
       params.push(platList[0]);

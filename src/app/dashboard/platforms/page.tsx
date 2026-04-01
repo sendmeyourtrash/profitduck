@@ -375,7 +375,7 @@ export default function AnalyticsPage() {
               )}
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
-                  <h3 className="text-sm font-medium text-gray-500">
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
                     {hourlyShowAvg ? "Avg Daily " : ""}Revenue by Time of Day
                   </h3>
                   <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">

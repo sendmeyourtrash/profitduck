@@ -76,8 +76,8 @@ function FeeRow({ label, value }: { label: string; value: number }) {
   if (!value || Math.abs(value) < 0.01) return null;
   return (
     <div className="flex justify-between">
-      <span className="text-gray-400">{label}</span>
-      <span className={value < 0 ? "text-red-500" : "text-gray-600"}>
+      <span className="text-gray-400 dark:text-gray-500">{label}</span>
+      <span className={value < 0 ? "text-red-500" : "text-gray-600 dark:text-gray-400"}>
         {formatCurrency(value)}
       </span>
     </div>
@@ -227,12 +227,12 @@ export default function ExpandedOrderRow({ order, colSpan = 8 }: { order: Expand
                         <tfoot className="border-t border-gray-200 dark:border-gray-600">
                           <tr>
                             <td className="px-3 py-0.5 text-[11px] text-gray-500 dark:text-gray-400">Items</td>
-                            <td className="px-3 py-0.5 text-right text-[11px] text-gray-600 dark:text-gray-400">{formatCurrency(itemsTotal)}</td>
+                            <td className="px-3 py-0.5 text-right text-[11px] font-medium text-gray-600 dark:text-gray-400">{formatCurrency(itemsTotal)}</td>
                           </tr>
                           {modsTotal > 0 && (
                             <tr>
                               <td className="px-3 py-0.5 text-[11px] text-gray-500 dark:text-gray-400">Modifiers</td>
-                              <td className="px-3 py-0.5 text-right text-[11px] text-gray-600 dark:text-gray-400">+{formatCurrency(modsTotal)}</td>
+                              <td className="px-3 py-0.5 text-right text-[11px] font-medium text-gray-600 dark:text-gray-400">+{formatCurrency(modsTotal)}</td>
                             </tr>
                           )}
                           <tr className="border-t border-gray-200 dark:border-gray-600">

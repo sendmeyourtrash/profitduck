@@ -12,7 +12,8 @@ export default function PlatformDetailRedirect({
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(`/dashboard/platforms?platform=${platform}`);
+    const params = new URLSearchParams({ platform });
+    router.replace(`/dashboard/platforms?${params.toString()}`);
   }, [platform, router]);
 
   return (

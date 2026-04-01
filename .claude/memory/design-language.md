@@ -14,6 +14,10 @@
 ## Common Mistakes Found
 - Inverted dark mode text colors (text-gray-400 dark:text-gray-500 is WRONG — should darken the number, not increase it)
 - Shared chart components in src/components/charts/ need dark mode too, not just page components
+- 2026-04-01: Semantic financial colors (text-emerald-600, text-red-600, text-amber-600) pervasively missing dark variants in receipt cards, fee tables, order rows — always pair with dark:text-{color}-400
+- 2026-04-01: Conditional badge ternaries missing dark on all branches — every branch of a color conditional must carry dark: variants
+- 2026-04-01: tfoot financial subtotals (Items, Modifiers) missing font-medium — all currency output needs font-medium or font-bold
+- 2026-04-01: `dark:border-gray-700` (opaque) found in 4 totals/separator rows in PlatformDetailTab — must always be /50
 - 2026-03-27: `bg-white rounded-xl border border-gray-200` on cards with zero dark: counterparts — extremely common in revenue, expenses, health-report, platform detail, and settings pages
 - 2026-03-27: `bg-gray-50` table headers (thead) missing `dark:bg-gray-700/50` — affects sales.tsx, bank.tsx
 - 2026-03-27: `bg-indigo-50`/`bg-amber-50` callout banners missing all dark: variants — expenses page Biggest Movers, health report Key Insights
