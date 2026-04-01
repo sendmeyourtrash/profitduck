@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-03-27 — Initial creation: complete site map with all routes, pages, and API endpoints -->
+<!-- Last updated: 2026-04-01 — Unified platforms page (6 tabs), removed analytics sub-page, [platform] route is now a redirect, updated shared components -->
 
 > **Auto-maintained**: This file must be updated whenever a new page, route, or API endpoint is added. The documentation-keeper agent is responsible for keeping it current.
 
@@ -94,45 +94,26 @@
 
 ### `/dashboard/platforms` — Platform Performance
 - **Title**: Platform Performance
-- **Description**: Side-by-side comparison of all delivery platforms.
-- **Sections**:
-  - Platform filter chips (Square, DoorDash, Uber Eats, Grubhub)
-  - Stat cards: most revenue platform, lowest commission platform, total orders
-  - Net payout by platform bar chart (with % toggle)
-  - Commission fees by platform bar chart (with % toggle)
-  - Platform comparison table: orders, gross revenue, fees, net payout, commission %, avg order, tips (rows link to platform detail)
-- **API**: `GET /api/dashboard/platforms`
+- **Description**: Unified platform analytics page combining overview, time-of-day, day-of-week, fee, daily trend, and per-platform detail into a single tabbed view.
+- **Shared filter**: Platform filter chips (Square, DoorDash, Uber Eats, Grubhub) — applies across all tabs.
+- **Tabs**:
+  - **Overview**: Stat cards (most revenue platform, lowest commission platform, total orders); net payout by platform bar chart (with % toggle); commission fees by platform bar chart (with % toggle); platform comparison table (orders, gross revenue, fees, net payout, commission %, avg order, tips)
+  - **By Hour**: Stacked bar chart of orders by platform per 15-minute slot; moving average overlay
+  - **By Day of Week**: Day-of-week revenue and order count by platform
+  - **Fee Analysis**: Fee breakdown by platform (commission, processing, delivery, marketing)
+  - **Daily Trend**: Daily revenue trend with linear regression overlay
+  - **Platform Detail**: Per-platform deep-dive (stat cards; revenue chart; fee breakdown; order type breakdown; dining options; categories; top items; modifiers; paginated orders table with expandable rows). Platform is selected via the shared platform filter or by navigating from `/dashboard/platforms/[platform]`.
+- **Component**: `PlatformDetailTab` (`src/components/platforms/PlatformDetailTab.tsx`) — self-contained component for the Platform Detail tab.
+- **Shared component**: Expandable order rows use `ExpandedOrderRow` (`src/components/orders/ExpandedOrderRow.tsx`), also used by the sales page.
+- **API**: `GET /api/dashboard/platforms`, `GET /api/dashboard/platforms/[platform]`, `GET /api/analytics`
 - **Date picker**: Yes
 
 ---
 
-### `/dashboard/platforms/[platform]` — Platform Detail
-- **Title**: `{Platform} — Platform Detail` (dynamic; e.g., "Square (In-Store) — Platform Detail")
+### `/dashboard/platforms/[platform]` — Platform Detail Redirect
 - **Valid values**: `square`, `doordash`, `ubereats`, `grubhub`
-- **Description**: Deep-dive analytics for a single delivery platform.
-- **Sections**:
-  - Stat cards: order count, gross revenue, total fees, net payout, commission rate, avg order value, tips
-  - Fee breakdown sub-cards: commission, processing, delivery, marketing
-  - Daily revenue chart
-  - Payment type breakdown table (Square only)
-  - Order type breakdown table (Square only)
-  - Paginated order list: datetime, subtotal, tax, tip, fees, net payout — sortable columns; expandable rows with order items
-- **API**: `GET /api/dashboard/platforms/[platform]`
-- **Date picker**: Yes
-
----
-
-### `/dashboard/platforms/analytics` — Platform Analytics (Advanced)
-- **Title**: Platform Performance (rendered by Header dynamic route logic)
-- **Description**: Advanced cross-platform analytics with time-of-day, day-of-week, fee, and daily trend views.
-- **Sections** (tabbed):
-  - **Hourly** tab: stacked bar chart of orders by platform per 15-minute slot; moving average overlay
-  - **Day of Week** tab: day-of-week revenue and order count by platform
-  - **Fees** tab: fee breakdown by platform (commission, processing, delivery, marketing)
-  - **Daily** tab: daily revenue trend with linear regression overlay
-- **Filters**: Platform filter chips, date range picker
-- **API**: `GET /api/analytics`
-- **Date picker**: Yes
+- **Behavior**: Redirects to `/dashboard/platforms?platform={platform}`. This opens the unified platforms page with the Platform Detail tab active and the specified platform pre-selected.
+- **No page content is rendered at this path.**
 
 ---
 
@@ -195,6 +176,7 @@
   - Filter bar: platform, date range, search, status, order type, payment method
   - Sortable order table: date, platform, order ID, status, gross sales, tax, tip, net, fees total — expandable rows show order items with modifiers
   - Pagination
+- **Shared component**: Expandable order rows use `ExpandedOrderRow` (`src/components/orders/ExpandedOrderRow.tsx`), also used by the Platform Detail tab on `/dashboard/platforms`.
 - **API**: `GET /api/transactions`
 - **Date picker**: Yes
 

@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-03-27 — Added extension ingest, menu performance, menu categories system, Square catalog sync, structured modifiers, new API routes and agents -->
+<!-- Last updated: 2026-04-01 — Added ExpandedOrderRow/PlatformDetailTab components, DoorDash/GrubHub/UberEats vendor DB new columns, analytics ubereatsHasTime, platform API order_items, RevenueChart forecast suppression -->
 
 # Architecture
 
@@ -43,12 +43,16 @@ Note: `modifiers` in `order_items` stores structured JSON for Square and Uber Ea
 | Database | Source | Key Table(s) |
 |----------|--------|--------------|
 | squareup.db | Square API | items, payouts, payout_entries |
-| grubhub.db | CSV | orders |
-| doordash.db | CSV | detailed_transactions, payouts |
+| grubhub.db | CSV or Chrome extension | orders |
+| doordash.db | CSV or Chrome extension | detailed_transactions, payouts |
 | ubereats.db | CSV or Chrome extension | orders, items |
 | rocketmoney.db | CSV | transactions |
 
-**ubereats.db detail**: When data comes from the Chrome extension (not CSV), `ubereats.db` has a real `items` table with item-level detail (item_name, quantity, price, modifiers, modifiers_json). CSV imports only populate the `orders` table.
+**ubereats.db detail**: When data comes from the Chrome extension (not CSV), `ubereats.db` has a real `items` table with item-level detail (item_name, quantity, price, modifiers, modifiers_json). The `orders` table also gains extension-only columns: `tip`, `delivery_fee`, `promotions`, `adjustment_amount`, `checkout_info_json`. CSV imports only populate the base `orders` columns.
+
+**doordash.db detail** (extension data adds columns): `tip`, `customer_name`, `commission_rate`, `items_json`, `raw_json`, `source`. The `source` column distinguishes `'csv'` from `'extension'` rows.
+
+**grubhub.db detail** (extension data adds columns): `items_json`, `special_instructions`, `order_status`, `customer_name`, `source`, `order_uuid`, `channel_brand`, `order_source`, `placed_at_time`. The `source` column distinguishes `'csv'` from `'extension'` rows.
 
 ---
 
@@ -93,7 +97,7 @@ Key exports for the menu categories system:
 | GET | /api/dashboard/expenses/category/[cat] | bank.db | Category detail with stats, frequency, monthly trend |
 | GET | /api/dashboard/expenses/vendor/[vendor] | bank.db | Vendor detail with stats, frequency, monthly trend |
 | GET | /api/dashboard/platforms | sales.db | Platform comparison |
-| GET | /api/dashboard/platforms/[platform] | sales.db | Single platform drilldown |
+| GET | /api/dashboard/platforms/[platform] | sales.db | Single platform drilldown — returns full order fields (commission_fee, processing_fee, delivery_fee, marketing_fee, customer_name, dining_option, order_status, etc.) plus batch-fetched `order_items` array per order |
 | GET | /api/dashboard/menu | sales.db, categories.db | Menu performance: items, categories, modifiers, cross-platform |
 | GET | /api/dashboard/tax | sales.db | Tax summary |
 | GET | /api/health-report | sales.db, bank.db | KPIs, projections, seasonality, menu performance, insights |
@@ -103,7 +107,7 @@ Key exports for the menu categories system:
 | Method | Route | Source DBs | Purpose |
 |--------|-------|-----------|---------|
 | GET | /api/transactions | sales.db | Paginated sales with filtering |
-| GET | /api/analytics | sales.db | Item-level analytics |
+| GET | /api/analytics | sales.db | Item-level analytics; `revenue_by_hour` response includes `ubereatsHasTime` boolean (data-driven — true when UberEats orders have non-null time values) |
 | GET | /api/data-range | sales.db, bank.db | Date range of available data |
 
 ### Bank Activity
@@ -187,27 +191,75 @@ Key exports for the menu categories system:
 
 ---
 
+## Shared UI Components
+
+### ExpandedOrderRow (`src/components/orders/ExpandedOrderRow.tsx`)
+
+A shared expandable order detail card used by both the Sales page and the Platform detail tab. Renders in a compact 2-column layout: items and modifiers on the left, a fee breakdown receipt on the right.
+
+Exports the `ExpandableOrder` interface — the canonical shape expected wherever expandable order rows appear:
+
+```ts
+interface ExpandableOrder {
+  id, platform, order_id, order_status, time,
+  gross_sales, tax, tip, net_sales, discounts,
+  dining_option, customer_name, payment_method,
+  commission_fee, processing_fee, delivery_fee, marketing_fee,
+  fees_total, marketing_total, refunds_total, adjustments_total, other_total,
+  order_items?: OrderItem[]
+}
+```
+
+`order_items` is optional — the row renders without item detail if the array is absent.
+
+### PlatformDetailTab (`src/components/platforms/PlatformDetailTab.tsx`)
+
+A self-contained client component that drives the Platform detail view. It:
+1. Accepts `selectedPlatforms`, `startDate`, and `endDate` as props
+2. Fetches from `/api/dashboard/platforms/[platform]` for each selected platform in parallel
+3. Merges multi-platform data client-side (aggregates stats, concatenates order lists)
+4. Renders stat cards, a revenue chart, a sortable orders table with expandable rows, and a payment-type breakdown
+
+This component owns all data fetching for the platform detail view — the parent page only passes date range and platform selection.
+
+### Removed: PlatformNav (`src/components/layout/PlatformNav.tsx`)
+
+Deleted. The platform section no longer has sub-navigation; the full detail view is handled by `PlatformDetailTab` within the main platforms page.
+
+### RevenueChart forecast suppression (`src/components/charts/RevenueChart.tsx`)
+
+When the chart's data ends before today (i.e., the selected date range is entirely historical), forecast projection is suppressed — `forecastDaysTotal` is set to 0 regardless of user controls. This is data-driven: the check compares the last data point's date against today at midnight. Forecast projections only appear when the date range extends to or includes the current date.
+
+---
+
 ## Chrome Extension (extension/)
 
-A Manifest V3 Chrome extension for capturing Uber Eats order data from the merchant portal.
+A Manifest V3 Chrome extension for capturing order data from Uber Eats, DoorDash, and GrubHub merchant portals.
 
 **Architecture:**
-- `content-main.js` — MAIN world content script. Patches `window.fetch` to intercept GraphQL responses. Extracts order UUIDs from React fiber state. Manages crawl modes.
-- `content-bridge.js` — ISOLATED world content script. Bridges messages from MAIN world to `background.js` via `chrome.runtime.sendMessage`.
-- `background.js` — Service worker. Receives captured data, deduplicates, normalizes, and POSTs to `/api/ingest/extension`.
+- `content-main.js` — MAIN world content script (Uber Eats). Patches `window.fetch` to intercept GraphQL responses. Extracts order UUIDs from React fiber state. Manages crawl modes.
+- `content-bridge.js` — ISOLATED world bridge (Uber Eats). Relays messages from MAIN world to `background.js` via `chrome.runtime.sendMessage`.
+- `content-doordash.js` — MAIN world content script (DoorDash). Captures auth headers from page requests, then fetches order list and per-order detail from DoorDash merchant API. Normalizes to flat csvRow format.
+- `content-doordash-bridge.js` — ISOLATED world bridge (DoorDash). Relays to `background.js`.
+- `content-grubhub.js` — MAIN world content script (GrubHub). Intercepts Bearer token from page's own API calls, then fetches transactions and per-order detail from GrubHub accounting API.
+- `content-grubhub-bridge.js` — ISOLATED world bridge (GrubHub). Relays to `background.js`.
+- `background.js` — Service worker. Receives captured data from all three platforms, normalizes per-platform, deduplicates, and POSTs to `/api/ingest/extension`.
 - `popup.js` / `popup.html` — Extension popup UI for triggering sync modes.
-- `lib/normalize.js` — Normalizes GraphQL response shape to Profit Duck's flat order format.
+- `lib/normalize.js` — Normalizes GraphQL response shape to Profit Duck's flat order format (Uber Eats).
 - `lib/api-client.js` — Handles communication with the local Profit Duck server.
 - `lib/dedup.js` — Client-side dedup using order IDs fetched from `/api/ingest/extension?action=known_ids`.
 
-**Data flow:** Uber Eats merchant portal → GraphQL intercept (MAIN world) → postMessage → ISOLATED world → chrome.runtime → background.js → normalize → POST /api/ingest/extension → 3-step pipeline → sales.db
+**Data flows:**
+- Uber Eats: merchant portal → GraphQL intercept (MAIN world) → postMessage → bridge → background.js → normalize → POST /api/ingest/extension → 3-step pipeline → sales.db
+- DoorDash: merchant portal → auth header capture → REST API fetch (orders + detail) → postMessage → bridge → background.js → POST /api/ingest/extension → 3-step pipeline → sales.db
+- GrubHub: merchant portal → Bearer token capture → accounting API fetch (transactions + details) → postMessage → bridge → background.js → POST /api/ingest/extension → 3-step pipeline → sales.db
 
 **Sync modes:**
 - `smart-sync` (default): Fetches new orders until encountering known order IDs
 - `full-sync`: Re-fetches all orders regardless of what is already in the database
 - `date-range`: Fetches orders within a specified date range
 
-**Current platform support:** Uber Eats only. DoorDash and GrubHub are stubbed for future implementation.
+**Current platform support:** Uber Eats, DoorDash, and GrubHub.
 
 ---
 

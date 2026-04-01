@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-03-27 — Added extension ingest path, real Uber Eats items, structured JSON modifiers, menu_item_category_map in Step 3, Square catalog sync side process -->
+<!-- Last updated: 2026-04-01 — Added DoorDash and GrubHub Chrome extension support; updated Step 1 table, entry points, availability matrix, file reference table -->
 
 # Data Pipeline
 
@@ -13,7 +13,9 @@ All data flows through a 3-step pipeline before reaching the website. Every sour
 
 API     ──→ squareup.db     ──→ sales.db (orders + order_items) ──→ order_items.display_name
 CSV     ──→ grubhub.db      ──→ sales.db (orders + order_items)     order_items.display_category
+EXT     ──→ grubhub.db      ──→ sales.db (orders + order_items)  (with real item rows)
 CSV     ──→ doordash.db     ──→ sales.db (orders + order_items)
+EXT     ──→ doordash.db     ──→ sales.db (orders + order_items)  (with real item rows)
 CSV     ──→ ubereats.db     ──→ sales.db (orders + order_items)
 EXT     ──→ ubereats.db     ──→ sales.db (orders + order_items)  (with real item rows + modifiers_json)
 CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
@@ -41,7 +43,9 @@ CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 | Trigger | Route | Step 1 Target |
 |---------|-------|---------------|
 | CSV Upload (Settings page) | `POST /api/upload` → parser → `step1Ingest()` | vendor DB for detected platform (not Square) |
-| Chrome Extension | `POST /api/ingest/extension` → `ingestUberEatsOrders()` | ubereats.db (orders + items tables) |
+| Chrome Extension (Uber Eats) | `POST /api/ingest/extension` → `ingestUberEatsOrders()` | ubereats.db (orders + items tables) |
+| Chrome Extension (DoorDash) | `POST /api/ingest/extension` → `ingestDoordashOrders()` | doordash.db (detailed_transactions table) |
+| Chrome Extension (GrubHub) | `POST /api/ingest/extension` → `ingestGrubhubOrders()` | grubhub.db (orders table) |
 | Square API Sync (Settings page) | `POST /api/square/sync` → `syncSquareFees()` | squareup.db |
 | Manual script | `npx tsx scripts/reimport-rocketmoney.ts` | rocketmoney.db |
 | Pipeline rebuild | `npx tsx scripts/rebuild-pipeline.ts` | Rebuild sales.db + bank.db from all vendor DBs |
@@ -63,12 +67,41 @@ CSV     ──→ rocketmoney.db  ──→ bank.db  (rocketmoney)
 | `squareup.db` | `items` | API | transaction_id + item + qty |
 | `squareup.db` | `payouts` | API | payout_id |
 | `squareup.db` | `payout_entries` | API | entry_id |
-| `grubhub.db` | `orders` | CSV | transaction_id |
-| `doordash.db` | `detailed_transactions` | CSV | doordash_order_id |
+| `grubhub.db` | `orders` | CSV or Extension | transaction_id |
+| `doordash.db` | `detailed_transactions` | CSV or Extension | doordash_order_id |
 | `doordash.db` | `payouts` | CSV | payout_id |
 | `ubereats.db` | `orders` | CSV or Extension | order_id |
 | `ubereats.db` | `items` | Extension only | order_id (FK) |
 | `rocketmoney.db` | `transactions` | CSV | date + name + amount |
+
+### doordash.db additional columns (extension data only):
+
+The extension writes to the existing `detailed_transactions` table. These columns are added via `ALTER TABLE IF NOT EXISTS` and default to empty/null for CSV rows:
+
+```
+tip               TEXT   Tip amount (dollars)
+customer_name     TEXT   Customer display name
+commission_rate   TEXT   Commission rate (decimal string, e.g. "0.15")
+items_json        TEXT   JSON array: [{"name":"...","quantity":N,"price":0.00,"category":"...","extras":[...]}]
+raw_json          TEXT   Full raw API response for debugging
+source            TEXT   "csv" or "extension"
+```
+
+### grubhub.db additional columns (extension data only):
+
+The extension writes to the existing `orders` table. These columns are added via `ALTER TABLE IF NOT EXISTS` and default to null for CSV rows:
+
+```
+items_json             TEXT   JSON array of items with modifiers
+special_instructions   TEXT   Order-level special instructions
+order_status           TEXT   Order status from GrubHub API
+customer_name          TEXT   Customer display name
+source                 TEXT   "csv" or "extension"
+order_uuid             TEXT   GrubHub internal order UUID
+channel_brand          TEXT   Brand channel (e.g. "GRUBHUB")
+order_source           TEXT   Order source identifier
+placed_at_time         TEXT   ISO timestamp of when order was placed
+```
 
 ### ubereats.db items table schema (extension data only):
 ```
@@ -81,6 +114,54 @@ modifiers           TEXT   Flat string: "Group: Option1 (price), Option2"
 modifiers_json      TEXT   JSON array: [{"group":"...","name":"...","price":0.00}]
 special_instructions TEXT
 ```
+
+### Extension ingest detail (DoorDash):
+
+The Chrome extension scrapes DoorDash's merchant portal and POSTs to `/api/ingest/extension`. The route runs the full 3-step pipeline:
+
+```
+content-doordash.js (MAIN world) captures order list via XHR (crawlFetch → get_orders API)
+content-doordash-bridge.js (ISOLATED world) relays messages to background service worker
+   ↓
+For each order: load merchant portal order detail page in hidden iframe (3 parallel iframes)
+Parse block-structured text from iframe for items, fees, tip, customer name
+   ↓
+POST /api/ingest/extension { platform: "doordash", orders: [...] }
+   ↓
+Step 1: ingestDoordashOrders() — upsert to doordash.db detailed_transactions (tip, customer_name,
+        commission_rate, items_json, raw_json, source populated; amounts in dollars)
+   ↓
+Step 2: unifyDoorDash() — read from doordash.db, map to unified orders + order_items
+   ↓
+Step 3: step3ApplyAliases() — apply aliases and category mappings
+```
+
+Smart-sync dedup: before crawling, the extension fetches `GET /api/ingest/extension?action=known_ids&platform=doordash` which returns all known `doordash_order_id` values so already-imported orders are skipped.
+
+### Extension ingest detail (GrubHub):
+
+The Chrome extension intercepts GrubHub's merchant API and POSTs to `/api/ingest/extension`. The route runs the full 3-step pipeline:
+
+```
+content-grubhub.js (MAIN world) intercepts fetch to capture Bearer token (read-only, no monkey-patching)
+content-grubhub-bridge.js (ISOLATED world) relays messages to background service worker
+   ↓
+background.js calls GrubHub transactions API (api-order-processing-gtm.grubhub.com) with weekly pagination
+For recent orders (~4-month retention window): fetch order detail API for items, modifiers, special instructions
+Amounts returned by GrubHub API in cents — converted to dollars before storage
+   ↓
+POST /api/ingest/extension { platform: "grubhub", orders: [...] }
+   ↓
+Step 1: ingestGrubhubOrders() — upsert to grubhub.db orders (items_json, order_uuid, channel_brand,
+        order_source, placed_at_time, customer_name populated)
+   ↓
+Step 2: unifyGrubhub() — read from grubhub.db; filter out DISTRIBUTION (weekly payouts) and
+        "Account Adjustment" rows; map to unified orders + order_items
+   ↓
+Step 3: step3ApplyAliases() — apply aliases and category mappings
+```
+
+Smart-sync dedup: before crawling, the extension fetches `GET /api/ingest/extension?action=known_ids&platform=grubhub` which returns all known `transaction_id` values so already-imported orders are skipped.
 
 ### Extension ingest detail (Uber Eats):
 
@@ -190,22 +271,22 @@ display_categories TEXT    Denormalized: comma-joined display_categories from or
 
 ### Column availability by platform:
 
-| Column | Square | GrubHub | DoorDash | Uber Eats (Extension) | Uber Eats (CSV) |
-|--------|--------|---------|----------|-----------------------|-----------------|
-| date | ✅ | ✅ | ✅ | ✅ | ✅ |
-| time | ✅ | ✅ | ✅ | ✅ | ❌ |
-| items (order-level summary) | ✅ | ❌ | ❌ | ✅ | ❌ |
-| modifiers (order-level summary) | ✅ | ❌ | ❌ | ✅ | ❌ |
-| item rows in order_items | ✅ per item | ❌ order only | ❌ order only | ✅ per item | ❌ order only |
-| modifiers_json in order_items | ✅ JSON | ❌ | ❌ | ✅ JSON | ❌ |
-| tip | ✅ | ✅ | ❌ | ❌ | ❌ |
-| dining_option | ✅ For Here/To Go | ✅ Delivery/Pickup | ✅ Delivery/Storefront | ✅ Delivery/Pickup | ✅ Delivery |
-| customer_name | ✅ | ❌ | ❌ | ✅ | ✅ |
-| payment_method | ✅ Visa/MC/Amex | ❌ | ❌ | ❌ | ❌ |
-| commission_fee | ❌ | ✅ | ✅ | ✅ | ✅ |
-| processing_fee | ✅ | ✅ | ✅ | ❌ | ❌ |
-| delivery_fee | ❌ | ✅ | ❌ | ❌ | ❌ |
-| marketing_fee | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Column | Square | GrubHub (CSV) | GrubHub (Ext) | DoorDash (CSV) | DoorDash (Ext) | Uber Eats (Ext) | Uber Eats (CSV) |
+|--------|--------|---------------|---------------|----------------|----------------|-----------------|-----------------|
+| date | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| time | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| items (order-level summary) | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| modifiers (order-level summary) | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| item rows in order_items | ✅ per item | ❌ order only | ✅ per item | ❌ order only | ✅ per item | ✅ per item | ❌ order only |
+| modifiers_json in order_items | ✅ JSON | ❌ | ✅ JSON | ❌ | ❌ | ✅ JSON | ❌ |
+| tip | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| dining_option | ✅ For Here/To Go | ✅ Delivery/Pickup | ✅ Delivery/Pickup | ✅ Delivery/Storefront | ✅ Delivery/Storefront | ✅ Delivery/Pickup | ✅ Delivery |
+| customer_name | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| payment_method | ✅ Visa/MC/Amex | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| commission_fee | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| processing_fee | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| delivery_fee | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| marketing_fee | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
 
 ### Unified `order_items` table schema:
 
@@ -238,8 +319,10 @@ display_category  TEXT     After menu category mapping applied (or "Uncategorize
 | Platform | Item detail | What order_items contains |
 |----------|-------------|--------------------------|
 | Square | ✅ Per item | Individual items with names, qty, price, modifiers_json, category |
-| GrubHub | ❌ Order only | 1 row per order: "GrubHub Order" with order total |
-| DoorDash | ❌ Order only | 1 row per order: "DoorDash Order" with order total |
+| GrubHub (CSV) | ❌ Order only | 1 row per order: "GrubHub Order" with order total |
+| GrubHub (Extension) | ✅ Per item | Individual items with names, qty, price, modifiers_json (recent orders only; ~4-month API retention) |
+| DoorDash (CSV) | ❌ Order only | 1 row per order: "DoorDash Order" with order total |
+| DoorDash (Extension) | ✅ Per item | Individual items with names, qty, price (no modifiers_json) |
 | Uber Eats (Extension) | ✅ Per item | Individual items with names, qty, price, modifiers_json |
 | Uber Eats (CSV) | ❌ Order only | 1 row per order: "Uber Eats Order" with order total |
 
@@ -505,4 +588,10 @@ These re-fetch modifier data from the Square API and update squareup.db, then a 
 | `src/lib/services/square-api.ts` | Square API client | Fetch payments, orders, catalog |
 | `src/lib/parsers/*.ts` | Platform-specific CSV parsers | Detect file type + parse headers |
 | `src/lib/services/dedup.ts` | Deduplication utilities | File hash + row-level dedup |
-| `extension/` | Chrome extension | Uber Eats merchant portal data capture |
+| `extension/content-main.js` | Uber Eats extension (MAIN world) | Intercepts GraphQL OrderDetails responses |
+| `extension/content-bridge.js` | Uber Eats extension (ISOLATED world) | Relays messages to background service worker |
+| `extension/content-doordash.js` | DoorDash extension (MAIN world) | XHR order list (crawlFetch) + iframe order detail scraping |
+| `extension/content-doordash-bridge.js` | DoorDash extension (ISOLATED world) | Relays messages to background service worker |
+| `extension/content-grubhub.js` | GrubHub extension (MAIN world) | Captures Bearer token via read-only fetch interceptor |
+| `extension/content-grubhub-bridge.js` | GrubHub extension (ISOLATED world) | Relays messages to background service worker |
+| `extension/background.js` | Extension service worker | Orchestrates all platforms: sync logic, smart-sync dedup, POST to /api/ingest/extension |

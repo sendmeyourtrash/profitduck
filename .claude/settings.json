@@ -53,6 +53,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/alan/Documents/claude/profitduck && { git diff --cached --name-only 2>/dev/null || git diff --name-only 2>/dev/null; } | grep -qE '(src/app/api/|src/lib/services/|src/app/.*/page\\.tsx|extension/)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"Stop\",\"additionalContext\":\"DOCUMENTATION CHECK: Significant files were changed (API routes, services, pages, or extension). You MUST run the documentation-keeper agent to update docs before moving on. Run it in the background if needed. Do not skip — stale docs hurt parallel chat sessions.\"}}' || true",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
