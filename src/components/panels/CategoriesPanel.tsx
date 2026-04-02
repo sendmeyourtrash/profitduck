@@ -10,8 +10,15 @@ interface ExpenseCategory {
   color: string | null;
   icon: string | null;
   _count: { expenses: number; rules: number; amount: number };
+  topVendors?: { name: string; count: number; amount: number }[];
   ignored?: boolean;
 }
+
+// 12 visually distinct colors for auto-assignment
+const COLOR_PALETTE = [
+  "#8b5cf6", "#22c55e", "#3b82f6", "#06b6d4", "#ec4899", "#f59e0b",
+  "#6366f1", "#f97316", "#f43f5e", "#14b8a6", "#10b981", "#a855f7",
+];
 
 interface CategorizationRule {
   id: string;
@@ -123,14 +130,22 @@ export default function CategoriesPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLoading, uncategorizedCount]);
 
+  // Pick the next color that isn't already used by an existing category
+  const nextColor = () => {
+    const usedColors = new Set(categories.map((c) => c.color));
+    return COLOR_PALETTE.find((c) => !usedColors.has(c)) || COLOR_PALETTE[categories.length % COLOR_PALETTE.length];
+  };
+
   const addCategory = async () => {
     if (!newCatName.trim()) return;
+    const color = newCatColor === "#6366f1" ? nextColor() : newCatColor; // Use auto-color unless user explicitly picked one
     await fetch("/api/expense-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newCatName, color: newCatColor }),
+      body: JSON.stringify({ name: newCatName, color }),
     });
     setNewCatName("");
+    setNewCatColor("#6366f1"); // Reset for next add
     fetchData();
   };
 
@@ -609,32 +624,29 @@ export default function CategoriesPanel() {
                       </svg>
                     </div>
 
-                    {/* Expanded: top vendors from rules */}
+                    {/* Expanded: top vendors with amounts */}
                     {isExpanded && (
                       <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 px-4 py-3">
-                        {catRules.length === 0 ? (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">No vendor rules yet for this category.</p>
+                        {(!cat.topVendors || cat.topVendors.length === 0) ? (
+                          <p className="text-xs text-gray-400 dark:text-gray-500">No transactions in this category yet.</p>
                         ) : (
                           <div className="space-y-1.5">
                             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Top vendors</p>
-                            {catRules.slice(0, 8).map((rule) => (
-                              <div key={rule.id} className="flex items-center justify-between">
-                                <span className="text-xs text-gray-700 dark:text-gray-300 font-mono truncate max-w-[200px]">{rule.pattern}</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-gray-400 dark:text-gray-500">{rule.hitCount} hits</span>
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                                    rule.createdFrom === "auto_learned"
-                                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                                      : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                                  }`}>
-                                    {rule.createdFrom === "auto_learned" ? "auto" : "manual"}
-                                  </span>
+                            {cat.topVendors.map((vendor, vi) => {
+                              const catTotal = Math.abs(cat._count.amount) || 1;
+                              const pct = Math.round((Math.abs(vendor.amount) / catTotal) * 100);
+                              return (
+                              <div key={`${vendor.name}-${vi}`} className="flex items-center gap-2">
+                                <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0">{vendor.name}</span>
+                                <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">{vendor.count} txns</span>
+                                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 tabular-nums shrink-0">{formatCurrency(Math.abs(vendor.amount))}</span>
+                                <div className="w-12 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden shrink-0">
+                                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: cat.color || "#6b7280" }} />
                                 </div>
+                                <span className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums w-8 text-right shrink-0">{pct}%</span>
                               </div>
-                            ))}
-                            {catRules.length > 8 && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">+{catRules.length - 8} more</p>
-                            )}
+                              );
+                            })}
                           </div>
                         )}
                       </div>

@@ -46,6 +46,7 @@ export async function GET() {
   // Count bank transactions and sum amounts per category by resolving vendor aliases
   const expenseCountMap = new Map<string, number>();
   const expenseAmountMap = new Map<string, number>();
+  const vendorsByCategory = new Map<string, { name: string; count: number; amount: number }[]>();
   let uncategorizedCount = 0;
   let uncategorizedAmount = 0;
 
@@ -84,6 +85,8 @@ export async function GET() {
       if (categoryId) {
         expenseCountMap.set(categoryId, (expenseCountMap.get(categoryId) || 0) + row.cnt);
         expenseAmountMap.set(categoryId, Math.round(((expenseAmountMap.get(categoryId) || 0) + row.total_amount) * 100) / 100);
+        if (!vendorsByCategory.has(categoryId)) vendorsByCategory.set(categoryId, []);
+        vendorsByCategory.get(categoryId)!.push({ name: displayName, count: row.cnt, amount: row.total_amount });
       } else {
         uncategorizedCount += row.cnt;
         uncategorizedAmount = Math.round((uncategorizedAmount + row.total_amount) * 100) / 100;
@@ -107,6 +110,10 @@ export async function GET() {
       rules: ruleCountMap.get(c.id) || 0,
       amount: expenseAmountMap.get(c.id) || 0,
     },
+    topVendors: (vendorsByCategory.get(c.id) || [])
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+      .slice(0, 10)
+      .map((v) => ({ name: v.name, count: v.count, amount: Math.round(v.amount * 100) / 100 })),
     children: categories.filter((ch) => ch.parent_id === c.id).map((ch) => ({
       id: ch.id,
       name: ch.name,
