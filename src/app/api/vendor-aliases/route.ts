@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
-import { rebuildDisplayVendors } from "@/lib/db/bank-db";
-import { v4 as uuidv4 } from "uuid";
 import {
+  rebuildDisplayVendors,
   getAllVendorAliases,
   createVendorAlias,
   updateVendorAlias,
@@ -10,18 +9,23 @@ import {
   getAllVendorIgnores,
   createVendorIgnore,
   deleteVendorIgnore,
-  getVendorAliasesDb,
-} from "@/lib/db/config-db";
+} from "@/lib/db/bank-db";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * Re-scan unmatched vendors against all current aliases and ignores.
  * Removes any unmatched vendor that now matches an alias or is ignored.
+ * Reads and writes from bank.db (unmatched_vendors table lives there now).
  */
 function cleanupUnmatched() {
   try {
-    const db = getVendorAliasesDb();
+    const Database = require("better-sqlite3");
+    const path = require("path");
+    const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(db);
+
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='unmatched_vendors'").get();
-    if (!tableExists) return;
+    if (!tableExists) { db.close(); return; }
 
     const aliases = db.prepare("SELECT pattern, match_type FROM vendor_aliases").all() as { pattern: string; match_type: string }[];
     const ignores = db.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[];
@@ -34,7 +38,7 @@ function cleanupUnmatched() {
       const nameLower = name.toLowerCase();
 
       // Check if ignored (case-insensitive)
-      if (ignores.some((ig) => ig.vendor_name.toLowerCase() === nameLower)) {
+      if (ignores.some((ig: { vendor_name: string }) => ig.vendor_name.toLowerCase() === nameLower)) {
         idsToRemove.push(u.id);
         continue;
       }
@@ -61,6 +65,7 @@ function cleanupUnmatched() {
       const placeholders = idsToRemove.map(() => "?").join(",");
       db.prepare(`DELETE FROM unmatched_vendors WHERE id IN (${placeholders})`).run(...idsToRemove);
     }
+    db.close();
   } catch { /* ignore */ }
 }
 
@@ -292,15 +297,18 @@ export async function GET(req: NextRequest) {
   const aliases = getAllVendorAliases();
   const ignored = getAllVendorIgnores();
 
-  // Get unmatched vendors (auto-populated by Step 1 during RM import)
+  // Get unmatched vendors (auto-populated by Step 1 during RM import) — now in bank.db
   let unmatched: { raw_name: string; count: number; first_seen: string; last_seen: string }[] = [];
   try {
-    const db = getVendorAliasesDb();
-    // Check if table exists
+    const Database = require("better-sqlite3");
+    const path = require("path");
+    const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(db);
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='unmatched_vendors'").get();
     if (tableExists) {
       unmatched = db.prepare("SELECT raw_name, count, first_seen, last_seen FROM unmatched_vendors ORDER BY count DESC").all() as typeof unmatched;
     }
+    db.close();
   } catch {
     // Table might not exist yet
   }
@@ -505,27 +513,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "vendorName is required" }, { status: 400 });
     }
     deleteVendorIgnore(vendorName);
-    // Add back to unmatched list so it shows up for aliasing
+    // Add back to unmatched list so it shows up for aliasing — now in bank.db
     try {
-      const db = getVendorAliasesDb();
+      const Database = require("better-sqlite3");
+      const path = require("path");
+      const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
+      ensureBankView(db);
       const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='unmatched_vendors'").get();
       if (tableExists) {
         const exists = db.prepare("SELECT 1 FROM unmatched_vendors WHERE raw_name = ?").get(vendorName);
         if (!exists) {
-          // Get count from bank.db
           let count = 1;
           try {
-            const Database = require("better-sqlite3");
-            const path = require("path");
-            const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
-    ensureBankView(bankDb);
-            const row = bankDb.prepare("SELECT COUNT(*) as cnt FROM all_bank_transactions WHERE name = ?").get(vendorName) as { cnt: number } | undefined;
+            const row = db.prepare("SELECT COUNT(*) as cnt FROM all_bank_transactions WHERE name = ?").get(vendorName) as { cnt: number } | undefined;
             if (row) count = row.cnt;
-            bankDb.close();
           } catch { /* fallback to count=1 */ }
           db.prepare("INSERT INTO unmatched_vendors (raw_name, count) VALUES (?, ?)").run(vendorName, count);
         }
       }
+      db.close();
     } catch { /* ignore */ }
     return NextResponse.json({ unignored: true });
   }

@@ -5,6 +5,10 @@
  * Reads from databases/bank.db (Rocket Money + Chase statements).
  * Powers the Bank Activity page.
  *
+ * Also owns vendor_aliases, vendor_ignores, unmatched_vendors,
+ * expense_categories, categorization_rules, and category_ignores tables
+ * which now live in bank.db alongside the transaction tables.
+ *
  * @see PIPELINE.md for database architecture
  */
 
@@ -36,28 +40,327 @@ export function ensureManualEntriesTable(db: Database.Database) {
     UNION ALL
     SELECT *, 'manual_entries' as _source_table FROM manual_entries
   `);
+
+  // Vendor alias and expense category tables
+  db.exec(`CREATE TABLE IF NOT EXISTS vendor_aliases (
+    id TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    match_type TEXT NOT NULL DEFAULT 'exact',
+    display_name TEXT NOT NULL,
+    auto_created INTEGER DEFAULT 0,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS vendor_ignores (
+    id TEXT PRIMARY KEY,
+    vendor_name TEXT NOT NULL UNIQUE,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS unmatched_vendors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_name TEXT NOT NULL UNIQUE,
+    count INTEGER DEFAULT 1,
+    first_seen TEXT,
+    last_seen TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS expense_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    color TEXT,
+    icon TEXT,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS categorization_rules (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    category_id TEXT,
+    priority INTEGER DEFAULT 5,
+    created_from TEXT,
+    hit_count INTEGER DEFAULT 0,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS category_ignores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_name TEXT NOT NULL UNIQUE,
+    created_at TEXT
+  )`);
 }
 
-function getVendorAliasDb() {
-  return new Database(path.join(process.cwd(), "databases", "vendor-aliases.db"));
-}
+// ── Vendor alias resolution (internal — uses open db connection) ──
 
-// ── Vendor alias resolution ──
-
-interface VendorAlias {
+interface VendorAliasInternal {
   pattern: string;
   match_type: string;
   display_name: string;
 }
 
-let cachedAliases: VendorAlias[] | null = null;
+let cachedAliases: VendorAliasInternal[] | null = null;
 
-function getVendorAliases(): VendorAlias[] {
+function getVendorAliases(): VendorAliasInternal[] {
   if (cachedAliases) return cachedAliases;
-  const db = getVendorAliasDb();
+  const db = getDb();
   try {
-    cachedAliases = db.prepare("SELECT pattern, match_type, display_name FROM vendor_aliases").all() as VendorAlias[];
+    cachedAliases = db.prepare("SELECT pattern, match_type, display_name FROM vendor_aliases").all() as VendorAliasInternal[];
     return cachedAliases;
+  } finally {
+    db.close();
+  }
+}
+
+// ── Exported CRUD types ──
+
+export interface VendorAlias {
+  id: string;
+  pattern: string;
+  match_type: string;
+  display_name: string;
+  auto_created: number;
+  created_at: string;
+}
+
+export interface VendorIgnore {
+  id: string;
+  vendor_name: string;
+  created_at: string;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  color: string | null;
+  icon: string | null;
+  created_at: string;
+}
+
+export interface CategorizationRule {
+  id: string;
+  type: string;
+  pattern: string;
+  category_id: string | null;
+  priority: number;
+  created_from: string | null;
+  hit_count: number;
+  created_at: string;
+}
+
+export interface CategoryIgnore {
+  id: number;
+  category_name: string;
+  created_at: string;
+}
+
+// ── Vendor Aliases CRUD ──
+
+export function getAllVendorAliases(): VendorAlias[] {
+  const db = getDb();
+  try {
+    return db.prepare("SELECT * FROM vendor_aliases ORDER BY display_name").all() as VendorAlias[];
+  } finally {
+    db.close();
+  }
+}
+
+export function createVendorAlias(id: string, pattern: string, matchType: string, displayName: string, autoCreated = false): void {
+  const db = getDb();
+  try {
+    db.prepare(
+      "INSERT INTO vendor_aliases (id, pattern, match_type, display_name, auto_created, created_at) VALUES (?,?,?,?,?,?)"
+    ).run(id, pattern, matchType, displayName, autoCreated ? 1 : 0, new Date().toISOString());
+  } finally {
+    db.close();
+  }
+}
+
+export function updateVendorAlias(id: string, updates: Partial<{ pattern: string; match_type: string; display_name: string }>): void {
+  const db = getDb();
+  try {
+    const sets: string[] = [];
+    const params: string[] = [];
+    if (updates.pattern !== undefined) { sets.push("pattern = ?"); params.push(updates.pattern); }
+    if (updates.match_type !== undefined) { sets.push("match_type = ?"); params.push(updates.match_type); }
+    if (updates.display_name !== undefined) { sets.push("display_name = ?"); params.push(updates.display_name); }
+    if (sets.length > 0) {
+      params.push(id);
+      db.prepare(`UPDATE vendor_aliases SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteVendorAlias(id: string): void {
+  const db = getDb();
+  try {
+    db.prepare("DELETE FROM vendor_aliases WHERE id = ?").run(id);
+  } finally {
+    db.close();
+  }
+}
+
+// ── Vendor Ignores CRUD ──
+
+export function getAllVendorIgnores(): VendorIgnore[] {
+  const db = getDb();
+  try {
+    return db.prepare("SELECT * FROM vendor_ignores ORDER BY vendor_name").all() as VendorIgnore[];
+  } finally {
+    db.close();
+  }
+}
+
+export function createVendorIgnore(id: string, vendorName: string): void {
+  const db = getDb();
+  try {
+    const existing = db.prepare("SELECT 1 FROM vendor_ignores WHERE vendor_name = ?").get(vendorName);
+    if (!existing) {
+      db.prepare(
+        "INSERT INTO vendor_ignores (id, vendor_name, created_at) VALUES (?,?,?)"
+      ).run(id, vendorName, new Date().toISOString());
+    }
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteVendorIgnore(vendorName: string): void {
+  const db = getDb();
+  try {
+    db.prepare("DELETE FROM vendor_ignores WHERE vendor_name = ?").run(vendorName);
+  } finally {
+    db.close();
+  }
+}
+
+// ── Expense Categories CRUD ──
+
+export function getAllExpenseCategories(): ExpenseCategory[] {
+  const db = getDb();
+  try {
+    return db.prepare("SELECT * FROM expense_categories ORDER BY name").all() as ExpenseCategory[];
+  } finally {
+    db.close();
+  }
+}
+
+export function createExpenseCategory(id: string, name: string, color?: string, icon?: string, parentId?: string): void {
+  const db = getDb();
+  try {
+    db.prepare(
+      "INSERT INTO expense_categories (id, name, parent_id, color, icon, created_at) VALUES (?,?,?,?,?,?)"
+    ).run(id, name, parentId || null, color || null, icon || null, new Date().toISOString());
+  } finally {
+    db.close();
+  }
+}
+
+export function updateExpenseCategory(id: string, updates: Partial<{ name: string; color: string; icon: string }>): void {
+  const db = getDb();
+  try {
+    const sets: string[] = [];
+    const params: string[] = [];
+    if (updates.name !== undefined) { sets.push("name = ?"); params.push(updates.name); }
+    if (updates.color !== undefined) { sets.push("color = ?"); params.push(updates.color); }
+    if (updates.icon !== undefined) { sets.push("icon = ?"); params.push(updates.icon); }
+    if (sets.length > 0) {
+      params.push(id);
+      db.prepare(`UPDATE expense_categories SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteExpenseCategory(id: string): void {
+  const db = getDb();
+  try {
+    db.transaction(() => {
+      db.prepare("DELETE FROM expense_categories WHERE id = ?").run(id);
+      db.prepare("DELETE FROM categorization_rules WHERE category_id = ?").run(id);
+    })();
+  } finally {
+    db.close();
+  }
+}
+
+// ── Categorization Rules CRUD ──
+
+export function getAllCategorizationRules(): CategorizationRule[] {
+  const db = getDb();
+  try {
+    return db.prepare("SELECT * FROM categorization_rules ORDER BY priority DESC, pattern").all() as CategorizationRule[];
+  } finally {
+    db.close();
+  }
+}
+
+export function createCategorizationRule(id: string, type: string, pattern: string, categoryId: string, priority = 5, createdFrom = "manual"): void {
+  const db = getDb();
+  try {
+    db.prepare(
+      "INSERT INTO categorization_rules (id, type, pattern, category_id, priority, created_from, hit_count, created_at) VALUES (?,?,?,?,?,?,0,?)"
+    ).run(id, type, pattern, categoryId, priority, createdFrom, new Date().toISOString());
+  } finally {
+    db.close();
+  }
+}
+
+export function updateCategorizationRule(id: string, updates: Partial<{ type: string; pattern: string; category_id: string }>): void {
+  const db = getDb();
+  try {
+    const sets: string[] = [];
+    const params: string[] = [];
+    if (updates.type !== undefined) { sets.push("type = ?"); params.push(updates.type); }
+    if (updates.pattern !== undefined) { sets.push("pattern = ?"); params.push(updates.pattern); }
+    if (updates.category_id !== undefined) { sets.push("category_id = ?"); params.push(updates.category_id); }
+    if (sets.length > 0) {
+      params.push(id);
+      db.prepare(`UPDATE categorization_rules SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteCategorizationRule(id: string): void {
+  const db = getDb();
+  try {
+    db.prepare("DELETE FROM categorization_rules WHERE id = ?").run(id);
+  } finally {
+    db.close();
+  }
+}
+
+// ── Category Ignores CRUD ──
+
+export function getAllCategoryIgnores(): CategoryIgnore[] {
+  const db = getDb();
+  try {
+    return db.prepare("SELECT * FROM category_ignores ORDER BY category_name").all() as CategoryIgnore[];
+  } finally {
+    db.close();
+  }
+}
+
+export function createCategoryIgnore(categoryName: string): void {
+  const db = getDb();
+  try {
+    const existing = db.prepare("SELECT 1 FROM category_ignores WHERE category_name = ?").get(categoryName);
+    if (!existing) {
+      db.prepare(
+        "INSERT INTO category_ignores (category_name, created_at) VALUES (?,?)"
+      ).run(categoryName, new Date().toISOString());
+    }
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteCategoryIgnore(categoryName: string): void {
+  const db = getDb();
+  try {
+    db.prepare("DELETE FROM category_ignores WHERE category_name = ?").run(categoryName);
   } finally {
     db.close();
   }
@@ -135,11 +438,12 @@ function ensureDisplayVendorColumn(db: Database.Database) {
  * Pass an existing db connection (e.g. during migration) or omit to open+close one internally.
  */
 export function rebuildDisplayVendors(externalDb?: Database.Database) {
+  // Clear alias cache so we pick up the latest vendor_aliases from bank.db
+  cachedAliases = null;
+
   const db = externalDb || new Database(path.join(process.cwd(), "databases", "bank.db"));
   const shouldClose = !externalDb;
   try {
-    // Clear alias cache so we pick up the latest vendor_aliases entries
-    cachedAliases = null;
 
     const rmRows = db
       .prepare("SELECT id, name, custom_name, description FROM rocketmoney")
@@ -171,14 +475,12 @@ export function rebuildDisplayVendors(externalDb?: Database.Database) {
 /** Resolve a vendor display name to its expense category name (or null if uncategorized) */
 export function resolveVendorCategory(displayName: string): string | null {
   try {
-    const { getAllCategorizationRules, getAllExpenseCategories } = require("@/lib/db/config-db");
-    const rules = getAllCategorizationRules() as { type: string; pattern: string; category_id: string }[];
-    const cats = getAllExpenseCategories() as { id: string; name: string }[];
-
+    const rules = getAllCategorizationRules();
+    const cats = getAllExpenseCategories();
     const catMap = new Map(cats.map((c) => [c.id, c.name]));
     for (const rule of rules) {
       if (rule.type === "vendor_match" && rule.pattern.toLowerCase() === displayName.toLowerCase()) {
-        return catMap.get(rule.category_id) || null;
+        return catMap.get(rule.category_id || "") || null;
       }
     }
     return null;
@@ -272,9 +574,8 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
     const namedCategories = p.categories.filter((c) => c !== "Uncategorized");
 
     try {
-      const { getAllCategorizationRules, getAllExpenseCategories } = require("@/lib/db/config-db");
-      const rules = getAllCategorizationRules() as { type: string; pattern: string; category_id: string }[];
-      const expCats = getAllExpenseCategories() as { id: string; name: string }[];
+      const rules = getAllCategorizationRules();
+      const expCats = getAllExpenseCategories();
       const aliases = getVendorAliases();
 
       // Build SQL conditions for ALL categorized vendors (used for Uncategorized exclusion)
@@ -469,12 +770,11 @@ export function queryBank(p: QueryParams) {
 }
 
 export function queryBankCategories() {
-  // Return expense categories from categories.db (Settings → Categories tab)
+  // Return expense categories from bank.db (Settings → Categories tab)
   // Exclude ignored categories
   try {
-    const { getAllExpenseCategories, getAllCategoryIgnores } = require("@/lib/db/config-db");
-    const categories = getAllExpenseCategories() as { id: string; name: string; color: string | null }[];
-    const ignored = getAllCategoryIgnores() as { category_name: string }[];
+    const categories = getAllExpenseCategories();
+    const ignored = getAllCategoryIgnores();
     const ignoredNames = new Set(ignored.map((i) => i.category_name.toLowerCase()));
     const result = categories
       .map((c) => ({ name: c.name, color: c.color || null, ignored: ignoredNames.has(c.name.toLowerCase()) }))
@@ -482,7 +782,7 @@ export function queryBankCategories() {
     result.push({ name: "Uncategorized", color: null, ignored: false });
     return result;
   } catch {
-    // Fallback to raw RM categories if categories.db is unavailable
+    // Fallback to raw RM categories if bank.db is unavailable
     const db = getDb();
     try {
       const rows = db.prepare(`
@@ -513,10 +813,9 @@ export function queryBankAccounts() {
 
 export function queryBankVendors() {
   const db = getDb();
-  const vaDb = getVendorAliasDb();
   try {
-    // Get ignored vendor names (case-insensitive lookup)
-    const ignoredRows = vaDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[];
+    // Get ignored vendor names (case-insensitive lookup) — from bank.db
+    const ignoredRows = db.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[];
     const ignoredNamesLower = new Set(ignoredRows.map((r) => r.vendor_name.toLowerCase()));
 
     // Get all alias display names to distinguish grouped vs unmatched
@@ -564,7 +863,6 @@ export function queryBankVendors() {
     ];
   } finally {
     db.close();
-    vaDb.close();
   }
 }
 

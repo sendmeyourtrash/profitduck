@@ -29,4 +29,49 @@ export function ensureBankView(db: Database.Database): void {
     UNION ALL
     SELECT *, 'manual_entries' as _source_table FROM manual_entries
   `);
+
+  // Vendor alias and expense category tables (co-located with transaction data)
+  db.exec(`CREATE TABLE IF NOT EXISTS vendor_aliases (
+    id TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    match_type TEXT NOT NULL DEFAULT 'exact',
+    display_name TEXT NOT NULL,
+    auto_created INTEGER DEFAULT 0,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS vendor_ignores (
+    id TEXT PRIMARY KEY,
+    vendor_name TEXT NOT NULL UNIQUE,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS unmatched_vendors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_name TEXT NOT NULL UNIQUE,
+    count INTEGER DEFAULT 1,
+    first_seen TEXT,
+    last_seen TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS expense_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    color TEXT,
+    icon TEXT,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS categorization_rules (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    category_id TEXT,
+    priority INTEGER DEFAULT 5,
+    created_from TEXT,
+    hit_count INTEGER DEFAULT 0,
+    created_at TEXT
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS category_ignores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_name TEXT NOT NULL UNIQUE,
+    created_at TEXT
+  )`);
 }

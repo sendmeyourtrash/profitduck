@@ -9,8 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { resolveVendorCategory } from "@/lib/db/bank-db";
-import { getAllCategoryIgnores } from "@/lib/db/config-db";
+import { resolveVendorCategory, getAllCategoryIgnores } from "@/lib/db/bank-db";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");

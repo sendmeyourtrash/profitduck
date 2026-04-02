@@ -7,11 +7,10 @@ import {
   updateExpenseCategory,
   deleteExpenseCategory,
   getAllCategorizationRules,
-  getVendorAliasesDb,
   getAllCategoryIgnores,
   createCategoryIgnore,
   deleteCategoryIgnore,
-} from "@/lib/db/config-db";
+} from "@/lib/db/bank-db";
 import Database from "better-sqlite3";
 import path from "path";
 

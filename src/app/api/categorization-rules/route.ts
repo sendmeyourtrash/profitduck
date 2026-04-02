@@ -7,9 +7,7 @@ import {
   updateCategorizationRule,
   deleteCategorizationRule,
   getAllExpenseCategories,
-  getCategoriesDb,
-  getVendorAliasesDb,
-} from "@/lib/db/config-db";
+} from "@/lib/db/bank-db";
 import Database from "better-sqlite3";
 import path from "path";
 
@@ -57,13 +55,17 @@ function getUncategorizedSuggestions() {
   const rules = getAllCategorizationRules();
   const categories = getAllExpenseCategories();
 
-  // Get ignored vendors
-  const vaDb = getVendorAliasesDb();
-  const ignoredVendors = new Set(
-    (vaDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[])
-      .map((r) => r.vendor_name.toLowerCase())
-  );
-  vaDb.close();
+  // Get ignored vendors from bank.db
+  let ignoredVendors = new Set<string>();
+  try {
+    const _bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+    ensureBankView(_bankDb);
+    ignoredVendors = new Set(
+      (_bankDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[])
+        .map((r) => r.vendor_name.toLowerCase())
+    );
+    _bankDb.close();
+  } catch { /* ignore */ }
 
   // Build lookup: vendor display name → existing rule
   const existingRules = new Set(
@@ -183,21 +185,20 @@ export async function POST(request: NextRequest) {
     if (body.action === "run") {
       // Scan bank.db using materialized display_vendor, match categorization rules, update hit counts
       const rules = getAllCategorizationRules();
-      const catDb = getCategoriesDb();
 
       // Build vendor_match rules: pattern (lowercase) → rule id
       const vendorRules = rules.filter((r) => r.type === "vendor_match" && r.category_id);
 
-      // Reset all hit counts
-      if (body.rerunAll) {
-        catDb.prepare("UPDATE categorization_rules SET hit_count = 0").run();
-      }
-
       let categorized = 0;
 
+      const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
+      ensureBankView(bankDb);
       try {
-        const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
-        ensureBankView(bankDb);
+        // Reset all hit counts if requested
+        if (body.rerunAll) {
+          bankDb.prepare("UPDATE categorization_rules SET hit_count = 0").run();
+        }
+
         // Use display_vendor directly — no JS alias resolution needed
         const rows = bankDb.prepare(`
           SELECT COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_name,
@@ -220,18 +221,17 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Update hit counts in categories.db
-        const updateStmt = catDb.prepare("UPDATE categorization_rules SET hit_count = ? WHERE id = ?");
+        // Update hit counts in bank.db
+        const updateStmt = bankDb.prepare("UPDATE categorization_rules SET hit_count = ? WHERE id = ?");
         for (const [ruleId, count] of hitCounts) {
           updateStmt.run(count, ruleId);
         }
-
-        bankDb.close();
       } catch (e) {
         console.error("Recategorize error:", e);
+      } finally {
+        bankDb.close();
       }
 
-      catDb.close();
       return NextResponse.json({ categorized });
     }
 
