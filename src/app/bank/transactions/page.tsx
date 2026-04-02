@@ -132,6 +132,34 @@ export default function BankPage() {
   const [availableAccounts, setAvailableAccounts] = useState<string[]>([]);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<{ name: string; ignored: boolean }[]>([]);
+
+  // Deterministic category colors — same category always gets same color
+  const CATEGORY_COLORS: Record<string, { bg: string; text: string; ring: string; darkBg: string; darkText: string; darkRing: string }> = {
+    "Rent & Utilities":         { bg: "bg-violet-100",  text: "text-violet-700",  ring: "ring-violet-300",  darkBg: "dark:bg-violet-900/30",  darkText: "dark:text-violet-400",  darkRing: "dark:ring-violet-700" },
+    "Groceries & Ingredients":  { bg: "bg-green-100",   text: "text-green-700",   ring: "ring-green-300",   darkBg: "dark:bg-green-900/30",   darkText: "dark:text-green-400",   darkRing: "dark:ring-green-700" },
+    "Payroll & Salary":         { bg: "bg-blue-100",    text: "text-blue-700",    ring: "ring-blue-300",    darkBg: "dark:bg-blue-900/30",    darkText: "dark:text-blue-400",    darkRing: "dark:ring-blue-700" },
+    "Insurance":                { bg: "bg-cyan-100",    text: "text-cyan-700",    ring: "ring-cyan-300",    darkBg: "dark:bg-cyan-900/30",    darkText: "dark:text-cyan-400",    darkRing: "dark:ring-cyan-700" },
+    "Marketing & Advertising":  { bg: "bg-pink-100",    text: "text-pink-700",    ring: "ring-pink-300",    darkBg: "dark:bg-pink-900/30",    darkText: "dark:text-pink-400",    darkRing: "dark:ring-pink-700" },
+    "Office Supplies":          { bg: "bg-amber-100",   text: "text-amber-700",   ring: "ring-amber-300",   darkBg: "dark:bg-amber-900/30",   darkText: "dark:text-amber-400",   darkRing: "dark:ring-amber-700" },
+    "Software & Tech":          { bg: "bg-indigo-100",  text: "text-indigo-700",  ring: "ring-indigo-300",  darkBg: "dark:bg-indigo-900/30",  darkText: "dark:text-indigo-400",  darkRing: "dark:ring-indigo-700" },
+    "Shopping":                 { bg: "bg-orange-100",  text: "text-orange-700",  ring: "ring-orange-300",  darkBg: "dark:bg-orange-900/30",  darkText: "dark:text-orange-400",  darkRing: "dark:ring-orange-700" },
+    "Dining":                   { bg: "bg-rose-100",    text: "text-rose-700",    ring: "ring-rose-300",    darkBg: "dark:bg-rose-900/30",    darkText: "dark:text-rose-400",    darkRing: "dark:ring-rose-700" },
+    "Bills & Utilities":        { bg: "bg-teal-100",    text: "text-teal-700",    ring: "ring-teal-300",    darkBg: "dark:bg-teal-900/30",    darkText: "dark:text-teal-400",    darkRing: "dark:ring-teal-700" },
+    "Income":                   { bg: "bg-emerald-100", text: "text-emerald-700", ring: "ring-emerald-300", darkBg: "dark:bg-emerald-900/30", darkText: "dark:text-emerald-400", darkRing: "dark:ring-emerald-700" },
+    "Credit Card Payments":     { bg: "bg-slate-100",   text: "text-slate-700",   ring: "ring-slate-300",   darkBg: "dark:bg-slate-900/30",   darkText: "dark:text-slate-400",   darkRing: "dark:ring-slate-700" },
+  };
+  const FALLBACK_COLORS = [
+    { bg: "bg-fuchsia-100", text: "text-fuchsia-700", ring: "ring-fuchsia-300", darkBg: "dark:bg-fuchsia-900/30", darkText: "dark:text-fuchsia-400", darkRing: "dark:ring-fuchsia-700" },
+    { bg: "bg-lime-100",    text: "text-lime-700",    ring: "ring-lime-300",    darkBg: "dark:bg-lime-900/30",    darkText: "dark:text-lime-400",    darkRing: "dark:ring-lime-700" },
+    { bg: "bg-sky-100",     text: "text-sky-700",     ring: "ring-sky-300",     darkBg: "dark:bg-sky-900/30",     darkText: "dark:text-sky-400",     darkRing: "dark:ring-sky-700" },
+  ];
+  const getCatColor = (name: string) => {
+    if (CATEGORY_COLORS[name]) return CATEGORY_COLORS[name];
+    // Hash the name to pick a fallback color deterministically
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+    return FALLBACK_COLORS[Math.abs(hash) % FALLBACK_COLORS.length];
+  };
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [availableVendors, setAvailableVendors] = useState<{ name: string; count: number; tag: string }[]>([]);
   const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
@@ -345,15 +373,13 @@ export default function BankPage() {
               <button
                 key={cat.name}
                 onClick={() => toggleCategory(cat.name)}
-                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                  active
-                    ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300 dark:bg-indigo-900/30 dark:text-indigo-400 dark:ring-indigo-700"
-                    : cat.ignored
-                    ? "bg-amber-50 text-amber-400 line-through dark:bg-amber-900/20 dark:text-amber-500"
-                    : selectedCategories.length === 0
-                    ? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
-                    : "bg-gray-50 text-gray-400 dark:bg-gray-700/50 dark:text-gray-500"
-                }`}
+                className={(() => {
+                  if (cat.ignored) return "px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors bg-amber-50 text-amber-400 line-through dark:bg-amber-900/20 dark:text-amber-500";
+                  const c = getCatColor(cat.name);
+                  if (active) return `px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${c.bg} ${c.text} ring-1 ${c.ring} ${c.darkBg} ${c.darkText} ${c.darkRing}`;
+                  if (selectedCategories.length === 0) return `px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${c.bg} ${c.text} ${c.darkBg} ${c.darkText}`;
+                  return `px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${c.bg} ${c.text} opacity-40 ${c.darkBg} ${c.darkText}`;
+                })()}
               >
                 {cat.name}
               </button>
@@ -571,7 +597,12 @@ export default function BankPage() {
                             {tx.accountName}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{tx.category || "-"}</td>
+                        <td className="px-4 py-2.5">
+                          {tx.category ? (() => {
+                            const c = getCatColor(tx.category);
+                            return <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${c.bg} ${c.text} ${c.darkBg} ${c.darkText}`}>{tx.category}</span>;
+                          })() : <span className="text-gray-400 dark:text-gray-500">-</span>}
+                        </td>
                         <td className="px-4 py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             tx.type === "deposit"
