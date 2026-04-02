@@ -22,7 +22,10 @@ function getDb() {
   return db;
 }
 
+let _tableSetupDone = false;
+
 export function ensureTransactionsTable(db: Database.Database) {
+  if (_tableSetupDone) return;
   db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
@@ -81,6 +84,8 @@ export function ensureTransactionsTable(db: Database.Database) {
     category_name TEXT NOT NULL UNIQUE,
     created_at TEXT
   )`);
+
+  _tableSetupDone = true;
 }
 
 /** @deprecated Use ensureTransactionsTable instead */
@@ -421,7 +426,11 @@ export function clearVendorAliasCache() {
  * Idempotent migration: ensures display_vendor and display_category columns exist on transactions.
  * Creates indexes and populates all rows with NULL display_vendor.
  */
+let _migrationDone = false;
+
 function ensureDisplayVendorColumn(db: Database.Database) {
+  if (_migrationDone) return;
+
   const txCols = db.prepare("PRAGMA table_info(transactions)").all() as { name: string }[];
   let needsRebuild = false;
   if (!txCols.some((c) => c.name === "display_vendor")) {
@@ -434,7 +443,6 @@ function ensureDisplayVendorColumn(db: Database.Database) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_tx_display_vendor ON transactions(display_vendor)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions(source)");
 
-  // Only rebuild on first migration (when column was just added) or if any rows are NULL
   if (needsRebuild) {
     rebuildDisplayVendors(db);
   } else {
@@ -443,6 +451,8 @@ function ensureDisplayVendorColumn(db: Database.Database) {
       rebuildDisplayVendors(db);
     }
   }
+
+  _migrationDone = true;
 }
 
 /**

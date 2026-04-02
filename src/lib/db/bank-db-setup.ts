@@ -13,7 +13,10 @@ export function openBankDb(readonly = false): Database.Database {
   return db;
 }
 
+let _setupDone = false;
+
 export function ensureBankView(db: Database.Database): void {
+  if (_setupDone) return;
   db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
@@ -81,4 +84,6 @@ export function ensureBankView(db: Database.Database): void {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions(source)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_category_id ON categorization_rules(category_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_pattern ON categorization_rules(pattern)`);
+
+  _setupDone = true;
 }
