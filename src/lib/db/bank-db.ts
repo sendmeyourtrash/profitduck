@@ -245,12 +245,26 @@ export function getAllExpenseCategories(): ExpenseCategory[] {
   }
 }
 
+const AUTO_COLORS = [
+  "#8b5cf6", "#22c55e", "#3b82f6", "#06b6d4", "#ec4899", "#f59e0b",
+  "#6366f1", "#f97316", "#f43f5e", "#14b8a6", "#10b981", "#a855f7",
+  "#0ea5e9", "#d946ef", "#84cc16", "#e11d48", "#0891b2", "#7c3aed",
+];
+
 export function createExpenseCategory(id: string, name: string, color?: string, icon?: string, parentId?: string): void {
   const db = getDb();
   try {
+    // Auto-assign a distinct color if none provided
+    let assignedColor = color;
+    if (!assignedColor) {
+      const usedColors = new Set(
+        (db.prepare("SELECT color FROM expense_categories WHERE color IS NOT NULL").all() as { color: string }[]).map(r => r.color)
+      );
+      assignedColor = AUTO_COLORS.find(c => !usedColors.has(c)) || AUTO_COLORS[Math.floor(Math.random() * AUTO_COLORS.length)];
+    }
     db.prepare(
       "INSERT INTO expense_categories (id, name, parent_id, color, icon, created_at) VALUES (?,?,?,?,?,?)"
-    ).run(id, name, parentId || null, color || null, icon || null, new Date().toISOString());
+    ).run(id, name, parentId || null, assignedColor, icon || null, new Date().toISOString());
   } finally {
     db.close();
   }
