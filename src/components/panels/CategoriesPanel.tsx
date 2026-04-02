@@ -61,7 +61,7 @@ export default function CategoriesPanel() {
 
   // New category form
   const [newCatName, setNewCatName] = useState("");
-  const [newCatColor, setNewCatColor] = useState("#6366f1");
+  const [newCatColor, setNewCatColor] = useState("");
 
   // New rule form
   const [newRuleType, setNewRuleType] = useState("vendor_match");
@@ -138,14 +138,14 @@ export default function CategoriesPanel() {
 
   const addCategory = async () => {
     if (!newCatName.trim()) return;
-    const color = newCatColor === "#6366f1" ? nextColor() : newCatColor; // Use auto-color unless user explicitly picked one
+    const color = newCatColor || nextColor();
     await fetch("/api/expense-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newCatName, color }),
     });
     setNewCatName("");
-    setNewCatColor("#6366f1"); // Reset for next add
+    setNewCatColor(""); // Reset — will show next auto-color
     fetchData();
   };
 
@@ -512,7 +512,7 @@ export default function CategoriesPanel() {
             <div>
               <input
                 type="color"
-                value={newCatColor}
+                value={newCatColor || nextColor()}
                 onChange={(e) => setNewCatColor(e.target.value)}
                 className="h-9 w-12 rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer"
               />
