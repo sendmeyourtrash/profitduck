@@ -45,11 +45,20 @@ export async function GET(request: NextRequest) {
     const ignoredCats = getAllCategoryIgnores();
     const ignoredCatNames = new Set(ignoredCats.map((ic) => ic.category_name.toLowerCase()));
 
-    // Transform to match frontend shape (uses vendor aliases for display_name)
-    // Tag each transaction as ignored if its resolved category is in the ignored list
+    // Pre-load category resolution (once, not per row)
+    const allRules = getAllCategorizationRules();
+    const allCats = getAllExpenseCategories();
+    const catMap = new Map(allCats.map((c: { id: string; name: string }) => [c.id, c.name]));
+    const vendorCatCache = new Map<string, string | null>();
+    for (const rule of allRules) {
+      if (rule.type === "vendor_match" && rule.category_id) {
+        vendorCatCache.set(rule.pattern.toLowerCase(), catMap.get(rule.category_id) || null);
+      }
+    }
+
     const transactions = records.map((r) => {
       const displayName = (r as any).display_name || r.custom_name || r.name || r.description;
-      const resolvedCategory = resolveVendorCategory(displayName);
+      const resolvedCategory = vendorCatCache.get(displayName?.toLowerCase()) || null;
       const ignored = resolvedCategory ? ignoredCatNames.has(resolvedCategory.toLowerCase()) : false;
 
       return {

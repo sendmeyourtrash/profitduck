@@ -321,6 +321,7 @@ export function createCategorizationRule(id: string, type: string, pattern: stri
     db.prepare(
       "INSERT INTO categorization_rules (id, type, pattern, category_id, priority, created_from, hit_count, created_at) VALUES (?,?,?,?,?,?,0,?)"
     ).run(id, type, pattern, categoryId, priority, createdFrom, new Date().toISOString());
+    clearCategoryCache();
   } finally {
     db.close();
   }
@@ -337,6 +338,7 @@ export function updateCategorizationRule(id: string, updates: Partial<{ type: st
     if (sets.length > 0) {
       params.push(id);
       db.prepare(`UPDATE categorization_rules SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+      clearCategoryCache();
     }
   } finally {
     db.close();
@@ -347,6 +349,7 @@ export function deleteCategorizationRule(id: string): void {
   const db = getDb();
   try {
     db.prepare("DELETE FROM categorization_rules WHERE id = ?").run(id);
+    clearCategoryCache();
   } finally {
     db.close();
   }
@@ -484,17 +487,26 @@ export function rebuildDisplayVendors(externalDb?: Database.Database) {
 }
 
 /** Resolve a vendor display name to its expense category name (or null if uncategorized) */
+let _categoryCache: Map<string, string> | null = null;
+
+export function clearCategoryCache() {
+  _categoryCache = null;
+}
+
 export function resolveVendorCategory(displayName: string): string | null {
   try {
-    const rules = getAllCategorizationRules();
-    const cats = getAllExpenseCategories();
-    const catMap = new Map(cats.map((c) => [c.id, c.name]));
-    for (const rule of rules) {
-      if (rule.type === "vendor_match" && rule.pattern.toLowerCase() === displayName.toLowerCase()) {
-        return catMap.get(rule.category_id || "") || null;
+    if (!_categoryCache) {
+      const rules = getAllCategorizationRules();
+      const cats = getAllExpenseCategories();
+      const catMap = new Map(cats.map((c: { id: string; name: string }) => [c.id, c.name]));
+      _categoryCache = new Map();
+      for (const rule of rules) {
+        if (rule.type === "vendor_match" && rule.category_id) {
+          _categoryCache.set(rule.pattern.toLowerCase(), catMap.get(rule.category_id) || "");
+        }
       }
     }
-    return null;
+    return _categoryCache.get(displayName?.toLowerCase() || "") || null;
   } catch {
     return null;
   }
