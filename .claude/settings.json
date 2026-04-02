@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // empty' | { read -r cmd; case \"$cmd\" in *rebuild-pipeline*|*reimport*|*step2*|*step3*) echo '{\"decision\":\"approve\",\"systemMessage\":\"AGENT QUEUE: Pipeline was rebuilt. You MUST run: data-integrity-agent, financial-auditor. Do NOT skip.\"}' ;; *vitest*|*jest*|*test*) echo '{\"decision\":\"approve\",\"systemMessage\":\"AGENT QUEUE: Tests were run. If any failed, run regression-tester to check for broader breakage.\"}' ;; esac; } 2>/dev/null || true",
+            "command": "jq -r '.tool_input.command // empty' | { read -r cmd; case \"$cmd\" in *DELETE*FROM*|*DROP*TABLE*|*\"method: 'DELETE'\"*|*method.*DELETE*|*rm*-rf*|*rm*.db*|*git*init*|*git*reset*--hard*) echo '{\"decision\":\"block\",\"reason\":\"DESTRUCTIVE OPERATION BLOCKED. You MUST: 1) Read feedback_never_destructive_ops.md RIGHT NOW. 2) Ask the user for permission. 3) Back up affected data first. 4) Use UPDATE instead of DELETE+recreate. NEVER take the fast destructive path.\"}' ;; *rebuild-pipeline*|*reimport*|*step2*|*step3*) echo '{\"decision\":\"approve\",\"systemMessage\":\"AGENT QUEUE: Pipeline was rebuilt. You MUST run: data-integrity-agent, financial-auditor. Do NOT skip.\"}' ;; *vitest*|*jest*|*test*) echo '{\"decision\":\"approve\",\"systemMessage\":\"AGENT QUEUE: Tests were run. If any failed, run regression-tester to check for broader breakage.\"}' ;; esac; } 2>/dev/null || true",
             "timeout": 5
           }
         ]

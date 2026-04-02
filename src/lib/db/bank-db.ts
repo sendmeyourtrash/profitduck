@@ -14,6 +14,7 @@ import path from "path";
 function getDb() {
   const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
   ensureManualEntriesTable(db);
+  ensureDisplayVendorColumn(db);
   return db;
 }
 
@@ -24,7 +25,8 @@ export function ensureManualEntriesTable(db: Database.Database) {
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
     amount TEXT, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'manual'
+    source TEXT DEFAULT 'manual',
+    display_vendor TEXT
   )`);
   // View that unions rocketmoney + manual_entries for read queries
   // Drop and recreate to fix any stale/circular definitions
@@ -95,6 +97,75 @@ export function resolveVendorFromRecord(name: string, customName: string, descri
 /** Clear cached aliases (call when aliases are updated in Settings) */
 export function clearVendorAliasCache() {
   cachedAliases = null;
+}
+
+/**
+ * Idempotent migration: adds display_vendor column to rocketmoney and manual_entries
+ * if not already present, creates indexes, then populates all existing rows.
+ */
+function ensureDisplayVendorColumn(db: Database.Database) {
+  const rmCols = db.prepare("PRAGMA table_info(rocketmoney)").all() as { name: string }[];
+  let needsRebuild = false;
+  if (!rmCols.some((c) => c.name === "display_vendor")) {
+    db.exec("ALTER TABLE rocketmoney ADD COLUMN display_vendor TEXT");
+    needsRebuild = true;
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rm_display_vendor ON rocketmoney(display_vendor)");
+
+  const meCols = db.prepare("PRAGMA table_info(manual_entries)").all() as { name: string }[];
+  if (!meCols.some((c) => c.name === "display_vendor")) {
+    db.exec("ALTER TABLE manual_entries ADD COLUMN display_vendor TEXT");
+    needsRebuild = true;
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_me_display_vendor ON manual_entries(display_vendor)");
+
+  // Only rebuild on first migration (when column was just added) or if any rows are NULL
+  if (needsRebuild) {
+    rebuildDisplayVendors(db);
+  } else {
+    const nullCount = (db.prepare("SELECT COUNT(*) as cnt FROM rocketmoney WHERE display_vendor IS NULL").get() as { cnt: number }).cnt;
+    if (nullCount > 0) {
+      rebuildDisplayVendors(db);
+    }
+  }
+}
+
+/**
+ * Rebuild the materialized display_vendor column for all rocketmoney and manual_entries rows.
+ * Pass an existing db connection (e.g. during migration) or omit to open+close one internally.
+ */
+export function rebuildDisplayVendors(externalDb?: Database.Database) {
+  const db = externalDb || new Database(path.join(process.cwd(), "databases", "bank.db"));
+  const shouldClose = !externalDb;
+  try {
+    // Clear alias cache so we pick up the latest vendor_aliases entries
+    cachedAliases = null;
+
+    const rmRows = db
+      .prepare("SELECT id, name, custom_name, description FROM rocketmoney")
+      .all() as { id: number; name: string; custom_name: string; description: string }[];
+    const updateRm = db.prepare("UPDATE rocketmoney SET display_vendor = ? WHERE id = ?");
+
+    const meRows = db
+      .prepare("SELECT id, name, custom_name, description FROM manual_entries")
+      .all() as { id: number; name: string; custom_name: string; description: string }[];
+    const updateMe = db.prepare("UPDATE manual_entries SET display_vendor = ? WHERE id = ?");
+
+    db.transaction(() => {
+      for (const row of rmRows) {
+        updateRm.run(resolveVendorFromRecord(row.name, row.custom_name, row.description), row.id);
+      }
+      for (const row of meRows) {
+        updateMe.run(resolveVendorFromRecord(row.name, row.custom_name, row.description), row.id);
+      }
+    })();
+
+    console.log(
+      `[Bank DB] Rebuilt display_vendor for ${rmRows.length} rocketmoney + ${meRows.length} manual_entries rows`
+    );
+  } finally {
+    if (shouldClose) db.close();
+  }
 }
 
 /** Resolve a vendor display name to its expense category name (or null if uncategorized) */
@@ -376,11 +447,9 @@ export function queryBank(p: QueryParams) {
     const summaryQuery = buildQuery(p, "summary");
     const summary = db.prepare(summaryQuery.sql).get(...summaryQuery.params) as BankSummary;
 
-    // Enrich with display account names and vendor aliases
-    // Clear cache each query to pick up new aliases from Settings
-    cachedAliases = null;
+    // Enrich with display account names; display_vendor is already materialized on the row
     const enriched = records.map((r) => {
-      const displayName = resolveVendorFromRecord(r.name, r.custom_name, r.description);
+      const displayName = (r as any).display_vendor || r.custom_name || r.name || r.description || "";
       return {
         ...r,
         amount: parseFloat(String(r.amount)),
@@ -446,37 +515,35 @@ export function queryBankVendors() {
   const db = getDb();
   const vaDb = getVendorAliasDb();
   try {
-    cachedAliases = null;
-
     // Get ignored vendor names (case-insensitive lookup)
     const ignoredRows = vaDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[];
     const ignoredNamesLower = new Set(ignoredRows.map((r) => r.vendor_name.toLowerCase()));
-    const ignoredNames = new Set(ignoredRows.map((r) => r.vendor_name));
 
-    // Get all alias display names
+    // Get all alias display names to distinguish grouped vs unmatched
     const aliases = getVendorAliases();
     const aliasDisplayNames = new Set(aliases.map((a) => a.display_name));
 
-    // Get all unique vendor names from bank data
+    // Use materialized display_vendor — already resolved on every row
     const rows = db.prepare(`
-      SELECT CASE WHEN custom_name IS NOT NULL AND custom_name != '' THEN custom_name ELSE name END as raw_name,
+      SELECT COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_name,
+             COALESCE(NULLIF(custom_name, ''), name) as raw_name,
              COUNT(*) as cnt
       FROM all_bank_transactions
       WHERE name IS NOT NULL AND name != ''
-      GROUP BY raw_name
+      GROUP BY display_name
       ORDER BY cnt DESC
-    `).all() as { raw_name: string; cnt: number }[];
+    `).all() as { display_name: string; raw_name: string; cnt: number }[];
 
-    // Resolve and categorize
+    // Categorize
     const grouped = new Map<string, number>();   // aliased vendors
     const ignored = new Map<string, number>();   // ignored vendors
     const unmatched = new Map<string, number>(); // no alias, not ignored
 
     for (const r of rows) {
-      if (!r.raw_name) continue;
-      const display = resolveVendorAlias(r.raw_name) || r.raw_name;
+      if (!r.display_name) continue;
+      const display = r.display_name;
 
-      if (ignoredNames.has(display) || ignoredNames.has(r.raw_name) || ignoredNamesLower.has(display.toLowerCase()) || ignoredNamesLower.has(r.raw_name.toLowerCase())) {
+      if (ignoredNamesLower.has(display.toLowerCase())) {
         ignored.set(display, (ignored.get(display) || 0) + r.cnt);
       } else if (aliasDisplayNames.has(display) && display !== r.raw_name) {
         grouped.set(display, (grouped.get(display) || 0) + r.cnt);

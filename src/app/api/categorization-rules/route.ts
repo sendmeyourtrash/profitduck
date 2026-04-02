@@ -7,7 +7,6 @@ import {
   updateCategorizationRule,
   deleteCategorizationRule,
   getAllExpenseCategories,
-  getAllVendorAliases,
   getCategoriesDb,
   getVendorAliasesDb,
 } from "@/lib/db/config-db";
@@ -51,11 +50,10 @@ export async function GET(request: NextRequest) {
 
 /**
  * Returns uncategorized vendors with suggested categories based on RM category names.
- * Scans bank.db expenses, resolves vendor aliases, finds vendors without categorization rules,
- * and suggests categories based on the RM category field.
+ * Scans bank.db expenses using the materialized display_vendor column, finds vendors
+ * without categorization rules, and suggests categories based on the RM category field.
  */
 function getUncategorizedSuggestions() {
-  const aliases = getAllVendorAliases();
   const rules = getAllCategorizationRules();
   const categories = getAllExpenseCategories();
 
@@ -110,30 +108,20 @@ function getUncategorizedSuggestions() {
   try {
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
     ensureBankView(bankDb);
+    // GROUP BY the materialized display_vendor — no JS alias resolution needed
     const rows = bankDb.prepare(`
-      SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
+      SELECT COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_name,
              category as rm_category,
              COUNT(*) as cnt,
              ROUND(SUM(CAST(amount AS REAL)), 2) as total_amount
       FROM all_bank_transactions
-      GROUP BY vendor_name, rm_category
+      GROUP BY display_name, rm_category
       ORDER BY cnt DESC
-    `).all() as { vendor_name: string; rm_category: string; cnt: number; total_amount: number }[];
+    `).all() as { display_name: string; rm_category: string; cnt: number; total_amount: number }[];
 
     for (const row of rows) {
-      // Resolve vendor alias
-      let displayName = row.vendor_name;
-      for (const alias of aliases) {
-        const patLower = alias.pattern.toLowerCase();
-        const nameLower = row.vendor_name.toLowerCase();
-        if (alias.match_type === "exact" && nameLower === patLower) {
-          displayName = alias.display_name; break;
-        } else if (alias.match_type === "starts_with" && nameLower.startsWith(patLower)) {
-          displayName = alias.display_name; break;
-        } else if (alias.match_type === "contains" && nameLower.includes(patLower)) {
-          displayName = alias.display_name; break;
-        }
-      }
+      const displayName = row.display_name;
+      if (!displayName) continue;
 
       // Skip if already has a rule, is ignored, or trivially small
       if (existingRules.has(displayName.toLowerCase())) continue;
@@ -193,8 +181,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "run") {
-      // Scan bank.db, resolve vendor aliases, match categorization rules, update hit counts
-      const aliases = getAllVendorAliases();
+      // Scan bank.db using materialized display_vendor, match categorization rules, update hit counts
       const rules = getAllCategorizationRules();
       const catDb = getCategoriesDb();
 
@@ -210,34 +197,22 @@ export async function POST(request: NextRequest) {
 
       try {
         const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
-    ensureBankView(bankDb);
+        ensureBankView(bankDb);
+        // Use display_vendor directly — no JS alias resolution needed
         const rows = bankDb.prepare(`
-          SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name, COUNT(*) as cnt
+          SELECT COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_name,
+                 COUNT(*) as cnt
           FROM all_bank_transactions
-          WHERE 1=1
-          GROUP BY vendor_name
-        `).all() as { vendor_name: string; cnt: number }[];
+          GROUP BY display_name
+        `).all() as { display_name: string; cnt: number }[];
 
         const hitCounts = new Map<string, number>();
 
         for (const row of rows) {
-          // Resolve vendor alias
-          let displayName = row.vendor_name;
-          for (const alias of aliases) {
-            const patLower = alias.pattern.toLowerCase();
-            const nameLower = row.vendor_name.toLowerCase();
-            if (alias.match_type === "exact" && nameLower === patLower) {
-              displayName = alias.display_name; break;
-            } else if (alias.match_type === "starts_with" && nameLower.startsWith(patLower)) {
-              displayName = alias.display_name; break;
-            } else if (alias.match_type === "contains" && nameLower.includes(patLower)) {
-              displayName = alias.display_name; break;
-            }
-          }
-
+          if (!row.display_name) continue;
           // Match against categorization rules
           for (const rule of vendorRules) {
-            if (rule.pattern.toLowerCase() === displayName.toLowerCase()) {
+            if (rule.pattern.toLowerCase() === row.display_name.toLowerCase()) {
               hitCounts.set(rule.id, (hitCounts.get(rule.id) || 0) + row.cnt);
               categorized += row.cnt;
               break;

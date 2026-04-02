@@ -20,7 +20,8 @@ export function ensureBankView(db: Database.Database): void {
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
     amount TEXT, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'manual'
+    source TEXT DEFAULT 'manual',
+    display_vendor TEXT
   )`);
   db.exec(`DROP VIEW IF EXISTS all_bank_transactions`);
   db.exec(`CREATE VIEW all_bank_transactions AS

@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
 
@@ -142,12 +142,13 @@ export async function GET(request: NextRequest) {
     const ignoredSet = new Set(ignoredCats.map((ic) => ic.category_name.toLowerCase()));
 
     const allExpenses = bankDb.prepare(
-      `SELECT name, custom_name, description, category, amount
+      `SELECT name, custom_name, description, category, amount,
+              COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
        FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND category NOT IN (${payoutPlaceholders})
        AND category IS NOT NULL AND date >= ? AND date <= ?`
     ).all(...PAYOUT_CATEGORIES, yearStart, yearEnd) as {
-      name: string; custom_name: string; description: string; category: string; amount: string;
+      name: string; custom_name: string; description: string; category: string; amount: string; display_vendor: string;
     }[];
 
     const categoryTotals = new Map<string, number>();
@@ -155,7 +156,7 @@ export async function GET(request: NextRequest) {
     for (const r of allExpenses) {
       const amt = parseFloat(r.amount) || 0;
       if (amt <= 0) continue;
-      const vendorName = resolveVendorFromRecord(r.name || "", r.custom_name || "", r.description || "");
+      const vendorName = r.display_vendor || r.custom_name || r.name || "";
       const resolved = resolveVendorCategory(vendorName);
       const catName = resolved || r.category || "Uncategorized";
       if (ignoredSet.has(catName.toLowerCase())) continue;
@@ -220,18 +221,19 @@ export async function GET(request: NextRequest) {
 
     // ── Tax Payments Made (from bank.db) ──
     const taxPayments = bankDb.prepare(
-      `SELECT date, name, custom_name, description, amount
+      `SELECT date, name, custom_name, description, amount,
+              COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
        FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0 AND (category = 'Taxes' OR LOWER(name) LIKE '%tax%' OR LOWER(description) LIKE '%tax%')
        AND date >= ? AND date <= ?
        ORDER BY date DESC`
     ).all(yearStart, yearEnd) as {
-      date: string; name: string; custom_name: string; description: string; amount: string;
+      date: string; name: string; custom_name: string; description: string; amount: string; display_vendor: string;
     }[];
 
     const taxPaymentsMade = taxPayments.map((t) => ({
       date: t.date,
-      description: resolveVendorFromRecord(t.name || "", t.custom_name || "", t.description || ""),
+      description: t.display_vendor || t.custom_name || t.name || "",
       amount: Math.round(parseFloat(t.amount) * 100) / 100,
     }));
     const totalPaid = taxPaymentsMade.reduce((s, t) => s + t.amount, 0);

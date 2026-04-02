@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
+import { rebuildDisplayVendors } from "@/lib/db/bank-db";
 import { v4 as uuidv4 } from "uuid";
 import {
   getAllVendorAliases,
@@ -494,6 +495,7 @@ export async function POST(req: NextRequest) {
     }
     createVendorIgnore(uuidv4(), vendorName);
     cleanupUnmatched();
+  rebuildDisplayVendors();
     return NextResponse.json({ ignored: true });
   }
 
@@ -545,6 +547,7 @@ export async function POST(req: NextRequest) {
   createVendorAlias(id, pattern, matchType, displayName);
   deleteVendorIgnore(pattern);
   cleanupUnmatched();
+  rebuildDisplayVendors();
 
   return NextResponse.json({
     alias: { id, pattern, matchType, displayName, autoCreated: false },
@@ -567,6 +570,7 @@ export async function PATCH(req: NextRequest) {
     display_name: displayName,
   });
   cleanupUnmatched();
+  rebuildDisplayVendors();
 
   return NextResponse.json({ alias: { id, pattern, matchType, displayName } });
 }
@@ -582,5 +586,6 @@ export async function DELETE(req: NextRequest) {
 
   deleteVendorAlias(id);
   cleanupUnmatched();
+  rebuildDisplayVendors();
   return NextResponse.json({ deleted: true });
 }

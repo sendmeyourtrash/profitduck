@@ -17,7 +17,7 @@ import {
   endOfDay,
   format,
 } from "date-fns";
-import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
 
@@ -162,11 +162,12 @@ export async function GET(request: NextRequest) {
       recentParams.push(startDate, endDate);
     }
     const recentTransactions = bankDb.prepare(`
-      SELECT date, name, custom_name, description, amount, category, account_type, account_name
+      SELECT date, name, custom_name, description, amount, category, account_type, account_name,
+             COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
       FROM all_bank_transactions
       WHERE ${recentConds.join(" AND ")}
       ORDER BY date DESC LIMIT 10
-    `).all(...recentParams) as { date: string; name: string; custom_name: string; description: string; amount: string; category: string; account_type: string; account_name: string }[];
+    `).all(...recentParams) as { date: string; name: string; custom_name: string; description: string; amount: string; category: string; account_type: string; account_name: string; display_vendor: string }[];
 
     // ── NEW METRICS ──────────────────────────────────────────────────
 
@@ -325,7 +326,7 @@ export async function GET(request: NextRequest) {
         revenue: Number(item.revenue),
       })),
       recentTransactions: recentTransactions.map((t) => {
-        const displayName = resolveVendorFromRecord(t.name, t.custom_name, t.description);
+        const displayName = t.display_vendor || t.custom_name || t.name || t.description || "";
         return {
           date: t.date,
           description: displayName,

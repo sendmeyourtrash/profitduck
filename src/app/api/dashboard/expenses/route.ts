@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { resolveVendorCategory } from "@/lib/db/bank-db";
 import { getAllCategoryIgnores } from "@/lib/db/config-db";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
 
@@ -78,7 +78,8 @@ export async function GET(request: NextRequest) {
     const dateParams = endDate ? [startDate, endDate] : [startDate];
 
     const allExpenses = bankDb.prepare(
-      `SELECT id, date, name, custom_name, description, category, amount, account_name, note
+      `SELECT id, date, name, custom_name, description, category, amount, account_name, note,
+              COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
        FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0
        AND category NOT IN (${payoutPlaceholders})
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
     ).all(...PAYOUT_CATEGORIES, ...dateParams) as {
       id: number; date: string; name: string; custom_name: string;
       description: string; category: string; amount: string;
-      account_name: string; note: string;
+      account_name: string; note: string; display_vendor: string;
     }[];
 
     // ---------- Process records: resolve vendors, filter ignored ----------
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
       const amt = parseFloat(r.amount) || 0;
       if (amt <= 0) continue;
 
-      const vendorName = resolveVendorFromRecord(r.name || "", r.custom_name || "", r.description || "");
+      const vendorName = r.display_vendor || r.custom_name || r.name || "";
       const resolvedCategory = resolveVendorCategory(vendorName);
       const categoryName = resolvedCategory || r.category || "Uncategorized";
 
@@ -223,7 +224,8 @@ export async function GET(request: NextRequest) {
 
     // ---------- Prior period expenses ----------
     const prevAllExpenses = bankDb.prepare(
-      `SELECT id, date, name, custom_name, description, category, amount, account_name, note
+      `SELECT id, date, name, custom_name, description, category, amount, account_name, note,
+              COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
        FROM all_bank_transactions
        WHERE CAST(amount AS REAL) > 0
        AND category NOT IN (${payoutPlaceholders})
@@ -236,7 +238,7 @@ export async function GET(request: NextRequest) {
     for (const r of prevAllExpenses) {
       const amt = parseFloat(r.amount) || 0;
       if (amt <= 0) continue;
-      const vendorName = resolveVendorFromRecord(r.name || "", r.custom_name || "", r.description || "");
+      const vendorName = r.display_vendor || r.custom_name || r.name || "";
       const resolvedCategory = resolveVendorCategory(vendorName);
       const categoryName = resolvedCategory || r.category || "Uncategorized";
       if (ignoredCatNames.has(categoryName.toLowerCase())) continue;

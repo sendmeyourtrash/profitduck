@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { resolveVendorFromRecord, resolveVendorCategory } from "@/lib/db/bank-db";
+import { resolveVendorCategory } from "@/lib/db/bank-db";
 import { ensureBankView } from "@/lib/db/bank-db-setup";
 
 const DB_DIR = path.join(process.cwd(), "databases");
@@ -47,7 +47,8 @@ function fetchAndResolve(
   dateParams: string[]
 ): ProcessedExpense[] {
   const rows = bankDb.prepare(
-    `SELECT id, date, name, custom_name, description, category, amount, account_name, note
+    `SELECT id, date, name, custom_name, description, category, amount, account_name, note,
+            COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as display_vendor
      FROM all_bank_transactions
      WHERE CAST(amount AS REAL) > 0
      AND category NOT IN (${payoutPlaceholders})
@@ -57,18 +58,18 @@ function fetchAndResolve(
   ).all(...PAYOUT_CATEGORIES, ...dateParams) as {
     id: number; date: string; name: string; custom_name: string;
     description: string; category: string; amount: string;
-    account_name: string; note: string;
+    account_name: string; note: string; display_vendor: string;
   }[];
 
   const result: ProcessedExpense[] = [];
   for (const r of rows) {
     const amt = parseFloat(r.amount) || 0;
     if (amt <= 0) continue;
-    const resolved = resolveVendorFromRecord(r.name || "", r.custom_name || "", r.description || "");
-    const resolvedCategory = resolveVendorCategory(resolved);
+    const vendorName = r.display_vendor || r.custom_name || r.name || "";
+    const resolvedCategory = resolveVendorCategory(vendorName);
     const categoryName = resolvedCategory || r.category || "Uncategorized";
     result.push({
-      id: r.id, date: r.date, vendorName: resolved,
+      id: r.id, date: r.date, vendorName,
       category: categoryName, amount: amt,
       accountName: r.account_name || "", note: r.note || "",
     });

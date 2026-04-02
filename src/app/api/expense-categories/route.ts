@@ -7,7 +7,6 @@ import {
   updateExpenseCategory,
   deleteExpenseCategory,
   getAllCategorizationRules,
-  getAllVendorAliases,
   getVendorAliasesDb,
   getAllCategoryIgnores,
   createCategoryIgnore,
@@ -25,8 +24,6 @@ import path from "path";
 export async function GET() {
   const categories = getAllExpenseCategories();
   const rules = getAllCategorizationRules();
-  const aliases = getAllVendorAliases();
-
   // Count rules per category
   const ruleCountMap = new Map<string, number>();
   for (const r of rules) {
@@ -53,8 +50,9 @@ export async function GET() {
   try {
     const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
     ensureBankView(bankDb);
+    // Use pre-computed display_vendor column — no JS alias resolution needed
     const rows = bankDb.prepare(`
-      SELECT COALESCE(NULLIF(custom_name, ''), name) as vendor_name,
+      SELECT COALESCE(display_vendor, COALESCE(NULLIF(custom_name, ''), name)) as vendor_name,
              COUNT(*) as cnt,
              COALESCE(SUM(CAST(amount AS REAL)), 0) as total_amount
       FROM all_bank_transactions
@@ -63,30 +61,12 @@ export async function GET() {
     `).all() as { vendor_name: string; cnt: number; total_amount: number }[];
 
     for (const row of rows) {
-      // Resolve vendor alias
-      let displayName = row.vendor_name;
-      for (const alias of aliases) {
-        const patLower = alias.pattern.toLowerCase();
-        const nameLower = row.vendor_name.toLowerCase();
-        if (alias.match_type === "exact" && nameLower === patLower) {
-          displayName = alias.display_name;
-          break;
-        } else if (alias.match_type === "starts_with" && nameLower.startsWith(patLower)) {
-          displayName = alias.display_name;
-          break;
-        } else if (alias.match_type === "contains" && nameLower.includes(patLower)) {
-          displayName = alias.display_name;
-          break;
-        }
-      }
-
-      // Find category for this vendor
-      const categoryId = vendorToCategoryId.get(displayName.toLowerCase());
+      const categoryId = vendorToCategoryId.get(row.vendor_name.toLowerCase());
       if (categoryId) {
         expenseCountMap.set(categoryId, (expenseCountMap.get(categoryId) || 0) + row.cnt);
         expenseAmountMap.set(categoryId, Math.round(((expenseAmountMap.get(categoryId) || 0) + row.total_amount) * 100) / 100);
         if (!vendorsByCategory.has(categoryId)) vendorsByCategory.set(categoryId, []);
-        vendorsByCategory.get(categoryId)!.push({ name: displayName, count: row.cnt, amount: row.total_amount });
+        vendorsByCategory.get(categoryId)!.push({ name: row.vendor_name, count: row.cnt, amount: row.total_amount });
       } else {
         uncategorizedCount += row.cnt;
         uncategorizedAmount = Math.round((uncategorizedAmount + row.total_amount) * 100) / 100;
