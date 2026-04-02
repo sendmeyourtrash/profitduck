@@ -735,9 +735,9 @@ export default function CategoriesPanel() {
             </div>
           ) : (
             <div className="space-y-1.5">
-              {filteredSuggestions.map((s) => (
+              {filteredSuggestions.map((s, si) => (
                 <div
-                  key={s.vendorName}
+                  key={`${s.vendorName}-${si}`}
                   className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200/50 dark:border-gray-700/50 px-4 py-3"
                 >
                   {/* Top row: name + counts */}

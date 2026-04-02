@@ -110,10 +110,23 @@ export async function GET() {
       rules: ruleCountMap.get(c.id) || 0,
       amount: expenseAmountMap.get(c.id) || 0,
     },
-    topVendors: (vendorsByCategory.get(c.id) || [])
-      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
-      .slice(0, 10)
-      .map((v) => ({ name: v.name, count: v.count, amount: Math.round(v.amount * 100) / 100 })),
+    topVendors: (() => {
+      // Consolidate vendors with the same resolved display name
+      const vendorMap = new Map<string, { name: string; count: number; amount: number }>();
+      for (const v of vendorsByCategory.get(c.id) || []) {
+        const existing = vendorMap.get(v.name);
+        if (existing) {
+          existing.count += v.count;
+          existing.amount += v.amount;
+        } else {
+          vendorMap.set(v.name, { ...v });
+        }
+      }
+      return Array.from(vendorMap.values())
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+        .slice(0, 10)
+        .map((v) => ({ name: v.name, count: v.count, amount: Math.round(v.amount * 100) / 100 }));
+    })(),
     children: categories.filter((ch) => ch.parent_id === c.id).map((ch) => ({
       id: ch.id,
       name: ch.name,
