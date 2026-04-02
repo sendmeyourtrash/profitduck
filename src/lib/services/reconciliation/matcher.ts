@@ -79,9 +79,9 @@ export function runReconciliation(): MatchResult {
       // --- Get bank deposits for this platform ---
       const likeClauses = bankPatterns.map(() => "name LIKE ?").join(" OR ");
       const bankDeposits = bankDb.prepare(
-        `SELECT id, date, ABS(CAST(amount AS REAL)) as amount, name
-         FROM rocketmoney
-         WHERE CAST(amount AS REAL) < 0 AND (${likeClauses})
+        `SELECT id, date, ABS(amount) as amount, name
+         FROM transactions
+         WHERE amount < 0 AND (${likeClauses})
          ORDER BY date ASC`
       ).all(...bankPatterns) as BankDeposit[];
 

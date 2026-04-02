@@ -8,14 +8,14 @@ function openBankDb() {
   return new Database(path.join(DB_DIR, "bank.db"));
 }
 
-function ensureManualEntriesTable(db: Database.Database) {
-  db.exec(`CREATE TABLE IF NOT EXISTS manual_entries (
+function ensureTransactionsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
-    amount TEXT, description TEXT, category TEXT, note TEXT,
+    amount REAL, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'manual'
+    source TEXT
   )`);
 }
 
@@ -51,24 +51,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert into bank.db manual_entries table
+    // Insert into bank.db transactions table with source='manual'
     // Expenses are positive amounts, income/deposits are negative
     const bankAmount = type === "expense" ? Math.abs(parsedAmount) : -Math.abs(parsedAmount);
     const db = openBankDb();
-    ensureManualEntriesTable(db);
+    ensureTransactionsTable(db);
     try {
       const result = db.prepare(
-        `INSERT INTO manual_entries (date, name, description, amount, category, account_name, note, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO transactions (date, name, description, amount, category, account_name, note, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'manual')`
       ).run(
         date,
         description || "Manual Entry",
         description || "Manual Entry",
-        String(bankAmount),
+        bankAmount,
         category || "Manual",
         "Manual Entry",
-        `manual_entry:${type}`,
-        "manual"
+        `manual_entry:${type}`
       );
       return NextResponse.json({
         transaction: {
@@ -100,18 +99,18 @@ export async function GET(request: NextRequest) {
   const offset = parseInt(searchParams.get("offset") || "0");
 
   const db = openBankDb();
-  ensureManualEntriesTable(db);
+  ensureTransactionsTable(db);
   try {
     const transactions = db.prepare(
       `SELECT id, date, name as description, amount, category, note
-       FROM manual_entries
+       FROM transactions WHERE source = 'manual'
        ORDER BY date DESC LIMIT ? OFFSET ?`
     ).all(limit, offset) as {
       id: number; date: string; description: string; amount: string; category: string; note: string;
     }[];
 
     const countRow = db.prepare(
-      `SELECT COUNT(*) as cnt FROM manual_entries`
+      `SELECT COUNT(*) as cnt FROM transactions WHERE source = 'manual'`
     ).get() as { cnt: number };
 
     return NextResponse.json({
@@ -144,10 +143,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   const db = openBankDb();
-  ensureManualEntriesTable(db);
+  ensureTransactionsTable(db);
   try {
     const row = db.prepare(
-      "SELECT id FROM manual_entries WHERE id = ?"
+      "SELECT id FROM transactions WHERE id = ? AND source = 'manual'"
     ).get(Number(id));
 
     if (!row) {
@@ -157,7 +156,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    db.prepare("DELETE FROM manual_entries WHERE id = ?").run(Number(id));
+    db.prepare("DELETE FROM transactions WHERE id = ? AND source = 'manual'").run(Number(id));
     return NextResponse.json({ success: true });
   } finally {
     db.close();

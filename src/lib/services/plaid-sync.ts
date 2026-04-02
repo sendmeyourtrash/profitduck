@@ -1,6 +1,6 @@
 /**
  * Plaid transaction sync — fetches from Plaid /transactions/sync,
- * maps to bank.db rocketmoney table entries, deduplicates, and stores.
+ * maps to bank.db transactions table entries (source='plaid'), deduplicates, and stores.
  */
 
 import type { Transaction as PlaidTransaction } from "plaid";
@@ -122,8 +122,8 @@ export async function syncPlaidTransactions(
       });
 
       const insert = bankDb.prepare(
-        `INSERT INTO rocketmoney (date, name, description, amount, category, account_name, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO transactions (date, name, description, amount, category, account_name, note, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'plaid')`
       );
 
       for (let i = 0; i < allAdded.length; i++) {
@@ -138,8 +138,8 @@ export async function syncPlaidTransactions(
 
         // Check for duplicate in bank.db
         const existing = bankDb.prepare(
-          `SELECT 1 FROM rocketmoney WHERE date = ? AND CAST(amount AS REAL) = ? AND name = ?`
-        ).get(dateStr, String(bankAmount), description);
+          `SELECT 1 FROM transactions WHERE date = ? AND amount = ? AND name = ? AND source = 'plaid'`
+        ).get(dateStr, bankAmount, description);
 
         if (existing) {
           result.skipped++;
@@ -148,7 +148,7 @@ export async function syncPlaidTransactions(
             dateStr,
             description,
             description,
-            String(bankAmount),
+            bankAmount,
             category,
             `${institutionName} - ${accountName}`,
             `plaid:${plaidTx.transaction_id}`
@@ -169,11 +169,11 @@ export async function syncPlaidTransactions(
       // Handle removed transactions
       for (const removed of allRemoved) {
         const existing = bankDb.prepare(
-          `SELECT id FROM rocketmoney WHERE note = ?`
+          `SELECT id FROM transactions WHERE note = ? AND source = 'plaid'`
         ).get(`plaid:${removed.transaction_id}`) as { id: number } | undefined;
 
         if (existing) {
-          bankDb.prepare("DELETE FROM rocketmoney WHERE id = ?").run(existing.id);
+          bankDb.prepare("DELETE FROM transactions WHERE id = ?").run(existing.id);
           result.removed++;
         }
       }

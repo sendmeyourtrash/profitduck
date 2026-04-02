@@ -11,7 +11,7 @@
  *   grubhub.db   →  sales.db (orders table)
  *   doordash.db  →  sales.db (orders table)
  *   ubereats.db  →  sales.db (orders table)
- *   rocketmoney.db → bank.db (rocketmoney table)
+ *   rocketmoney.db → bank.db (transactions table, source='rocketmoney')
  *
  * Normalization operations:
  *   1. MAP to unified schema (orders table columns)
@@ -82,13 +82,13 @@ function ensureSalesDbSchema(db: InstanceType<typeof Database>) {
 }
 
 function ensureBankDbSchema(db: InstanceType<typeof Database>) {
-  db.exec(`CREATE TABLE IF NOT EXISTS rocketmoney (
+  db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT,
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
-    amount TEXT, description TEXT, category TEXT, note TEXT,
+    amount REAL, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'rocketmoney'
+    source TEXT
   )`);
 }
 
@@ -652,16 +652,19 @@ export function unifyRocketMoney(): UnifyResult {
     for (const r of rows) {
       const date = (r.date as string) || "";
       const name = (r.name as string) || "";
-      const amount = (r.amount as string) || "";
+      const amount = parseFloat(String(r.amount)) || 0;
 
-      const existing = dest.prepare("SELECT 1 FROM rocketmoney WHERE date = ? AND name = ? AND amount = ?").get(date, name, amount);
+      const existing = dest.prepare(
+        "SELECT 1 FROM transactions WHERE date = ? AND name = ? AND amount = ? AND source = 'rocketmoney'"
+      ).get(date, name, amount);
       if (existing) { result.skipped++; continue; }
 
-      dest.prepare(`INSERT INTO rocketmoney (date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount, description, category, note, ignored_from, tax_deductible, transaction_tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      dest.prepare(`INSERT INTO transactions (date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount, description, category, note, ignored_from, tax_deductible, transaction_tags, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         date, r.original_date || "", r.account_type || "", r.account_name || "",
         r.account_number || "", r.institution_name || "", name, r.custom_name || "",
         amount, r.description || "", r.category || "", r.note || "",
-        r.ignored_from || "", r.tax_deductible || "", r.transaction_tags || ""
+        r.ignored_from || "", r.tax_deductible || "", r.transaction_tags || "",
+        "rocketmoney"
       );
       result.inserted++;
     }
@@ -706,7 +709,7 @@ export function step2UnifyAll(rebuild = false): UnifyResult[] {
     salesDb.close();
 
     const bankDb = openDb("bank.db");
-    bankDb.exec("DELETE FROM rocketmoney");
+    bankDb.exec("DELETE FROM transactions WHERE source = 'rocketmoney'");
     bankDb.close();
   }
 

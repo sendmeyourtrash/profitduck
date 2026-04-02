@@ -320,13 +320,13 @@ function writeSalesDbOrders(result: ParseResult) {
 function writeBankDb(result: ParseResult) {
   const db = openDb("bank.db");
 
-  db.exec(`CREATE TABLE IF NOT EXISTS rocketmoney (
+  db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT,
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
-    amount TEXT, description TEXT, category TEXT, note TEXT,
+    amount REAL, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'rocketmoney'
+    source TEXT
   )`);
 
   const insertMany = db.transaction((bankTxns: ParseResult["bankTransactions"]) => {
@@ -335,12 +335,13 @@ function writeBankDb(result: ParseResult) {
       const raw = JSON.parse(bt.rawData || "{}");
       const norm = normalizeKeys(raw);
 
-      const existing = db.prepare("SELECT 1 FROM rocketmoney WHERE date = ? AND amount = ? AND name = ?").get(
-        norm["date"] || "", norm["amount"] || "", norm["name"] || ""
-      );
+      const amount = parseFloat(norm["amount"] || "0") || 0;
+      const existing = db.prepare(
+        "SELECT 1 FROM transactions WHERE date = ? AND amount = ? AND name = ? AND source = 'rocketmoney'"
+      ).get(norm["date"] || "", amount, norm["name"] || "");
       if (existing) continue;
 
-      db.prepare(`INSERT INTO rocketmoney (date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount, description, category, note, ignored_from, tax_deductible, transaction_tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      db.prepare(`INSERT INTO transactions (date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount, description, category, note, ignored_from, tax_deductible, transaction_tags, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         norm["date"] || "",
         norm["original_date"] || norm["original date"] || "",
         norm["account_type"] || norm["account type"] || "",
@@ -349,13 +350,14 @@ function writeBankDb(result: ParseResult) {
         norm["institution_name"] || norm["institution name"] || "",
         norm["name"] || "",
         norm["custom_name"] || norm["custom name"] || "",
-        norm["amount"] || "",
+        amount,
         norm["description"] || "",
         norm["category"] || "",
         norm["note"] || "",
         norm["ignored_from"] || norm["ignored from"] || "",
         norm["tax_deductible"] || norm["tax deductible"] || "",
-        norm["transaction_tags"] || norm["transaction tags"] || ""
+        norm["transaction_tags"] || norm["transaction tags"] || "",
+        "rocketmoney"
       );
       inserted++;
     }

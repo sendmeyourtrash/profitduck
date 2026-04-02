@@ -14,21 +14,18 @@ export function openBankDb(readonly = false): Database.Database {
 }
 
 export function ensureBankView(db: Database.Database): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS manual_entries (
+  db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
-    amount TEXT, description TEXT, category TEXT, note TEXT,
+    amount REAL, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'manual',
-    display_vendor TEXT
+    source TEXT,
+    display_vendor TEXT,
+    display_category TEXT
   )`);
   db.exec(`DROP VIEW IF EXISTS all_bank_transactions`);
-  db.exec(`CREATE VIEW all_bank_transactions AS
-    SELECT *, 'rocketmoney' as _source_table FROM rocketmoney
-    UNION ALL
-    SELECT *, 'manual_entries' as _source_table FROM manual_entries
-  `);
+  db.exec(`CREATE VIEW all_bank_transactions AS SELECT * FROM transactions`);
 
   // Vendor alias and expense category tables (co-located with transaction data)
   db.exec(`CREATE TABLE IF NOT EXISTS vendor_aliases (
@@ -76,13 +73,12 @@ export function ensureBankView(db: Database.Database): void {
   )`);
 
   // Performance indexes
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_date ON rocketmoney(date)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_category ON rocketmoney(category)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_account_name ON rocketmoney(account_name)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_name ON rocketmoney(name)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_display_vendor ON rocketmoney(display_vendor)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_me_date ON manual_entries(date)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_me_display_vendor ON manual_entries(display_vendor)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_account_name ON transactions(account_name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_name ON transactions(name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_display_vendor ON transactions(display_vendor)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions(source)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_category_id ON categorization_rules(category_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_pattern ON categorization_rules(pattern)`);
 }

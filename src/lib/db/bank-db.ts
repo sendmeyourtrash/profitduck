@@ -17,29 +17,25 @@ import path from "path";
 
 function getDb() {
   const db = new Database(path.join(process.cwd(), "databases", "bank.db"));
-  ensureManualEntriesTable(db);
+  ensureTransactionsTable(db);
   ensureDisplayVendorColumn(db);
   return db;
 }
 
-export function ensureManualEntriesTable(db: Database.Database) {
-  db.exec(`CREATE TABLE IF NOT EXISTS manual_entries (
+export function ensureTransactionsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT, original_date TEXT, account_type TEXT, account_name TEXT DEFAULT 'Manual Entry',
     account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
-    amount TEXT, description TEXT, category TEXT, note TEXT,
+    amount REAL, description TEXT, category TEXT, note TEXT,
     ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
-    source TEXT DEFAULT 'manual',
-    display_vendor TEXT
+    source TEXT,
+    display_vendor TEXT,
+    display_category TEXT
   )`);
-  // View that unions rocketmoney + manual_entries for read queries
-  // Drop and recreate to fix any stale/circular definitions
+  // View that reads from unified transactions table
   db.exec(`DROP VIEW IF EXISTS all_bank_transactions`);
-  db.exec(`CREATE VIEW all_bank_transactions AS
-    SELECT *, 'rocketmoney' as _source_table FROM rocketmoney
-    UNION ALL
-    SELECT *, 'manual_entries' as _source_table FROM manual_entries
-  `);
+  db.exec(`CREATE VIEW all_bank_transactions AS SELECT * FROM transactions`);
 
   // Vendor alias and expense category tables
   db.exec(`CREATE TABLE IF NOT EXISTS vendor_aliases (
@@ -85,6 +81,11 @@ export function ensureManualEntriesTable(db: Database.Database) {
     category_name TEXT NOT NULL UNIQUE,
     created_at TEXT
   )`);
+}
+
+/** @deprecated Use ensureTransactionsTable instead */
+export function ensureManualEntriesTable(db: Database.Database) {
+  ensureTransactionsTable(db);
 }
 
 // ── Vendor alias resolution (internal — uses open db connection) ──
@@ -403,30 +404,27 @@ export function clearVendorAliasCache() {
 }
 
 /**
- * Idempotent migration: adds display_vendor column to rocketmoney and manual_entries
- * if not already present, creates indexes, then populates all existing rows.
+ * Idempotent migration: ensures display_vendor and display_category columns exist on transactions.
+ * Creates indexes and populates all rows with NULL display_vendor.
  */
 function ensureDisplayVendorColumn(db: Database.Database) {
-  const rmCols = db.prepare("PRAGMA table_info(rocketmoney)").all() as { name: string }[];
+  const txCols = db.prepare("PRAGMA table_info(transactions)").all() as { name: string }[];
   let needsRebuild = false;
-  if (!rmCols.some((c) => c.name === "display_vendor")) {
-    db.exec("ALTER TABLE rocketmoney ADD COLUMN display_vendor TEXT");
+  if (!txCols.some((c) => c.name === "display_vendor")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN display_vendor TEXT");
     needsRebuild = true;
   }
-  db.exec("CREATE INDEX IF NOT EXISTS idx_rm_display_vendor ON rocketmoney(display_vendor)");
-
-  const meCols = db.prepare("PRAGMA table_info(manual_entries)").all() as { name: string }[];
-  if (!meCols.some((c) => c.name === "display_vendor")) {
-    db.exec("ALTER TABLE manual_entries ADD COLUMN display_vendor TEXT");
-    needsRebuild = true;
+  if (!txCols.some((c) => c.name === "display_category")) {
+    db.exec("ALTER TABLE transactions ADD COLUMN display_category TEXT");
   }
-  db.exec("CREATE INDEX IF NOT EXISTS idx_me_display_vendor ON manual_entries(display_vendor)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_display_vendor ON transactions(display_vendor)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_source ON transactions(source)");
 
   // Only rebuild on first migration (when column was just added) or if any rows are NULL
   if (needsRebuild) {
     rebuildDisplayVendors(db);
   } else {
-    const nullCount = (db.prepare("SELECT COUNT(*) as cnt FROM rocketmoney WHERE display_vendor IS NULL").get() as { cnt: number }).cnt;
+    const nullCount = (db.prepare("SELECT COUNT(*) as cnt FROM transactions WHERE display_vendor IS NULL").get() as { cnt: number }).cnt;
     if (nullCount > 0) {
       rebuildDisplayVendors(db);
     }
@@ -434,7 +432,7 @@ function ensureDisplayVendorColumn(db: Database.Database) {
 }
 
 /**
- * Rebuild the materialized display_vendor column for all rocketmoney and manual_entries rows.
+ * Rebuild the materialized display_vendor column for all transactions rows.
  * Pass an existing db connection (e.g. during migration) or omit to open+close one internally.
  */
 export function rebuildDisplayVendors(externalDb?: Database.Database) {
@@ -444,29 +442,18 @@ export function rebuildDisplayVendors(externalDb?: Database.Database) {
   const db = externalDb || new Database(path.join(process.cwd(), "databases", "bank.db"));
   const shouldClose = !externalDb;
   try {
-
-    const rmRows = db
-      .prepare("SELECT id, name, custom_name, description FROM rocketmoney")
+    const rows = db
+      .prepare("SELECT id, name, custom_name, description FROM transactions")
       .all() as { id: number; name: string; custom_name: string; description: string }[];
-    const updateRm = db.prepare("UPDATE rocketmoney SET display_vendor = ? WHERE id = ?");
-
-    const meRows = db
-      .prepare("SELECT id, name, custom_name, description FROM manual_entries")
-      .all() as { id: number; name: string; custom_name: string; description: string }[];
-    const updateMe = db.prepare("UPDATE manual_entries SET display_vendor = ? WHERE id = ?");
+    const update = db.prepare("UPDATE transactions SET display_vendor = ? WHERE id = ?");
 
     db.transaction(() => {
-      for (const row of rmRows) {
-        updateRm.run(resolveVendorFromRecord(row.name, row.custom_name, row.description), row.id);
-      }
-      for (const row of meRows) {
-        updateMe.run(resolveVendorFromRecord(row.name, row.custom_name, row.description), row.id);
+      for (const row of rows) {
+        update.run(resolveVendorFromRecord(row.name, row.custom_name, row.description), row.id);
       }
     })();
 
-    console.log(
-      `[Bank DB] Rebuilt display_vendor for ${rmRows.length} rocketmoney + ${meRows.length} manual_entries rows`
-    );
+    console.log(`[Bank DB] Rebuilt display_vendor for ${rows.length} transactions rows`);
   } finally {
     if (shouldClose) db.close();
   }
@@ -705,11 +692,11 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
     return {
       sql: `SELECT
         COUNT(*) as total_records,
-        COALESCE(SUM(CASE WHEN CAST(amount AS REAL) < 0 THEN ABS(CAST(amount AS REAL)) ELSE 0 END), 0) as total_deposits,
-        SUM(CASE WHEN CAST(amount AS REAL) < 0 THEN 1 ELSE 0 END) as deposits_count,
-        COALESCE(SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN CAST(amount AS REAL) ELSE 0 END), 0) as total_expenses,
-        SUM(CASE WHEN CAST(amount AS REAL) > 0 THEN 1 ELSE 0 END) as expenses_count,
-        COALESCE(SUM(CAST(amount AS REAL)), 0) as net
+        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_deposits,
+        SUM(CASE WHEN amount < 0 THEN 1 ELSE 0 END) as deposits_count,
+        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
+        SUM(CASE WHEN amount > 0 THEN 1 ELSE 0 END) as expenses_count,
+        COALESCE(SUM(amount), 0) as net
       FROM all_bank_transactions ${where}`,
       params,
     };
@@ -719,7 +706,7 @@ function buildQuery(p: QueryParams, mode: "rows" | "summary" | "count") {
   const validSortCols = ["date", "amount", "category", "name", "account_name"];
   const sortCol = p.sortBy && validSortCols.includes(p.sortBy) ? p.sortBy : "date";
   const sortDir = p.sortDir || "desc";
-  const sortExpr = sortCol === "amount" ? `CAST(amount AS REAL) ${sortDir}` : `${sortCol} ${sortDir}`;
+  const sortExpr = `${sortCol} ${sortDir}`;
 
   const limit = p.limit || 50;
   const offset = p.offset || 0;
@@ -753,7 +740,7 @@ export function queryBank(p: QueryParams) {
       const displayName = (r as any).display_vendor || r.custom_name || r.name || r.description || "";
       return {
         ...r,
-        amount: parseFloat(String(r.amount)),
+        amount: r.amount,
         display_account: ACCOUNT_LABELS[r.account_name] || r.account_name,
         display_name: displayName,
       };
@@ -879,7 +866,7 @@ export function queryBankDateRange() {
 export function updateTransactionCustomName(id: number, customName: string) {
   const db = getDb();
   try {
-    db.prepare("UPDATE rocketmoney SET custom_name = ? WHERE id = ?").run(customName, id);
+    db.prepare("UPDATE transactions SET custom_name = ? WHERE id = ?").run(customName, id);
   } finally {
     db.close();
   }
@@ -889,7 +876,7 @@ export function bulkUpdateTransactionCustomName(ids: number[], customName: strin
   const db = getDb();
   try {
     const placeholders = ids.map(() => "?").join(",");
-    db.prepare(`UPDATE rocketmoney SET custom_name = ? WHERE id IN (${placeholders})`).run(customName, ...ids);
+    db.prepare(`UPDATE transactions SET custom_name = ? WHERE id IN (${placeholders})`).run(customName, ...ids);
   } finally {
     db.close();
   }

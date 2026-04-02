@@ -156,22 +156,29 @@ export async function ingestFile(
       // Chase PDFs don't go through the standard pipeline yet
       // TODO: Create chase.db vendor DB and pipeline
       options.onProgress?.({ phase: "storing", current: 0, total: 0, message: "Storing Chase data..." });
-      // For now, write directly to bank.db chase_statements
+      // Write Chase PDF transactions to bank.db unified transactions table (source='chase')
       const Database = (await import("better-sqlite3")).default;
       const path = await import("path");
       const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
-      bankDb.exec(`CREATE TABLE IF NOT EXISTS chase_statements (
+      bankDb.exec(`CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT, description TEXT, amount REAL,
-        account_type TEXT, account_name TEXT, source TEXT DEFAULT 'chase'
+        date TEXT, original_date TEXT, account_type TEXT, account_name TEXT,
+        account_number TEXT, institution_name TEXT, name TEXT, custom_name TEXT,
+        amount REAL, description TEXT, category TEXT, note TEXT,
+        ignored_from TEXT, tax_deductible TEXT, transaction_tags TEXT,
+        source TEXT
       )`);
-      const insert = bankDb.prepare("INSERT INTO chase_statements (date, description, amount, account_type, account_name) VALUES (?,?,?,?,?)");
+      const insert = bankDb.prepare(
+        "INSERT INTO transactions (date, description, amount, account_type, account_name, source) VALUES (?,?,?,?,?,'chase')"
+      );
       const insertAll = bankDb.transaction(() => {
         for (const bt of parsedResult!.bankTransactions) {
-          const existing = bankDb.prepare("SELECT 1 FROM chase_statements WHERE date = ? AND amount = ? AND description = ?")
-            .get(bt.date.toISOString().slice(0, 10), bt.amount, bt.description);
+          const dateStr = bt.date.toISOString().slice(0, 10);
+          const existing = bankDb.prepare(
+            "SELECT 1 FROM transactions WHERE date = ? AND amount = ? AND description = ? AND source = 'chase'"
+          ).get(dateStr, bt.amount, bt.description);
           if (existing) { step1Result.skipped++; continue; }
-          insert.run(bt.date.toISOString().slice(0, 10), bt.description, bt.amount, bt.accountType, bt.accountName);
+          insert.run(dateStr, bt.description, bt.amount, bt.accountType, bt.accountName);
           step1Result.inserted++;
         }
       });
