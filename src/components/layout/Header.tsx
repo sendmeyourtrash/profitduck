@@ -51,9 +51,10 @@ export default function Header() {
 
   const showDatePicker =
     DATE_PICKER_PATHS.has(pathname) ||
-    pathname.startsWith("/dashboard/expenses/category/") ||
-    pathname.startsWith("/dashboard/expenses/vendor/") ||
-    pathname.startsWith("/dashboard/platforms/");
+    pathname.startsWith("/dashboard/expenses/") ||
+    pathname.startsWith("/dashboard/platforms/") ||
+    pathname.startsWith("/sales/") ||
+    pathname.startsWith("/bank/");
 
   return (
     <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 lg:px-6 py-3 lg:py-4">
