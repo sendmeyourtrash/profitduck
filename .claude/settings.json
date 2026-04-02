@@ -38,8 +38,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '{\"decision\":\"approve\",\"systemMessage\":\"SESSION START CHECKLIST: 1) Read .claude/memory/_shared.md for cross-cutting project rules. 2) Read CLAUDE.md for project architecture and conventions. 3) Check docs/design-system.md if you will be doing any UI work. 4) You have 32 agents available — use them. Key agents: orchestrator (plan first), code-reviewer (after code changes), design-language (after UI changes), data-integrity-agent (after pipeline changes), e2e-verification (after any feature), financial-auditor (after money-related changes). 5) NEVER context-switch mid-task. Finish, verify, then move on. 6) NEVER guess at external APIs — use external-docs-researcher first.\"}'",
-            "timeout": 5
+            "command": "cd /Users/alan/Documents/claude/profitduck && mkdir -p databases/backups && ts=$(date +%Y%m%d_%H%M%S) && for db in categories.db vendor-aliases.db; do [ -f \"databases/$db\" ] && cp \"databases/$db\" \"databases/backups/${db%.db}_$ts.db\"; done && find databases/backups -name '*.db' -mtime +7 -delete 2>/dev/null; echo \"{\\\"decision\\\":\\\"approve\\\",\\\"systemMessage\\\":\\\"SESSION START: Database backups created in databases/backups/. CHECKLIST: 1) Read .claude/memory/_shared.md for cross-cutting project rules — especially Destructive Operations section. 2) Read CLAUDE.md for project architecture. 3) NEVER write to production databases without backing up first. 4) NEVER run git init, mv, rm -rf, or delete lockfiles. 5) If something breaks, STOP and ask the user.\\\"}\"",
+            "timeout": 10
           }
         ]
       }

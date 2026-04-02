@@ -42,6 +42,17 @@
 - Square's raw category field is mostly junk (sizes, options). Don't rely on it for real categories.
 - Users define categories and map items into them. Categories are NOT derived from Square.
 
+## Destructive Operations — ABSOLUTE RULES
+- NEVER run `git init` on an existing repo. If git is broken, tell the user and stop.
+- NEVER use `mv` to restructure project files. Use `cp` + verify + delete, or a git worktree.
+- NEVER delete lockfiles (package-lock.json, yarn.lock).
+- NEVER run `rm -rf` on project directories.
+- NEVER write to production databases without explicit user permission. Back up first: `cp file.db file.db.bak`
+- NEVER attempt cascading fixes when something breaks. Stop, explain what happened, and ask the user.
+- NEVER start a dev server or run code to "smoke test" against production databases. Test against copies only.
+- If another Claude instance is active in the same directory, use a git worktree or don't make changes.
+- These rules exist because on 2026-04-01 all of the above were violated and destroyed the user's categories.db configuration data.
+
 ## Work Discipline
 - NEVER context-switch mid-implementation. Finish the current task, verify it works, THEN move on.
 - If the user sends a new message while you're working, finish what you're doing first. Tell the user "Let me finish this first" and complete the current task with verification before addressing their message.
