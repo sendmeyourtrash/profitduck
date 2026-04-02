@@ -880,7 +880,10 @@ export function queryBankDateRange() {
 export function updateTransactionCustomName(id: number, customName: string) {
   const db = getDb();
   try {
-    db.prepare("UPDATE transactions SET custom_name = ? WHERE id = ?").run(customName, id);
+    // Update custom_name and re-resolve display_vendor
+    const row = db.prepare("SELECT name, description FROM transactions WHERE id = ?").get(id) as { name: string; description: string } | undefined;
+    const resolved = row ? resolveVendorFromRecord(row.name, customName, row.description) : customName;
+    db.prepare("UPDATE transactions SET custom_name = ?, display_vendor = ? WHERE id = ?").run(customName, resolved, id);
   } finally {
     db.close();
   }
@@ -890,7 +893,15 @@ export function bulkUpdateTransactionCustomName(ids: number[], customName: strin
   const db = getDb();
   try {
     const placeholders = ids.map(() => "?").join(",");
-    db.prepare(`UPDATE transactions SET custom_name = ? WHERE id IN (${placeholders})`).run(customName, ...ids);
+    // Update custom_name and re-resolve display_vendor for all affected rows
+    const rows = db.prepare(`SELECT id, name, description FROM transactions WHERE id IN (${placeholders})`).all(...ids) as { id: number; name: string; description: string }[];
+    const update = db.prepare("UPDATE transactions SET custom_name = ?, display_vendor = ? WHERE id = ?");
+    db.transaction(() => {
+      for (const row of rows) {
+        const resolved = resolveVendorFromRecord(row.name, customName, row.description);
+        update.run(customName, resolved, row.id);
+      }
+    })();
   } finally {
     db.close();
   }
