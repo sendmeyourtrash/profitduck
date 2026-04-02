@@ -320,17 +320,17 @@ export default function CategoriesPanel() {
 
   // Setup flow: no categories yet
   if (setupMode || categories.length === 0) {
-    const DEFAULT_CATEGORIES = [
-      "Rent & Utilities",
-      "Groceries & Ingredients",
-      "Payroll & Salary",
-      "Insurance",
-      "Marketing & Advertising",
-      "Office Supplies",
-      "Software & Tech",
-      "Shopping",
-      "Dining",
-      "Bills & Utilities",
+    const DEFAULT_CATEGORIES: { name: string; color: string }[] = [
+      { name: "Rent & Utilities", color: "#8b5cf6" },
+      { name: "Groceries & Ingredients", color: "#22c55e" },
+      { name: "Payroll & Salary", color: "#3b82f6" },
+      { name: "Insurance", color: "#06b6d4" },
+      { name: "Marketing & Advertising", color: "#ec4899" },
+      { name: "Office Supplies", color: "#f59e0b" },
+      { name: "Software & Tech", color: "#6366f1" },
+      { name: "Shopping", color: "#f97316" },
+      { name: "Dining", color: "#f43f5e" },
+      { name: "Bills & Utilities", color: "#14b8a6" },
     ];
     return (
       <div className="flex items-center justify-center min-h-[480px]">
@@ -386,29 +386,30 @@ export default function CategoriesPanel() {
                 Recommended categories based on your transactions:
               </p>
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                {DEFAULT_CATEGORIES.map((name) => (
-                  <label key={name} className="flex items-center gap-3 cursor-pointer group">
+                {DEFAULT_CATEGORIES.map((cat) => (
+                  <label key={cat.name} className="flex items-center gap-3 cursor-pointer group">
                     <input
                       type="checkbox"
                       defaultChecked
                       className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 accent-indigo-600"
-                      id={`setup-cat-${name}`}
+                      id={`setup-cat-${cat.name}`}
                     />
-                    <span className="text-sm text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 transition-colors">{name}</span>
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                    <span className="text-sm text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 transition-colors">{cat.name}</span>
                   </label>
                 ))}
               </div>
               <button
                 onClick={async () => {
-                  const checked = DEFAULT_CATEGORIES.filter((name) => {
-                    const el = document.getElementById(`setup-cat-${name}`) as HTMLInputElement | null;
+                  const checked = DEFAULT_CATEGORIES.filter((cat) => {
+                    const el = document.getElementById(`setup-cat-${cat.name}`) as HTMLInputElement | null;
                     return el?.checked ?? true;
                   });
-                  for (const name of checked) {
+                  for (const cat of checked) {
                     await fetch("/api/expense-categories", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ name, color: "#6366f1" }),
+                      body: JSON.stringify({ name: cat.name, color: cat.color }),
                     });
                   }
                   setSetupMode(false);

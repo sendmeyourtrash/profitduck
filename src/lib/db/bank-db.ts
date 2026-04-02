@@ -404,13 +404,13 @@ export function queryBankCategories() {
   // Exclude ignored categories
   try {
     const { getAllExpenseCategories, getAllCategoryIgnores } = require("@/lib/db/config-db");
-    const categories = getAllExpenseCategories() as { id: string; name: string }[];
+    const categories = getAllExpenseCategories() as { id: string; name: string; color: string | null }[];
     const ignored = getAllCategoryIgnores() as { category_name: string }[];
     const ignoredNames = new Set(ignored.map((i) => i.category_name.toLowerCase()));
     const result = categories
-      .map((c) => ({ name: c.name, ignored: ignoredNames.has(c.name.toLowerCase()) }))
+      .map((c) => ({ name: c.name, color: c.color || null, ignored: ignoredNames.has(c.name.toLowerCase()) }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    result.push({ name: "Uncategorized", ignored: false });
+    result.push({ name: "Uncategorized", color: null, ignored: false });
     return result;
   } catch {
     // Fallback to raw RM categories if categories.db is unavailable
