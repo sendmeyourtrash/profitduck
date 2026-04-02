@@ -2,8 +2,13 @@
  * Pipeline Step 3: Apply Aliases
  * ===============================
  *
- * Reads alias rules from categories.db and applies them to order_items
- * in sales.db, populating display_name and display_category columns.
+ * Reads alias rules from sales.db (menu_item_aliases, menu_category_aliases,
+ * menu_item_category_map, menu_categories) and applies them to order_items,
+ * populating display_name and display_category columns.
+ *
+ * All menu configuration tables now live in sales.db alongside the order data
+ * they describe. Both reads (alias rules) and writes (display_name updates)
+ * use the same database file.
  *
  * This step is idempotent — re-running it will re-apply all aliases
  * from scratch, so it's safe to call after changing alias rules.
@@ -11,7 +16,7 @@
  * Pipeline:
  *   Step 1: Source → Vendor DB (raw + cleanup)
  *   Step 2: Vendor DB → Unified DB (normalize)
- *   Step 3: Apply aliases (categories.db → sales.db order_items) ← THIS
+ *   Step 3: Apply aliases (sales.db menu tables → sales.db order_items) ← THIS
  *
  * @see PIPELINE.md — Full documentation
  */
@@ -39,8 +44,9 @@ export interface AliasResult {
  * 4. Denormalize display_categories onto orders table
  */
 export function step3ApplyAliases(): AliasResult {
+  // Both alias rules and order data live in sales.db — one writable connection
   const salesDb = new Database(path.join(DB_DIR, "sales.db"));
-  const catDb = new Database(path.join(DB_DIR, "categories.db"), { readonly: true });
+  salesDb.pragma("journal_mode = WAL");
 
   try {
     // 1. Reset display columns to raw values
@@ -53,7 +59,7 @@ export function step3ApplyAliases(): AliasResult {
     const totalItems = (salesDb.prepare("SELECT COUNT(*) as cnt FROM order_items").get() as { cnt: number }).cnt;
 
     // 2. Apply menu item aliases
-    const itemAliases = catDb.prepare(
+    const itemAliases = salesDb.prepare(
       "SELECT pattern, match_type, display_name FROM menu_item_aliases"
     ).all() as { pattern: string; match_type: string; display_name: string }[];
 
@@ -91,11 +97,11 @@ export function step3ApplyAliases(): AliasResult {
     // Check if user-defined category mappings exist (new system)
     let hasCategoryMappings = false;
     try {
-      const tableExists = catDb.prepare(
+      const tableExists = salesDb.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='menu_item_category_map'"
       ).get();
       if (tableExists) {
-        const count = catDb.prepare("SELECT COUNT(*) as cnt FROM menu_item_category_map").get() as { cnt: number };
+        const count = salesDb.prepare("SELECT COUNT(*) as cnt FROM menu_item_category_map").get() as { cnt: number };
         hasCategoryMappings = count.cnt > 0;
       }
     } catch { /* table doesn't exist */ }
@@ -105,7 +111,7 @@ export function step3ApplyAliases(): AliasResult {
       // Set all to "Uncategorized" first, then overwrite from mappings
       salesDb.prepare("UPDATE order_items SET display_category = 'Uncategorized'").run();
 
-      const mappings = catDb.prepare(`
+      const mappings = salesDb.prepare(`
         SELECT m.display_name, c.name as category_name
         FROM menu_item_category_map m
         JOIN menu_categories c ON m.category_id = c.id
@@ -121,7 +127,7 @@ export function step3ApplyAliases(): AliasResult {
       }
     } else {
       // Legacy fallback: pattern matching via menu_category_aliases
-      const catAliases = catDb.prepare(
+      const catAliases = salesDb.prepare(
         "SELECT pattern, match_type, display_name FROM menu_category_aliases"
       ).all() as { pattern: string; match_type: string; display_name: string }[];
 
@@ -163,6 +169,5 @@ export function step3ApplyAliases(): AliasResult {
     return { itemAliasesApplied, categoryAliasesApplied, categoryMappingsApplied, totalItems };
   } finally {
     salesDb.close();
-    catDb.close();
   }
 }

@@ -9,7 +9,7 @@ import {
   assignItemToCategory,
   unassignItem,
   bulkAssignItems,
-} from "@/lib/db/config-db";
+} from "@/lib/db/sales-db";
 import { getSalesDb } from "@/lib/db/sales-db";
 import { step3ApplyAliases } from "@/lib/services/pipeline-step3-aliases";
 import { bigramSimilarity } from "@/lib/utils/string-similarity";
@@ -286,12 +286,15 @@ export async function POST(req: NextRequest) {
 
   if (body.action === "reset") {
     // Clear all mappings and categories — start fresh
-    const { getCategoriesDb } = await import("@/lib/db/config-db");
-    const db = getCategoriesDb();
+    // menu_categories and menu_item_category_map now live in sales.db
+    const { getWritableSalesDb } = await import("@/lib/db/sales-db");
+    const db = getWritableSalesDb();
     try {
       db.exec("DELETE FROM menu_item_category_map");
       db.exec("DELETE FROM menu_categories");
-    } catch { /* tables may not exist */ }
+    } catch { /* tables may not exist */ } finally {
+      db.close();
+    }
     step3ApplyAliases();
     return NextResponse.json({ reset: true });
   }

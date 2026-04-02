@@ -2,8 +2,7 @@
  * Per-platform detail API — reads from sales.db orders + order_items
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSalesDb } from "@/lib/db/sales-db";
-import { getCategoriesDb } from "@/lib/db/config-db";
+import { getSalesDb, getWritableSalesDb } from "@/lib/db/sales-db";
 
 const VALID_PLATFORMS = new Set(["square", "doordash", "ubereats", "grubhub"]);
 
@@ -166,15 +165,19 @@ export async function GET(
     const itemConditions = conditions.map(c => c.replace("platform", "oi.platform").replace("date", "oi.date"));
     const itemWhere = `WHERE ${itemConditions.join(" AND ")}`;
 
-    // Load ignore lists from categories.db
-    const catDb = getCategoriesDb();
-    const itemIgnores = (catDb.prepare("SELECT item_name FROM menu_item_ignores").all() as { item_name: string }[])
-      .map(r => r.item_name);
+    // Load ignore lists — menu tables now live in sales.db
+    const menuDb = getWritableSalesDb();
+    let itemIgnores: string[] = [];
     let categoryIgnores: string[] = [];
     try {
-      categoryIgnores = (catDb.prepare("SELECT category_name FROM category_ignores").all() as { category_name: string }[])
+      itemIgnores = (menuDb.prepare("SELECT item_name FROM menu_item_ignores").all() as { item_name: string }[])
+        .map(r => r.item_name);
+    } catch { /* table may not exist */ }
+    try {
+      categoryIgnores = (menuDb.prepare("SELECT category_name FROM category_ignores").all() as { category_name: string }[])
         .map(r => r.category_name);
     } catch { /* table may not exist yet */ }
+    menuDb.close();
 
     // Build ignore filter for items
     const itemIgnoreFilter = itemIgnores.length > 0

@@ -14,7 +14,7 @@ import {
   getAllMenuModifierIgnores,
   createMenuModifierIgnore,
   deleteMenuModifierIgnore,
-} from "@/lib/db/config-db";
+} from "@/lib/db/sales-db";
 import { bigramSimilarity } from "@/lib/utils/string-similarity";
 
 // Simulate alias matching (same logic as item/category aliases)

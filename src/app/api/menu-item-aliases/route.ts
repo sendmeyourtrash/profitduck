@@ -10,7 +10,7 @@ import {
   getAllMenuItemIgnores,
   createMenuItemIgnore,
   deleteMenuItemIgnore,
-} from "@/lib/db/config-db";
+} from "@/lib/db/sales-db";
 import { getSalesDb } from "@/lib/db/sales-db";
 import { step3ApplyAliases } from "@/lib/services/pipeline-step3-aliases";
 import { bigramSimilarity } from "@/lib/utils/string-similarity";
@@ -48,8 +48,8 @@ function applyOneAlias(pattern: string, matchType: string, displayName: string) 
 }
 
 function resetAndReapply(pattern: string, matchType: string) {
+  // menu_item_aliases now lives in sales.db — use a single writable connection
   const salesDb = new Database(path.join(DB_DIR, "sales.db"));
-  const catDb = new Database(path.join(DB_DIR, "categories.db"), { readonly: true });
   try {
     // Reset affected items back to raw name
     if (matchType === "exact") {
@@ -60,7 +60,7 @@ function resetAndReapply(pattern: string, matchType: string) {
       salesDb.prepare("UPDATE order_items SET display_name = TRIM(item_name) WHERE TRIM(item_name) LIKE ? COLLATE NOCASE").run(`%${pattern}%`);
     }
     // Re-apply remaining aliases to those items (another alias might still cover them)
-    const aliases = catDb.prepare("SELECT pattern, match_type, display_name FROM menu_item_aliases").all() as { pattern: string; match_type: string; display_name: string }[];
+    const aliases = salesDb.prepare("SELECT pattern, match_type, display_name FROM menu_item_aliases").all() as { pattern: string; match_type: string; display_name: string }[];
     for (const a of aliases) {
       const p = a.pattern.trim();
       const d = a.display_name.trim();
@@ -82,7 +82,6 @@ function resetAndReapply(pattern: string, matchType: string) {
     `).run();
   } finally {
     salesDb.close();
-    catDb.close();
   }
 }
 

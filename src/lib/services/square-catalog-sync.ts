@@ -30,7 +30,7 @@ import {
   createMenuCategoryFromCatalog,
   assignItemToCategoryFromCatalog,
   getItemCategoryMappings,
-} from "../db/config-db";
+} from "../db/sales-db";
 import { ProgressCallback } from "./progress";
 
 export interface CatalogSyncResult {

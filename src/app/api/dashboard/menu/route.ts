@@ -4,8 +4,7 @@
  * GET /api/dashboard/menu?startDate=X&endDate=Y[&category=Z][&platform=P]
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSalesDb } from "@/lib/db/sales-db";
-import { getCategoriesDb } from "@/lib/db/config-db";
+import { getSalesDb, getWritableSalesDb } from "@/lib/db/sales-db";
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,15 +25,24 @@ export async function GET(request: NextRequest) {
     if (categoryFilter) { conditions.push("oi.display_category = ?"); params.push(categoryFilter); }
     if (platformFilter) { conditions.push("oi.platform = ?"); params.push(platformFilter); }
 
-    // Load ignore lists
-    const catDb = getCategoriesDb();
-    const itemIgnores = (catDb.prepare("SELECT item_name FROM menu_item_ignores").all() as { item_name: string }[])
-      .map(r => r.item_name);
+    // Load ignore lists and category colors — all menu tables now live in sales.db
+    const menuDb = getWritableSalesDb();
+    let itemIgnores: string[] = [];
     let categoryIgnores: string[] = [];
+    const categoryColors: Record<string, string> = {};
     try {
-      categoryIgnores = (catDb.prepare("SELECT category_name FROM category_ignores").all() as { category_name: string }[])
+      itemIgnores = (menuDb.prepare("SELECT item_name FROM menu_item_ignores").all() as { item_name: string }[])
+        .map(r => r.item_name);
+    } catch { /* table may not exist */ }
+    try {
+      categoryIgnores = (menuDb.prepare("SELECT category_name FROM category_ignores").all() as { category_name: string }[])
         .map(r => r.category_name);
     } catch { /* table may not exist */ }
+    try {
+      const cats = menuDb.prepare("SELECT name, color FROM menu_categories").all() as { name: string; color: string }[];
+      for (const c of cats) categoryColors[c.name] = c.color;
+    } catch { /* table may not exist */ }
+    menuDb.close();
 
     const itemIgnoreFilter = itemIgnores.length > 0
       ? ` AND oi.display_name NOT IN (${itemIgnores.map(() => "?").join(",")})`
@@ -148,11 +156,7 @@ export async function GET(request: NextRequest) {
       }));
 
     // ---- Category Performance ----
-    const categoryColors: Record<string, string> = {};
-    try {
-      const cats = catDb.prepare("SELECT name, color FROM menu_categories").all() as { name: string; color: string }[];
-      for (const c of cats) categoryColors[c.name] = c.color;
-    } catch { /* table may not exist */ }
+    // categoryColors was already populated above from menuDb before it was closed
 
     const categories = db.prepare(`
       SELECT oi.display_category as name, COUNT(DISTINCT oi.display_name) as itemCount,
