@@ -397,7 +397,7 @@ export default function MenuCategoriesPanel() {
             </button>
           ) : squareConnected === false ? (
             <a
-              href="/settings/business"
+              href="/settings/import/upload"
               className="px-6 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all font-medium border border-amber-200 dark:border-amber-800"
             >
               Connect Square to Sync →
@@ -464,7 +464,7 @@ export default function MenuCategoriesPanel() {
             </button>
           ) : squareConnected === false ? (
             <a
-              href="/settings/business"
+              href="/settings/import/upload"
               className="text-xs px-3 py-1.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
             >
               Connect Square →
