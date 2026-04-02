@@ -67,6 +67,7 @@ export default function MenuCategoriesPanel() {
 
   // Catalog sync
   const [catalogSyncing, setCatalogSyncing] = useState(false);
+  const [squareConnected, setSquareConnected] = useState<boolean | null>(null); // null = loading
 
   // Delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -98,6 +99,14 @@ export default function MenuCategoriesPanel() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Check if Square is connected
+  useEffect(() => {
+    fetch("/api/square/status")
+      .then((r) => r.json())
+      .then((data) => setSquareConnected(data.connected === true))
+      .catch(() => setSquareConnected(false));
+  }, []);
 
   useEffect(() => {
     if (message) {
@@ -378,13 +387,22 @@ export default function MenuCategoriesPanel() {
           </p>
         </div>
         <div className="flex gap-3 justify-center flex-wrap">
-          <button
-            onClick={syncFromSquare}
-            disabled={catalogSyncing}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50"
-          >
-            {catalogSyncing ? "Syncing..." : "Sync from Square"}
-          </button>
+          {squareConnected ? (
+            <button
+              onClick={syncFromSquare}
+              disabled={catalogSyncing}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm hover:shadow-md disabled:opacity-50"
+            >
+              {catalogSyncing ? "Syncing..." : "Sync from Square"}
+            </button>
+          ) : squareConnected === false ? (
+            <a
+              href="/settings/business"
+              className="px-6 py-3 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-all font-medium border border-amber-200 dark:border-amber-800"
+            >
+              Connect Square to Sync →
+            </a>
+          ) : null}
           <button
             onClick={loadSuggestions}
             className="px-6 py-3 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all font-medium border border-gray-200 dark:border-gray-700"
@@ -436,13 +454,22 @@ export default function MenuCategoriesPanel() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={syncFromSquare}
-            disabled={catalogSyncing}
-            className="text-xs px-3 py-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {catalogSyncing ? "Syncing..." : "Sync from Square"}
-          </button>
+          {squareConnected ? (
+            <button
+              onClick={syncFromSquare}
+              disabled={catalogSyncing}
+              className="text-xs px-3 py-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {catalogSyncing ? "Syncing..." : "Sync from Square"}
+            </button>
+          ) : squareConnected === false ? (
+            <a
+              href="/settings/business"
+              className="text-xs px-3 py-1.5 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors"
+            >
+              Connect Square →
+            </a>
+          ) : null}
           <button
             onClick={() => { setShowAddCategory(true); setNewCategoryName(""); }}
             className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
