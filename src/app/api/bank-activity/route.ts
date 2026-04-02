@@ -11,7 +11,7 @@
  * @see PIPELINE.md for database architecture
  */
 import { NextRequest, NextResponse } from "next/server";
-import { queryBank, queryBankAccounts, queryBankCategories, queryBankVendors, resolveVendorCategory, updateTransactionCustomName, bulkUpdateTransactionCustomName, getAllCategoryIgnores } from "@/lib/db/bank-db";
+import { queryBank, queryBankAccounts, queryBankCategories, queryBankVendors, resolveVendorCategory, updateTransactionCustomName, bulkUpdateTransactionCustomName, getAllCategoryIgnores, getAllCategorizationRules, getAllExpenseCategories } from "@/lib/db/bank-db";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
