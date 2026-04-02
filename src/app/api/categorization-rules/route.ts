@@ -79,25 +79,37 @@ function getUncategorizedSuggestions() {
   }
 
   // RM category → expense category mapping (best-guess suggestions)
-  const rmCategoryMap: Record<string, string> = {
+  // Uses similarity matching against actual existing categories for better accuracy
+  const { bigramSimilarity: rmSim } = require("@/lib/utils/string-similarity");
+  const rmCategoryMap: Record<string, string> = {};
+  const RM_HINTS: Record<string, string> = {
     "shopping": "Shopping",
-    "groceries": "Groceries & Ingredients",
-    "bills & utilities": "Rent & Utilities",
-    "salary": "Payroll & Salary",
+    "groceries": "Groceries",
+    "bills & utilities": "Bills & Utilities",
+    "salary": "Payroll",
     "insurance": "Insurance",
-    "rent": "Rent & Utilities",
-    "ads": "Marketing & Advertising",
-    "permits": "Permits & Licenses",
-    "construction": "Construction & Maintenance",
-    "taxes": "Taxes",
-    "auto & transport": "Auto & Transport",
-    "software & tech": "Software & Tech",
-    "security": "Security",
-    "home & garden": "Other",
-    "dining & drinks": "Dining & Drinks",
-    "fees": "Fees & Charges",
-    "funding": "Other",
+    "rent": "Rent",
+    "ads": "Marketing",
+    "permits": "Bills",
+    "construction": "Office Supplies",
+    "taxes": "Bills & Utilities",
+    "auto & transport": "Bills & Utilities",
+    "software & tech": "Software",
+    "security": "Bills & Utilities",
+    "dining & drinks": "Dining",
+    "fees": "Bills & Utilities",
+    "funding": "Bills & Utilities",
   };
+  // Resolve hints against actual category names
+  for (const [rmCat, hint] of Object.entries(RM_HINTS)) {
+    let bestScore = 0;
+    let bestName = "";
+    for (const cat of categories) {
+      const score = rmSim(hint, cat.name);
+      if (score > bestScore) { bestScore = score; bestName = cat.name; }
+    }
+    if (bestScore >= 0.3 && bestName) rmCategoryMap[rmCat] = bestName;
+  }
 
   const suggestions: {
     vendorName: string;
@@ -154,6 +166,53 @@ function getUncategorizedSuggestions() {
     bankDb.close();
   } catch (e) {
     console.error("Suggestion scan error:", e);
+  }
+
+  // Second pass: for vendors with no RM-based suggestion, use similarity matching
+  // Compare vendor name against vendors that are already categorized (have rules)
+  if (suggestions.some((s) => !s.suggestedCategory)) {
+    // Build a map of categorized vendor names → category
+    const categorizedVendors: { name: string; categoryId: string }[] = [];
+    for (const rule of rules) {
+      if (rule.category_id) {
+        categorizedVendors.push({ name: rule.pattern, categoryId: rule.category_id });
+      }
+    }
+
+    if (categorizedVendors.length > 0) {
+      const { bigramSimilarity } = require("@/lib/utils/string-similarity");
+
+      for (const s of suggestions) {
+        if (s.suggestedCategory) continue; // Already has RM-based suggestion
+
+        // Find best matching categorized vendor by name similarity
+        let bestScore = 0;
+        let bestCategoryId = "";
+        for (const cv of categorizedVendors) {
+          const score = bigramSimilarity(s.vendorName, cv.name);
+          if (score > bestScore && score >= 0.5) {
+            bestScore = score;
+            bestCategoryId = cv.categoryId;
+          }
+        }
+
+        // Also check against category names directly
+        for (const cat of categories) {
+          const score = bigramSimilarity(s.vendorName, cat.name);
+          if (score > bestScore && score >= 0.5) {
+            bestScore = score;
+            bestCategoryId = cat.id;
+          }
+        }
+
+        if (bestCategoryId) {
+          const cat = categories.find((c) => c.id === bestCategoryId);
+          if (cat) {
+            s.suggestedCategory = { id: cat.id, name: cat.name, color: cat.color };
+          }
+        }
+      }
+    }
   }
 
   // Sort by count descending
