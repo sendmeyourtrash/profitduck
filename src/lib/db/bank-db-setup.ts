@@ -74,4 +74,15 @@ export function ensureBankView(db: Database.Database): void {
     category_name TEXT NOT NULL UNIQUE,
     created_at TEXT
   )`);
+
+  // Performance indexes
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_date ON rocketmoney(date)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_category ON rocketmoney(category)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_account_name ON rocketmoney(account_name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_name ON rocketmoney(name)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rm_display_vendor ON rocketmoney(display_vendor)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_me_date ON manual_entries(date)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_me_display_vendor ON manual_entries(display_vendor)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_category_id ON categorization_rules(category_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cat_rules_pattern ON categorization_rules(pattern)`);
 }

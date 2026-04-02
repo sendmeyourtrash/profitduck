@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import path from "path";
-import { getAllCategoryIgnores, countClosedDaysInRange, getClosedDays, getSettingValue } from "@/lib/db/config-db";
+import { countClosedDaysInRange, getClosedDays, getSettingValue } from "@/lib/db/config-db";
+import { getAllCategoryIgnores } from "@/lib/db/bank-db";
 import { setConfiguredTimezone, toLocalDateStr } from "@/lib/utils/format";
 import { linearRegression, computeSeasonalIndices, computeDowIndices } from "@/lib/utils/statistics";
 import {

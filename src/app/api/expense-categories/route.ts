@@ -18,7 +18,7 @@ import path from "path";
  * GET /api/expense-categories
  * List all expense categories with expense counts from bank.db.
  * Categories and rules come from categories.db.
- * Vendor aliases from vendor-aliases.db map bank transactions to categories.
+ * Vendor aliases and categories now live in bank.db alongside transactions.
  */
 export async function GET() {
   const categories = getAllExpenseCategories();

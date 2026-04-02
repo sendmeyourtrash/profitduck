@@ -645,25 +645,15 @@ export function ingestRocketMoneyTransactions(rows: Record<string, string>[]): I
   insertMany();
   db.close();
 
-  // Auto-detect unmatched vendors and add to vendor-aliases.db as "unmatched"
+  // Auto-detect unmatched vendors and add to bank.db unmatched_vendors table
   if (result.inserted > 0) {
     try {
-      const vaDb = new Database(path.join(process.cwd(), "databases", "vendor-aliases.db"));
-      vaDb.pragma("journal_mode = WAL");
+      const bankDb = new Database(path.join(process.cwd(), "databases", "bank.db"));
 
-      // Ensure unmatched_vendors table exists
-      vaDb.exec(`CREATE TABLE IF NOT EXISTS unmatched_vendors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        raw_name TEXT UNIQUE,
-        count INTEGER DEFAULT 1,
-        first_seen TEXT,
-        last_seen TEXT
-      )`);
-
-      // Get all existing alias patterns and ignored names
-      const aliasPatterns = vaDb.prepare("SELECT pattern, match_type FROM vendor_aliases").all() as { pattern: string; match_type: string }[];
+      // Get all existing alias patterns and ignored names (now in bank.db)
+      const aliasPatterns = bankDb.prepare("SELECT pattern, match_type FROM vendor_aliases").all() as { pattern: string; match_type: string }[];
       const ignoredNames = new Set(
-        (vaDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[]).map((r) => r.vendor_name)
+        (bankDb.prepare("SELECT vendor_name FROM vendor_ignores").all() as { vendor_name: string }[]).map((r) => r.vendor_name)
       );
 
       // Get unique vendor names from RM data
@@ -678,7 +668,7 @@ export function ingestRocketMoneyTransactions(rows: Record<string, string>[]): I
       rmDb.close();
 
       // Check which ones are unmatched
-      const upsert = vaDb.prepare(`
+      const upsert = bankDb.prepare(`
         INSERT INTO unmatched_vendors (raw_name, count, first_seen, last_seen)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(raw_name) DO UPDATE SET
@@ -686,7 +676,7 @@ export function ingestRocketMoneyTransactions(rows: Record<string, string>[]): I
           last_seen = excluded.last_seen
       `);
 
-      const addUnmatched = vaDb.transaction(() => {
+      const addUnmatched = bankDb.transaction(() => {
         for (const v of vendorNames) {
           if (!v.raw_name || ignoredNames.has(v.raw_name)) continue;
 
@@ -704,7 +694,7 @@ export function ingestRocketMoneyTransactions(rows: Record<string, string>[]): I
         }
       });
       addUnmatched();
-      vaDb.close();
+      bankDb.close();
     } catch (e) {
       console.error("[Step 1] Failed to update unmatched vendors:", e);
     }

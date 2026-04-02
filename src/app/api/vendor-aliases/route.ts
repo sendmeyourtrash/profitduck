@@ -287,7 +287,7 @@ function getSuggestedGroups() {
  * GET /api/vendor-aliases
  * Returns all aliases + ignored vendors + unmatched vendors from bank data.
  * ?action=suggest-groups — returns smart grouping suggestions for unmatched vendors.
- * Reads from vendor-aliases.db + bank.db.
+ * Reads from bank.db (all vendor alias tables consolidated there).
  */
 export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action");
