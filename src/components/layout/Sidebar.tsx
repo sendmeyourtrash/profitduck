@@ -6,17 +6,40 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "@/contexts/ThemeContext";
 
-const navItems = [
-  { href: "/dashboard", label: "Overview", icon: "📊" },
-  { href: "/health-report", label: "Health Report", icon: "🏥" },
-  { href: "/tax", label: "Tax Center", icon: "💰" },
-  { href: "/dashboard/expenses", label: "Expenses", icon: "📉" },
-  { href: "/dashboard/platforms", label: "Platforms", icon: "🏪" },
-  { href: "/dashboard/menu", label: "Menu", icon: "🍽️" },
-  { href: "/sales", label: "Sales", icon: "🛒" },
-  { href: "/bank", label: "Bank Activity", icon: "🏦" },
-  { href: "/settings", label: "Settings", icon: "⚙️" },
+const navGroups = [
+  {
+    label: "Insights",
+    items: [
+      { href: "/dashboard", label: "Overview", icon: "📊" },
+      { href: "/health-report", label: "Health Report", icon: "🏥" },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { href: "/dashboard/platforms", label: "Platforms", icon: "🏪" },
+      { href: "/dashboard/menu", label: "Menu", icon: "🍽️" },
+      { href: "/dashboard/expenses", label: "Expenses", icon: "📉" },
+    ],
+  },
+  {
+    label: "Data",
+    items: [
+      { href: "/sales", label: "Sales", icon: "🛒" },
+      { href: "/bank", label: "Bank Activity", icon: "🏦" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { href: "/tax", label: "Tax Center", icon: "💰" },
+      { href: "/settings", label: "Settings", icon: "⚙️" },
+    ],
+  },
 ];
+
+// Flat list for active detection and mobile
+const navItems = navGroups.flatMap((g) => g.items);
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -49,19 +72,26 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            return (
-              <Link key={item.href} href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  isActive ? "bg-indigo-600 text-white" : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                }`}>
-                <span className="text-lg">{item.icon}</span>
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+        <nav className="flex-1 p-4 space-y-4">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-3 mb-1">{group.label}</p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  return (
+                    <Link key={item.href} href={item.href}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                        isActive ? "bg-indigo-600 text-white" : "text-gray-300 hover:bg-gray-800 hover:text-white"
+                      }`}>
+                      <span className="text-lg">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}
