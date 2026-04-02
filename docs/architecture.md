@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-04-01 — Added ExpandedOrderRow/PlatformDetailTab components, DoorDash/GrubHub/UberEats vendor DB new columns, analytics ubereatsHasTime, platform API order_items, RevenueChart forecast suppression -->
+<!-- Last updated: 2026-04-02 — bank.db rebuilt as single source of truth: unified transactions table, vendor aliases, and expense categories all consolidated into bank.db -->
 
 # Architecture
 
@@ -13,11 +13,26 @@
 
 Note: `modifiers` in `order_items` stores structured JSON for Square and Uber Eats extension data (`[{"group":"...","name":"...","price":0.00}]`). Flat string fallback for legacy Square CSV imports.
 
-**bank.db** — Bank transactions from Rocket Money exports and Chase PDF imports.
-- `rocketmoney` table: date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount, description, category, note, ignored_from, tax_deductible, transaction_tags, source
-- `chase_statements` table: reserved for Chase PDF imports
+**bank.db** — Single source of truth for all bank-related data. Owned by `src/lib/db/bank-db.ts`.
+- `transactions` table: unified bank transactions from all sources (Rocket Money, Chase PDF/CSV, Plaid, manual entries). Fields: date, original_date, account_type, account_name, account_number, institution_name, name, custom_name, amount (REAL — dollars with decimals), description, category, note, ignored_from, tax_deductible, transaction_tags, source, display_vendor, display_category
+- `all_bank_transactions` view: `SELECT * FROM transactions` — thin compatibility alias
+- `vendor_aliases` — Pattern-based vendor name mappings (e.g., "AMZN*" → "Amazon")
+- `vendor_ignores` — Vendors excluded from reports
+- `unmatched_vendors` — Tracking table for vendors with no alias yet (raw_name, count, first_seen, last_seen)
+- `expense_categories` — Expense category definitions (id, name, parent_id, color, icon)
+- `categorization_rules` — Auto-assign vendors to expense categories (type, pattern, category_id, priority)
+- `category_ignores` — Categories excluded from reports
+- `_old_rocketmoney` — Backup of original rocketmoney table (post-migration artifact)
+- `_old_manual_entries` — Backup of original manual_entries table
+- `_old_chase_statements` — Backup of original chase_statements table
 
-**categories.db** — All user configuration and settings.
+The `source` column on `transactions` distinguishes data origin: `'rocketmoney'`, `'chase'`, `'plaid'`, `'manual'`, `'sales-db-writer'`.
+
+The `display_vendor` column is **materialized at write time** — vendor alias resolution runs when a transaction is inserted or when `custom_name` is updated, not at query time. This avoids repeated pattern-matching on every page load.
+
+7 indexes on `transactions`: date, category, account_name, name, display_vendor, source, (plus) 2 on `categorization_rules`: category_id, pattern.
+
+**categories.db** — Menu configuration and app settings. Owned by `src/lib/db/config-db.ts`.
 - `settings` — Key-value store (API tokens, sync timestamps, business config)
 - `menu_item_aliases` — Sales item name mappings (pattern, match_type, display_name)
 - `menu_item_ignores` — Items excluded from analytics
@@ -26,17 +41,14 @@ Note: `modifiers` in `order_items` stores structured JSON for Square and Uber Ea
 - `menu_item_category_map` — Maps display_name → category_id + optional square_item_id
 - `menu_modifier_aliases` — Modifier name display mappings (pattern, match_type, display_name)
 - `menu_modifier_ignores` — Modifiers excluded from analytics
-- `expense_categories` — Expense category definitions
-- `categorization_rules` — Auto-assign vendors to expense categories
-- `category_ignores` — Categories excluded from reports
 - `closed_days` — Days the restaurant was closed
 - `imports` — Import history with file hashes for dedup
 - `reconciliation_matches` — Sales-to-bank deposit pairings
 - `reconciliation_alerts` — Reconciliation discrepancy alerts
 
-**vendor-aliases.db** — Bank vendor name normalization.
-- `vendor_aliases` — Pattern-based name mappings (e.g., "AMZN*" -> "Amazon")
-- `vendor_ignores` — Vendors excluded from reports
+Note: `categories.db` previously held `expense_categories`, `categorization_rules`, and `category_ignores`. Those tables have moved to `bank.db`. The `config-db.ts` module still contains legacy CRUD functions for those tables pointing at `categories.db`, but all active API routes import the equivalent functions from `bank-db.ts`.
+
+**vendor-aliases.db** — Legacy. All data migrated to `bank.db` (vendor_aliases, vendor_ignores tables). This file is no longer actively written to by the application. `config-db.ts` still opens it for backward compatibility but the functions are unused by current API routes.
 
 ### Vendor Databases (raw data, Step 1 output)
 
@@ -64,15 +76,47 @@ Read-only access to sales.db. Key exports:
 - `queryPlatformBreakdown(params)` — Platform summary aggregation
 
 ### bank-db.ts
-Read/write access to bank.db with vendor alias resolution. Key exports:
-- `queryBank(params)` — Filtered bank transactions with alias resolution
-- `resolveVendorFromRecord(name, customName, description)` — Multi-field vendor lookup (custom_name -> name -> description, each checked against aliases)
-- `resolveVendorCategory(displayName)` — Map resolved vendor name to expense category via categorization rules
-- `updateTransactionCustomName(id, customName)` — Rename individual transaction
-- `bulkUpdateTransactionCustomName(ids, customName)` — Bulk rename
+Read/write access to bank.db. Owns transactions, vendor aliases, and expense category CRUD. Key exports:
+
+**Transaction queries:**
+- `queryBank(params)` — Filtered, paginated bank transactions. Uses materialized `display_vendor` column — no runtime alias resolution needed.
+- `queryBankCategories()` — Expense categories list for filter dropdowns
+- `queryBankAccounts()` — Distinct account names for filter dropdowns
+- `queryBankVendors()` — Vendor list with grouped/ignored/unmatched classification
+- `queryBankDateRange()` — Min/max transaction dates
+
+**Transaction writes:**
+- `updateTransactionCustomName(id, customName)` — Rename individual transaction; re-resolves and saves display_vendor
+- `bulkUpdateTransactionCustomName(ids, customName)` — Bulk rename; re-resolves display_vendor for each row
+
+**Vendor alias resolution:**
+- `resolveVendorFromRecord(name, customName, description)` — Multi-field vendor lookup (custom_name → name → description, each checked against aliases). Returns best match or raw field value.
+- `resolveVendorCategory(displayName)` — Map resolved vendor name to expense category name via categorization rules
+- `rebuildDisplayVendors(db?)` — Materialized column rebuild — re-resolves all rows. Call after bulk alias changes.
+- `clearVendorAliasCache()` — Invalidate in-process alias cache (call after alias CRUD)
+
+**Vendor alias CRUD** (all operate on bank.db `vendor_aliases` / `vendor_ignores`):
+- `getAllVendorAliases()`, `createVendorAlias(...)`, `updateVendorAlias(...)`, `deleteVendorAlias(...)`
+- `getAllVendorIgnores()`, `createVendorIgnore(...)`, `deleteVendorIgnore(...)`
+
+**Expense category CRUD** (all operate on bank.db `expense_categories` / `categorization_rules` / `category_ignores`):
+- `getAllExpenseCategories()`, `createExpenseCategory(...)`, `updateExpenseCategory(...)`, `deleteExpenseCategory(...)`
+- `getAllCategorizationRules()`, `createCategorizationRule(...)`, `updateCategorizationRule(...)`, `deleteCategorizationRule(...)`
+- `getAllCategoryIgnores()`, `createCategoryIgnore(...)`, `deleteCategoryIgnore(...)`
+
+**Schema setup:**
+- `ensureTransactionsTable(db)` — Idempotent schema creation; runs once per process via `_tableSetupDone` flag
+- `ensureManualEntriesTable(db)` — Deprecated alias for `ensureTransactionsTable`
+
+### bank-db-setup.ts
+Shared helper (`src/lib/db/bank-db-setup.ts`) used by API routes that open bank.db directly. Exports:
+- `openBankDb(readonly?)` — Opens bank.db and calls `ensureBankView`
+- `ensureBankView(db)` — Creates all tables, view, and indexes. Runs once per process via `_setupDone` flag.
 
 ### config-db.ts
-CRUD for all configuration tables in categories.db and vendor-aliases.db. Exports functions for every config entity (aliases, categories, rules, settings, imports, reconciliation, menu categories, modifier aliases).
+CRUD for configuration tables in categories.db and (legacy) vendor-aliases.db. Exports functions for: menu item aliases, menu item ignores, menu category aliases, menu categories, menu item category map, menu modifier aliases, menu modifier ignores, settings, closed days, imports, reconciliation matches/alerts.
+
+Note: `config-db.ts` still contains expense_categories, categorization_rules, and category_ignores functions pointing at `categories.db`, but these are superseded — all active API routes now import those functions from `bank-db.ts`.
 
 Key exports for the menu categories system:
 - `getAllMenuCategories()` — List all user-defined categories
@@ -314,7 +358,7 @@ When displaying a bank transaction, the system resolves the vendor name through 
    ↓ if empty
 3. description (raw bank description)
 
-For each non-empty field, check vendor_aliases table:
+For each non-empty field, check vendor_aliases table in bank.db:
   - Exact match: "costco" === "costco"
   - Starts with: "amzn mktp" starts with "amzn"
   - Contains: "COSTCO WHSE #1062" contains "costco"
@@ -323,6 +367,8 @@ First match wins → return display_name (e.g., "Amazon", "Costco")
 No match → return the raw field value
 ```
 
+The resolved name is **materialized** into `transactions.display_vendor` at write time. Queries read the column directly rather than re-running resolution on each request. The in-process alias cache (`cachedAliases`) is invalidated by `clearVendorAliasCache()` when aliases change.
+
 ## Expense Category Resolution
 
 After resolving the vendor name, the category is determined:
@@ -330,7 +376,7 @@ After resolving the vendor name, the category is determined:
 ```
 Resolved vendor name (e.g., "Costco")
    ↓
-Check categorization_rules in categories.db:
+Check categorization_rules in bank.db:
   - type: "vendor_match", pattern: "Costco", category_id: "groceries"
    ↓
 Return category name: "Groceries & Ingredients"
@@ -364,7 +410,7 @@ The reconciliation matcher (src/lib/services/reconciliation/matcher.ts) directly
 ```
 sales.db orders (grouped by week + platform)
    ↓ match by amount (±$5 tolerance) and date (±7 days)
-bank.db rocketmoney deposits (negative amounts from platform-specific patterns)
+bank.db transactions deposits (negative amounts from platform-specific patterns)
    ↓
 Store matches in categories.db reconciliation_matches table
 Generate alerts for discrepancies in reconciliation_alerts table

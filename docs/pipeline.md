@@ -1,4 +1,4 @@
-<!-- Last updated: 2026-04-01 — Added DoorDash and GrubHub Chrome extension support; updated Step 1 table, entry points, availability matrix, file reference table -->
+<!-- Last updated: 2026-04-02 — bank.db now uses unified transactions table (replaces rocketmoney/chase_statements); Step 2 flow and database map updated -->
 
 # Data Pipeline
 

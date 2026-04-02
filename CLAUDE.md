@@ -19,10 +19,14 @@ All databases in `databases/`. No single schema file — schemas defined in DB m
 | Database | Purpose | DB Module |
 |----------|---------|-----------|
 | `sales.db` | Unified sales (`orders`, `order_items`) | `src/lib/db/sales-db.ts` |
-| `bank.db` | Bank transactions (`rocketmoney`, `chase_statements`) | `src/lib/db/bank-db.ts` |
-| `categories.db` | Config: aliases, rules, settings, imports, reconciliation | `src/lib/db/config-db.ts` |
-| `vendor-aliases.db` | Vendor name mappings | `src/lib/db/config-db.ts` |
+| `bank.db` | Bank transactions + vendor aliases + expense categories | `src/lib/db/bank-db.ts` |
+| `categories.db` | Menu aliases, settings, imports, reconciliation | `src/lib/db/config-db.ts` |
+| `vendor-aliases.db` | Legacy — data migrated to bank.db (no longer actively used) | `src/lib/db/config-db.ts` |
 | `squareup.db`, `grubhub.db`, `doordash.db`, `ubereats.db`, `rocketmoney.db` | Raw vendor source data | Pipeline Step 1 |
+
+**bank.db is now the single source of truth for all bank-related data.** It holds the unified `transactions` table (replacing the old `rocketmoney` + `manual_entries` + `chase_statements` tables), plus all vendor alias and expense category tables that previously lived in `vendor-aliases.db` and `categories.db`.
+
+**categories.db** still holds: menu aliases, settings, closed days, imports history, and reconciliation tables. It no longer holds expense_categories, categorization_rules, or category_ignores — those moved to bank.db.
 
 **Critical**: You CANNOT join across databases. Query each separately and join in application code.
 
