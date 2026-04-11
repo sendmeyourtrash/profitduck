@@ -30,6 +30,12 @@ const navGroups = [
     ],
   },
   {
+    label: "Tools",
+    items: [
+      { href: "/tools/mortgage", label: "Mortgage Calculator", icon: "🏠" },
+    ],
+  },
+  {
     label: "Admin",
     items: [
       { href: "/tax", label: "Tax Center", icon: "💰" },

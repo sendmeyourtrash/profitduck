@@ -1,4 +1,5 @@
-<!-- Last updated: 2026-04-01 — Unified platforms page (6 tabs), removed analytics sub-page, [platform] route is now a redirect, updated shared components -->
+<!-- Last updated: 2026-04-11 — Added /tools/mortgage calculator with 7 sub-pages (overview, income, location, transportation, rent-vs-buy, scenarios, amortization). Fully client-side, localStorage-persisted, no API. -->
+<!-- Previous: 2026-04-01 — Unified platforms page (6 tabs), removed analytics sub-page, [platform] route is now a redirect, updated shared components -->
 
 > **Auto-maintained**: This file must be updated whenever a new page, route, or API endpoint is added. The documentation-keeper agent is responsible for keeping it current.
 
@@ -165,6 +166,60 @@
   - Tax payments made (from bank activity)
 - **API**: `GET /api/dashboard/tax`
 - **Date picker**: No (uses year selector instead)
+
+---
+
+### `/tools/mortgage` — Mortgage Calculator Overview
+- **Title**: Mortgage Calculator
+- **Description**: Interactive, fully client-side mortgage + lifestyle cost tool. State persists in localStorage (`profitduck:mortgage-tool:v1`). No database or API involvement — completely isolated from Profit Duck's financial data.
+- **Sections**:
+  - Headline stat tiles: monthly payment (PITI), loan amount, total interest, total paid
+  - Basic inputs card: home price, down payment (dollars + %), loan term, interest rate — values update everything live
+  - Monthly payment breakdown card: principal, interest, taxes, insurance, PMI, HOA, upfront cash, tax savings
+  - Amortization mini-chart (loan balance vs cumulative interest)
+  - Rollup cards for every sub-page with status badges and quick stats
+  - Estimated total annual lifestyle cost card (only when income/location/transport are configured)
+- **Sub-pages**: Income, Location, Transportation, Rent vs Buy, Scenarios, Amortization
+- **Shared state**: `MortgageToolContext` (`src/contexts/MortgageToolContext.tsx`) wraps the layout at `src/app/tools/mortgage/layout.tsx` and persists to localStorage.
+- **Shared components**: `FormField`, `SectionCard`, `StatTile`, `SubNav`, `SummaryRow` in `src/components/mortgage/`
+- **Math utilities**: `src/lib/utils/mortgage-math.ts`, `src/lib/utils/lifestyle-math.ts`, `src/lib/data/us-states-tax.ts`
+- **API**: None (fully client-side)
+
+---
+
+### `/tools/mortgage/income` — Income & Tax
+- **Description**: Household income, filing status, federal/state marginal tax rate, itemized deductions, and self-employment extras (home office, business mileage).
+- **Sections**: Income form, tax savings result (deductible interest/SALT/other, total itemized vs standard, fed + state savings, SALT cap warning), 28% affordability check, self-employment deductions.
+
+---
+
+### `/tools/mortgage/location` — Location & Property
+- **Description**: State preset picker + custom location inputs (property tax, state income tax, sales tax, cost-of-living index, walkability, baseline spending).
+- **Sections**: State preset, custom inputs, location impact stats, SALT cap warning (conditional), walkability meter.
+
+---
+
+### `/tools/mortgage/transportation` — Transportation
+- **Description**: Transportation mode picker (Own a Car / Public Transit / Rideshare Only / Mixed / Walk or Bike) with mode-specific inputs. Shows monthly + annual cost, per-mile cost, hours-per-year commuting, and optional time-is-money dollarization.
+- **Sections**: Mode fieldset (radio cards), commute details, mode inputs, cost breakdown, time cost card with QTFB pre-tax savings.
+
+---
+
+### `/tools/mortgage/rent-vs-buy` — Rent vs Buy
+- **Description**: Year-by-year cumulative net cost comparison (buying vs renting) with a break-even line and verdict.
+- **Sections**: Assumptions form (rent, inflation, appreciation, investment return, maintenance, selling costs), verdict stat tiles, comparison line chart with break-even reference, year-by-year table, plain-English verdict.
+
+---
+
+### `/tools/mortgage/scenarios` — Scenario Comparison
+- **Description**: Build up to 3 named scenarios (each with housing / transportation / taxes / living costs) and compare side-by-side. Includes presets for Rent in City / Buy in City / Buy in Suburb.
+- **Sections**: Scenario cards (editable), stacked bar chart comparison, verdict stat tiles (cheapest/most expensive/spread), detail table.
+
+---
+
+### `/tools/mortgage/amortization` — Amortization Schedule
+- **Description**: Full year-by-year or month-by-month amortization schedule with extra-principal and biweekly payment controls. Highlights PMI drop-off and interest saved by extras.
+- **Sections**: Summary stat tiles (payoff time, total interest, interest saved, PMI drop-off), extras form, scrollable schedule table (year/month toggle).
 
 ---
 
